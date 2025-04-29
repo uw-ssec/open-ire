@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ssec_project"
+name = "open_ire"
 dynamic = ["version"]
 description = "Python project repository template for developing python package."
 readme = "README.md"
@@ -19,7 +19,11 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["requests", "pandas"]
+dependencies = [
+    "requests",
+ "pandas",
+ "scrapy>=2.12.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -38,7 +42,7 @@ docs = [
     "jupyter-book",
     "numpydoc",
 ]
-all = ["ssec_project[dev,docs]"]
+all = ["open_ire[dev,docs]"]
 
 [project.license]
 file = "LICENSE"
@@ -53,7 +57,7 @@ Issues = "https://github.com/uw-ssec/python-project-template/issues"
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/ssec_project/version.py"
+version-file = "src/open_ire/version.py"
 
 [tool.hatch.version.raw-options]
 local_scheme = "no-local-version"
@@ -80,7 +84,7 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
-module = "ssec_project.*"
+module = "open_ire.*"
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
