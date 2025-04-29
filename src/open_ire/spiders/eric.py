@@ -1,20 +1,23 @@
+from __future__ import annotations
+
 from urllib.parse import urlencode
 
-import scrapy
-from scrapy.http import Response, Request
+from scrapy import Spider
+from scrapy.http import Request, Response
 
 from open_ire.items import OpenIreItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERM
 
 
-class EricSpider(scrapy.Spider):
+class EricSpider(Spider):
     name = "eric"
-    allowed_domains = ["eric.ed.gov"]
 
-    def __init__(self, terms=OPEN_IRE_DEFAULT_TERM, *args, **kwargs):
+    def __init__(self, terms=OPEN_IRE_DEFAULT_TERM, page=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.page = page
+        search_params = {"ft": "on", "pg": "1" if self.page is None else self.page}
         self.start_urls = [
-            f"https://eric.ed.gov/?{urlencode({'q': term.strip(), 'ft': 'on', 'pg': '1'})}"
+            f"https://eric.ed.gov/?{urlencode({'q': term.strip(), **search_params})}"
             for term in terms.split(",")
         ]
 
@@ -27,19 +30,18 @@ class EricSpider(scrapy.Spider):
 
         return None
 
-    def parse(self, response: Response, **kwargs: dict):
+    def parse(self, response: Response, **kwargs):  # noqa: ARG002
         articles_hrefs = response.css(".r_t a::attr(href)").getall()
         for href in articles_hrefs:
             yield Request(response.urljoin(href), callback=self.parse_detail)
 
-        next_href = response.xpath("//div/a[text()='Next Page »']/@href")
-        if next_href is not None:
-            yield Request(response.urljoin(next_href.get()))
+        if self.page is None:
+            next_href = response.xpath("//div/a[text()='Next Page »']/@href")
+            if next_href is not None:
+                yield Request(response.urljoin(next_href.get()))
 
-    def parse_detail(self, response: Response, **kwargs: dict):
-        file_href = response.urljoin(
-            response.css(".r_f a[href$='.pdf']::attr(href)").get()
-        )
+    def parse_detail(self, response: Response):
+        file_href = response.urljoin(response.css(".r_f a[href$='.pdf']::attr(href)").get())
         eric_number = self.extract_article_attribute("ERIC Number", response)
         publication_date = self.extract_article_attribute("Publication Date", response)
         eissn = self.extract_article_attribute("EISSN", response)

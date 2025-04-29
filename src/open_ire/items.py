@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -12,9 +13,9 @@ class OpenIreItem:
     title: str
     url: str
 
-    abstract: Optional[str] = None
-    doi: Optional[str] = None
-    eissn: Optional[str] = None
-    files: Optional[list] = None
-    isbn: Optional[str] = None
-    issn: Optional[str] = None
+    abstract: str | None = None
+    doi: str | None = None
+    eissn: str | None = None
+    files: list | None = None
+    isbn: str | None = None
+    issn: str | None = None
