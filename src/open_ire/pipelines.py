@@ -7,7 +7,7 @@ from itemadapter import ItemAdapter
 from scrapy import Item, Spider
 from scrapy.exceptions import DropItem
 
-# Remember to add your pipeline to the ITEM_PIPELINES setting
+# Remember to add your pipeline to the `settings.ITEM_PIPELINES` list
 
 
 class DuplicatesPipeline:
