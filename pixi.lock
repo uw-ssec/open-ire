@@ -1653,8 +1653,8 @@ packages:
   requires_python: '>=3.9'
 - pypi: ./
   name: open-ire
-  version: 0.1.dev9
-  sha256: caefaed5c6d8e1bf735621a1587a4cd9d478b7b30565cd0c49a72e40b50c214e
+  version: 0.1.dev10
+  sha256: 77c2ceaad8f03cdf080b4f0a2ad1643108d09c795290485f85c7d1ed20e445d4
   requires_dist:
   - pandas
   - requests
