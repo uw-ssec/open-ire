@@ -70,7 +70,7 @@ minversion = "6.0"
 addopts = ["-vvv", "-ra", "--showlocals", "--strict-markers", "--strict-config"]
 xfail_strict = false
 filterwarnings = ["error"]
-log_cli_level = "info"
+log_cli_level = "INFO"
 testpaths = ["tests"]
 
 [tool.mypy]
@@ -89,7 +89,6 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [tool.ruff]
-src = ["src"]
 exclude = ["tests/**", "testing.py"]
 line-length = 100
 
@@ -149,6 +148,10 @@ dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
+pre-commit-install = "pre-commit install"
+pre-commit-all = "pre-commit run --all-files"
+pre-commit = "pre-commit run"
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
+pre-commit = ">=4.2.0,<5"
