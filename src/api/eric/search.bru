@@ -1,0 +1,16 @@
+meta {
+  name: search
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://api.ies.ed.gov/eric/?search=e_fulltextauth:1 AND (description:washington OR source:washington OR subject:washington OR title:washington OR publisher:washington OR institution:washington OR author:washington)&fields=e_fulltextauth,title,description
+  body: none
+  auth: inherit
+}
+
+params:query {
+  search: e_fulltextauth:1 AND (description:washington OR source:washington OR subject:washington OR title:washington OR publisher:washington OR institution:washington OR author:washington)
+  fields: e_fulltextauth,title,description
+}
