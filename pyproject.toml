@@ -75,6 +75,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 files = ["src", "tests"]
+mypy_path = ["src"]
 python_version = "3.11"
 warn_unused_configs = true
 strict = true
