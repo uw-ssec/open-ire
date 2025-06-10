@@ -1655,7 +1655,7 @@ packages:
 - pypi: ./
   name: open-ire
   version: 0.1.dev13
-  sha256: 941c71bf8e4b0d67342b74c82a51b5bdc9235030795143a8819364ac5b1e81f1
+  sha256: 3b5106119a1eacb72f04e5e9f8a0df782c20c0bb4fd176245c95dc16606afdd4
   requires_dist:
   - pandas
   - requests
