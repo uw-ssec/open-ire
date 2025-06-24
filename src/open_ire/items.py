@@ -36,6 +36,7 @@ class OpenIreItem:
     issn:
         International Standard Serial Number, if assigned.
     """
+
     authors: str
     file_urls: list[str]
     publication_date: str
@@ -47,6 +48,6 @@ class OpenIreItem:
     abstract: str | None = None
     doi: str | None = None
     eissn: str | None = None
-    files: list | None = None
+    files: list[dict[str, str]] | None = None
     isbn: str | None = None
     issn: str | None = None

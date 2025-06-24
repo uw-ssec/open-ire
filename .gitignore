@@ -67,6 +67,7 @@ instance/
 
 # Scrapy stuff:
 .scrapy
+output/
 
 # Sphinx documentation
 docs/_build/
@@ -138,3 +139,6 @@ version.py
 # pixi environments
 .pixi
 *.egg-info
+
+# macOS
+.DS_Store

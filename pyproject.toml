@@ -22,7 +22,7 @@ classifiers = [
 dependencies = [
     "requests",
     "pandas",
-    "scrapy>=2.12.0",
+    "scrapy",
 ]
 
 [project.optional-dependencies]
@@ -75,6 +75,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 files = ["src", "tests"]
+mypy_path = ["src"]
 python_version = "3.11"
 warn_unused_configs = true
 strict = true
@@ -85,8 +86,12 @@ disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
 module = "open_ire.*"
-disallow_untyped_defs = true
 disallow_incomplete_defs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "scrapy.*"
+ignore_missing_imports = true
 
 [tool.ruff]
 exclude = ["tests/**", "testing.py"]
@@ -151,6 +156,14 @@ docs = { features = ["docs"], solve-group = "default" }
 pre-commit-install = "pre-commit install"
 pre-commit-all = "pre-commit run --all-files"
 pre-commit = "pre-commit run"
+
+[tool.pixi.tasks.spider]
+args = [
+    "spider",
+    { "arg" = "page", "default" = "1" },
+    { "arg" = "terms", "default" = "university of washington" },
+]
+cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"

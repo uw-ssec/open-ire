@@ -1,42 +1,47 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
+from typing import TextIO
 
-from itemadapter import ItemAdapter
-from scrapy import Item, Spider
+from scrapy import Spider
 from scrapy.exceptions import DropItem
 
-# Remember to add your pipeline to the `settings.ITEM_PIPELINES` list
+from open_ire.items import OpenIreItem
+
+# Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
 
 
 class DuplicatesPipeline:
-    def __init__(self):
-        self.seen = set()
+    def __init__(self) -> None:
+        self.seen: set[str] = set()
 
-    def process_item(self, item: Item, spider: Spider):
-        adapter = ItemAdapter(item)
-
-        if adapter["reference"] in self.seen:
-            exception_msg = f"Item ID already seen: {adapter['reference']} by {spider.name} spider"
-            raise DropItem(exception_msg)
-
-        self.seen.add(adapter["reference"])
+    def process_item(self, item: OpenIreItem, spider: Spider) -> OpenIreItem:
+        if item.reference in self.seen:
+            drop_reason = f"Item ID already seen: {item.reference} by {spider.name} spider"
+            raise DropItem(drop_reason)
+        self.seen.add(item.reference)
         return item
 
 
 class JsonWriterPipeline:
-    def __init__(self):
-        self.file = None
+    def __init__(self) -> None:
+        self.file: TextIO | None = None
 
-    def open_spider(self, spider: Spider):
-        self.file = Path(f"output/{spider.name}_items.jsonl").open("w")  # noqa: SIM115
+    def open_spider(self, spider: Spider) -> None:
+        out_dir = Path("output")
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    def close_spider(self, spider: Spider):  # noqa: ARG002
-        self.file.close()
+        self.file = (out_dir / f"{spider.name}_items.jsonl").open("w", encoding="utf-8")
 
-    def process_item(self, item: Item, spider: Spider) -> Item:  # noqa: ARG002
-        line = json.dumps(ItemAdapter(item).asdict()) + "\n"
+    def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
+        if self.file is not None:
+            self.file.close()
+
+    def process_item(self, item: OpenIreItem, spider: Spider) -> OpenIreItem:  # noqa: ARG002
+        assert self.file is not None, "Pipeline not opened before processing items"
+
+        line = json.dumps(dataclasses.asdict(item)) + "\n"
         self.file.write(line)
-
         return item

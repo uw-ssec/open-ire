@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from typing import Any
 from urllib.parse import urlencode
 
 from scrapy import Spider
@@ -9,10 +11,16 @@ from open_ire.items import OpenIreItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERM
 
 
-class EricSpider(Spider):
+class EricSpider(Spider):  # type: ignore[misc]
     name = "eric"
 
-    def __init__(self, terms=OPEN_IRE_DEFAULT_TERM, page=None, *args, **kwargs):
+    def __init__(
+        self,
+        terms: str = OPEN_IRE_DEFAULT_TERM,
+        page: str | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.page = page
         search_params = {"ft": "on", "pg": "1" if self.page is None else self.page}
@@ -30,7 +38,7 @@ class EricSpider(Spider):
 
         return None
 
-    def parse(self, response: Response, **kwargs):  # noqa: ARG002
+    def parse(self, response: Response, **kwargs: Any) -> Generator[Request]:  # noqa: ARG002
         articles_hrefs = response.css(".r_t a::attr(href)").getall()
         for href in articles_hrefs:
             yield Request(response.urljoin(href), callback=self.parse_detail)
@@ -40,7 +48,7 @@ class EricSpider(Spider):
             if next_href is not None:
                 yield Request(response.urljoin(next_href.get()))
 
-    def parse_detail(self, response: Response):
+    def parse_detail(self, response: Response) -> Generator[OpenIreItem]:
         file_href = response.urljoin(response.css(".r_f a[href$='.pdf']::attr(href)").get())
         eric_number = self.extract_article_attribute("ERIC Number", response)
         publication_date = self.extract_article_attribute("Publication Date", response)
@@ -51,8 +59,8 @@ class EricSpider(Spider):
             authors=response.css(".r_a>div>div::text").get(),
             eissn=eissn,
             file_urls=[file_href],
-            publication_date=publication_date,
-            reference=eric_number,
+            publication_date=publication_date or "",
+            reference=eric_number or "",
             repository=self.name,
             title=response.css(".title::text").get(),
             url=response.url,
