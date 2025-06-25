@@ -1,5 +1,5 @@
+from collections.abc import Generator
 from datetime import date
-from typing import Generator
 from unittest.mock import MagicMock
 
 import pytest
@@ -88,7 +88,6 @@ class TestSQLModelPipeline:
         with Session(pipeline.engine) as session:
             results = session.exec(select(Article)).all()
             assert len(results) == 1
-
 
     def test_drops_item_on_empty_files(
         self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
