@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import dataclasses
-import json
-from pathlib import Path
-from typing import TextIO
+from typing import Self
 
+from pydantic import ValidationError
 from scrapy import Spider
+from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, SQLModel, create_engine
 
-from open_ire.items import OpenIreItem
+from open_ire.items import ArticleItem
+from open_ire.models import Article, ArticleFile
 
 # Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
 
@@ -17,31 +19,70 @@ class DuplicatesPipeline:
     def __init__(self) -> None:
         self.seen: set[str] = set()
 
-    def process_item(self, item: OpenIreItem, spider: Spider) -> OpenIreItem:
+    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
         if item.reference in self.seen:
-            drop_reason = f"Item ID already seen: {item.reference} by {spider.name} spider"
-            raise DropItem(drop_reason)
+            msg = f"Item ID already seen: {item.reference} by {spider.name} spider"
+            raise DropItem(msg)
         self.seen.add(item.reference)
         return item
 
 
-class JsonWriterPipeline:
-    def __init__(self) -> None:
-        self.file: TextIO | None = None
+class SQLModelPipeline:
+    """
+    Persist ArticleItem metadata + downloaded-file info into SQLite via SQLModel.
+    """
 
-    def open_spider(self, spider: Spider) -> None:
-        out_dir = Path("output")
-        out_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: str) -> None:
+        self.db_url = f"sqlite:///{db_path}"
+        self.engine = create_engine(self.db_url, connect_args={"check_same_thread": False})
 
-        self.file = (out_dir / f"{spider.name}_items.jsonl").open("w", encoding="utf-8")
+    @classmethod
+    def from_crawler(cls, crawler: Crawler) -> Self:
+        db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
+        if not db_path:
+            msg = "OPEN_IRE_DATABASE_FILE must be set in settings.py"
+            raise RuntimeError(msg)
+        return cls(db_path)
+
+    def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
+        SQLModel.metadata.create_all(self.engine)
 
     def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
-        if self.file is not None:
-            self.file.close()
+        self.engine.dispose()
 
-    def process_item(self, item: OpenIreItem, spider: Spider) -> OpenIreItem:  # noqa: ARG002
-        assert self.file is not None, "Pipeline not opened before processing items"
+    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
+        if not item.files:
+            msg = f"No files found for article '{item.reference}'."
+            raise DropItem(msg)
 
-        line = json.dumps(dataclasses.asdict(item)) + "\n"
-        self.file.write(line)
+        valid_files = []
+        for file_data in item.files:
+            try:
+                file_row = ArticleFile(**file_data)
+                valid_files.append(file_row)
+            except ValidationError:
+                spider.logger.warning("Skipping file due to validation error for article.")
+
+        if not valid_files:
+            msg = f"All files for article '{item.reference}' failed validation."
+            raise DropItem(msg)
+
+        article_row = Article(**item.model_dump(exclude={"files", "file_urls"}))
+        with Session(self.engine) as session:
+            try:
+                session.add(article_row)
+                session.commit()
+                session.refresh(article_row)
+
+                for file_row in valid_files:
+                    file_row.article_id = article_row.id
+                    session.add(file_row)
+
+                session.commit()
+
+            except IntegrityError as e:
+                session.rollback()
+                msg = "Duplicate item found in database."
+                raise DropItem(msg) from e
+
         return item

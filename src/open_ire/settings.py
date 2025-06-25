@@ -65,7 +65,7 @@ ROBOTSTXT_OBEY = True
 ITEM_PIPELINES = {
     "scrapy.pipelines.files.FilesPipeline": 1,
     "open_ire.pipelines.DuplicatesPipeline": 200,
-    "open_ire.pipelines.JsonWriterPipeline": 300,
+    "open_ire.pipelines.SQLModelPipeline": 300,
 }
 FILES_STORE = "output/eric"
 MEDIA_ALLOW_REDIRECTS = True
@@ -96,4 +96,5 @@ TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
 # Open IRE Settings
+OPEN_IRE_DATABASE_FILE = "output/open_ire.db"
 OPEN_IRE_DEFAULT_TERM = "university of washington"

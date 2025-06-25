@@ -20,27 +20,30 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "requests",
     "pandas",
+    "python-dateutil",
+    "requests",
     "scrapy",
+    "sqlmodel",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pre-commit",
     "nox",
-    "pytest>=6",
+    "pre-commit",
     "pytest-cov",
-    "pytest-xdist",
     "pytest-mock",
+    "pytest-xdist",
+    "pytest>=6",
+    "types-python-dateutil",
 ]
 docs = [
-    "sphinx_rtd_theme",
-    "sphinx-automodapi",
-    "sphinx-panels",
-    "sphinxcontrib-mermaid",
     "jupyter-book",
     "numpydoc",
+    "sphinx-automodapi",
+    "sphinx-panels",
+    "sphinx_rtd_theme",
+    "sphinxcontrib-mermaid",
 ]
 all = ["open_ire[dev,docs]"]
 
