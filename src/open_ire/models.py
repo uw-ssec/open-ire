@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import uuid
 from datetime import date
 from typing import Any
@@ -56,7 +54,7 @@ class Article(ArticleBase, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
-    files: list[ArticleFile] = Relationship(back_populates="article")
+    files: list["ArticleFile"] = Relationship(back_populates="article")
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),

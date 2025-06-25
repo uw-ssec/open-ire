@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from sqlmodel import Field
 
 from open_ire.models import ArticleBase

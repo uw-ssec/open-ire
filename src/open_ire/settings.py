@@ -6,8 +6,6 @@
 #     https://docs.scrapy.org/en/latest/topics/settings.html
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
-from __future__ import annotations
-
 BOT_NAME = "open_ire"
 
 SPIDER_MODULES = ["open_ire.spiders"]

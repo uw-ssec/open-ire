@@ -1674,8 +1674,8 @@ packages:
   requires_python: '>=3.9'
 - pypi: ./
   name: open-ire
-  version: 0.1.dev15
-  sha256: f4c320a861f10279b2be540251c69ffea5a9e309a872f3965fc6b8e0ba7fb37e
+  version: 0.1.dev19
+  sha256: a3226875eb57ff802e553c77a5bd1b43b4817eecfe46ca7641d9f89ca60af94d
   requires_dist:
   - pandas
   - python-dateutil
@@ -1708,7 +1708,7 @@ packages:
   - sphinx-panels ; extra == 'docs'
   - sphinx-rtd-theme ; extra == 'docs'
   - sphinxcontrib-mermaid ; extra == 'docs'
-  requires_python: '>=3.11'
+  requires_python: '>=3.12'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openssl-3.5.0-h81ee809_1.conda
   sha256: 73d366c1597a10bcd5f3604b5f0734b31c23225536e03782c6a13f9be9d01bff
