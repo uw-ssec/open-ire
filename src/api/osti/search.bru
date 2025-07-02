@@ -1,0 +1,20 @@
+meta {
+  name: search
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://www.osti.gov/api/v1/records?q=university of washington&has_fulltext=true
+  body: none
+  auth: inherit
+}
+
+params:query {
+  q: university of washington
+  has_fulltext: true
+}
+
+headers {
+  Accept: application/json
+}

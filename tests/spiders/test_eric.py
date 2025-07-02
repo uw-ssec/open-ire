@@ -2,19 +2,19 @@ import pytest
 from scrapy.http import HtmlResponse
 from scrapy.utils.test import get_crawler
 
-from open_ire.spiders.eric import EricSpider
+from open_ire.spiders.eric import ERICSpider
 
 
 class TestEricSpider:
     @pytest.fixture
     def spider(self):
         """Create a spider instance for testing."""
-        crawler = get_crawler(spidercls=EricSpider)
-        return EricSpider.from_crawler(crawler)
+        crawler = get_crawler(spidercls=ERICSpider)
+        return ERICSpider.from_crawler(crawler)
 
     def test_default_params(self):
         """Test spider initialization with default parameters."""
-        spider = EricSpider()
+        spider = ERICSpider()
         assert spider.name == "eric"
         assert len(spider.start_urls) == 1
         assert "eric.ed.gov" in spider.start_urls[0]
@@ -24,7 +24,7 @@ class TestEricSpider:
         """Test spider initialization with custom parameters."""
         terms = "education,research"
         page = "2"
-        spider = EricSpider(terms=terms, page=page)
+        spider = ERICSpider(terms=terms, page=page)
 
         assert len(spider.start_urls) == 2
         assert "pg=2" in spider.start_urls[0]
@@ -39,9 +39,9 @@ class TestEricSpider:
         """
         response = HtmlResponse(url="https://eric.ed.gov", body=html.encode("utf-8"))
 
-        eric_number = EricSpider.extract_article_attribute("ERIC Number", response)
-        pub_date = EricSpider.extract_article_attribute("Publication Date", response)
-        missing = EricSpider.extract_article_attribute("Missing Field", response)
+        eric_number = ERICSpider.extract_article_attribute("ERIC Number", response)
+        pub_date = ERICSpider.extract_article_attribute("Publication Date", response)
+        missing = ERICSpider.extract_article_attribute("Missing Field", response)
 
         assert eric_number == "EJ1234567"
         assert pub_date == "2025"

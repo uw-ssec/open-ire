@@ -10,7 +10,7 @@ from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERM
 
 
-class EricSpider(Spider):  # type: ignore[misc]
+class ERICSpider(Spider):  # type: ignore[misc]
     name = "eric"
 
     def __init__(
@@ -21,8 +21,8 @@ class EricSpider(Spider):  # type: ignore[misc]
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.page = page
-        search_params = {"ft": "on", "pg": "1" if self.page is None else self.page}
+        self.start_page = page
+        search_params = {"ft": "on", "pg": "1" if self.start_page is None else self.start_page}
         self.start_urls = [
             f"https://eric.ed.gov/?{urlencode({'q': term.strip(), **search_params})}"
             for term in terms.split(",")
@@ -42,7 +42,7 @@ class EricSpider(Spider):  # type: ignore[misc]
         for href in articles_hrefs:
             yield Request(response.urljoin(href), callback=self.parse_detail)
 
-        if self.page is None:
+        if self.start_page is None:
             next_href = response.xpath("//div/a[text()='Next Page »']/@href")
             if next_href is not None:
                 yield Request(response.urljoin(next_href.get()))
