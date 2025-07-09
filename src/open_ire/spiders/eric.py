@@ -1,13 +1,12 @@
-from __future__ import annotations
-
 from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlencode
 
+from dateutil.parser import parse
 from scrapy import Spider
 from scrapy.http import Request, Response
 
-from open_ire.items import OpenIreItem
+from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERM
 
 
@@ -48,19 +47,19 @@ class EricSpider(Spider):  # type: ignore[misc]
             if next_href is not None:
                 yield Request(response.urljoin(next_href.get()))
 
-    def parse_detail(self, response: Response) -> Generator[OpenIreItem]:
+    def parse_detail(self, response: Response) -> Generator[ArticleItem]:
         file_href = response.urljoin(response.css(".r_f a[href$='.pdf']::attr(href)").get())
         eric_number = self.extract_article_attribute("ERIC Number", response)
-        publication_date = self.extract_article_attribute("Publication Date", response)
+        publication_date = self.extract_article_attribute("Publication Date", response) or ""
         eissn = self.extract_article_attribute("EISSN", response)
 
-        item = OpenIreItem(
+        item = ArticleItem(
             abstract=response.css(".abstract::text").get(),
             authors=response.css(".r_a>div>div::text").get(),
             eissn=eissn,
             file_urls=[file_href],
-            publication_date=publication_date or "",
-            reference=eric_number or "",
+            publication_date=parse(publication_date).date(),
+            reference=eric_number,
             repository=self.name,
             title=response.css(".title::text").get(),
             url=response.url,

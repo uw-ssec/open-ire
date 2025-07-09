@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 from scrapy.http import HtmlResponse
 from scrapy.utils.test import get_crawler

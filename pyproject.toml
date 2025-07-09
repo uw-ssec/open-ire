@@ -7,7 +7,7 @@ name = "open_ire"
 dynamic = ["version"]
 description = "Python project repository template for developing python package."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -20,27 +20,30 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "requests",
     "pandas",
+    "python-dateutil",
+    "requests",
     "scrapy",
+    "sqlmodel",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pre-commit",
     "nox",
-    "pytest>=6",
+    "pre-commit",
     "pytest-cov",
-    "pytest-xdist",
     "pytest-mock",
+    "pytest-xdist",
+    "pytest>=6",
+    "types-python-dateutil",
 ]
 docs = [
-    "sphinx_rtd_theme",
-    "sphinx-automodapi",
-    "sphinx-panels",
-    "sphinxcontrib-mermaid",
     "jupyter-book",
     "numpydoc",
+    "sphinx-automodapi",
+    "sphinx-panels",
+    "sphinx_rtd_theme",
+    "sphinxcontrib-mermaid",
 ]
 all = ["open_ire[dev,docs]"]
 
@@ -126,7 +129,6 @@ ignore = [
     "PLR2004", # Magic value used in comparison
     "ISC001", # Conflicts with formatter
 ]
-isort.required-imports = ["from __future__ import annotations"]
 # Uncomment if using a _compat.typing backport
 # typing-modules = ["{{ cookiecutter.__project_slug }}._compat.typing"]
 
