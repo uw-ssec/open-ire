@@ -16,7 +16,7 @@ NEWSPIDER_MODULE = "open_ire.spiders"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
 
 # Obey robots.txt rules
-ROBOTSTXT_OBEY = True
+ROBOTSTXT_OBEY = False
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 # CONCURRENT_REQUESTS = 32
@@ -62,7 +62,7 @@ ROBOTSTXT_OBEY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "scrapy.pipelines.files.FilesPipeline": 1,
+    "open_ire.pipelines.FilePipeline": 1,
     "open_ire.pipelines.DuplicatesPipeline": 200,
     "open_ire.pipelines.SQLModelPipeline": 300,
 }

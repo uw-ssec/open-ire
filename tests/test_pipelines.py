@@ -9,7 +9,10 @@ from sqlmodel import SQLModel, Session, select
 
 from open_ire.items import ArticleItem
 from open_ire.models import Article
-from open_ire.pipelines import DuplicatesPipeline, SQLModelPipeline
+from open_ire.pipelines import (
+    DuplicatesPipeline,
+    SQLModelPipeline,
+)
 
 
 @pytest.fixture
