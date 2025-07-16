@@ -91,11 +91,11 @@ class SQLModelPipeline:
         return item
 
 
-class FilePipeline(FilesPipeline):  # type: ignore[misc]
+class FilePipeline(FilesPipeline):
     def file_path(
         self,
         request: Request,
-        response: Response = None,
+        response: Response | None = None,
         info: MediaPipeline.SpiderInfo | None = None,
         *,
         item: Any = None,
@@ -104,8 +104,8 @@ class FilePipeline(FilesPipeline):  # type: ignore[misc]
 
         extension = Path(path).suffix
         if not len(extension) and response:
-            content_type = response.headers.get("Content-Type", b"").decode().lower()
-            content_type = content_type.split(";", 1)[0].strip()
+            content_type_bytes = response.headers.get("Content-Type") or b""
+            content_type = content_type_bytes.decode().lower().split(";", 1)[0].strip()
             extension = mimetypes.guess_extension(content_type) or ""
 
             if extension:

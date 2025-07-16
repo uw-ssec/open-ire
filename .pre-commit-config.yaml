@@ -60,6 +60,7 @@ repos:
         args: []
         additional_dependencies:
           - pytest
+          - scrapy
           - sqlmodel
           - types-python-dateutil
 
