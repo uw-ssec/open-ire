@@ -12,7 +12,7 @@ SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
-# USER_AGENT = "open_ire (+http://www.yourdomain.com)"
+USER_AGENT = "open_ire (+https://lib.uw.edu/)"
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -61,11 +61,11 @@ ROBOTSTXT_OBEY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "scrapy.pipelines.files.FilesPipeline": 1,
+    "open_ire.pipelines.FilePipeline": 1,
     "open_ire.pipelines.DuplicatesPipeline": 200,
     "open_ire.pipelines.SQLModelPipeline": 300,
 }
-FILES_STORE = "output/eric"
+FILES_STORE = "output"
 MEDIA_ALLOW_REDIRECTS = True
 
 # Enable and configure the AutoThrottle extension (disabled by default)

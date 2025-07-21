@@ -10,7 +10,7 @@ from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERM
 
 
-class EricSpider(Spider):  # type: ignore[misc]
+class EricSpider(Spider):
     name = "eric"
 
     def __init__(
@@ -43,12 +43,16 @@ class EricSpider(Spider):  # type: ignore[misc]
             yield Request(response.urljoin(href), callback=self.parse_detail)
 
         if self.page is None:
-            next_href = response.xpath("//div/a[text()='Next Page »']/@href")
+            next_href = response.xpath("//div/a[text()='Next Page »']/@href").get()
             if next_href is not None:
-                yield Request(response.urljoin(next_href.get()))
+                yield Request(response.urljoin(next_href))
 
     def parse_detail(self, response: Response) -> Generator[ArticleItem]:
-        file_href = response.urljoin(response.css(".r_f a[href$='.pdf']::attr(href)").get())
+        file_urls = []
+        file_href = response.css(".r_f a[href$='.pdf']::attr(href)").get()
+        if file_href:
+            file_urls.append(response.urljoin(file_href))
+
         eric_number = self.extract_article_attribute("ERIC Number", response)
         publication_date = self.extract_article_attribute("Publication Date", response) or ""
         eissn = self.extract_article_attribute("EISSN", response)
@@ -57,7 +61,7 @@ class EricSpider(Spider):  # type: ignore[misc]
             abstract=response.css(".abstract::text").get(),
             authors=response.css(".r_a>div>div::text").get(),
             eissn=eissn,
-            file_urls=[file_href],
+            file_urls=file_urls,
             publication_date=parse(publication_date).date(),
             reference=eric_number,
             repository=self.name,

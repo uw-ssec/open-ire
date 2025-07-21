@@ -1,9 +1,14 @@
-from typing import Self
+import mimetypes
+from pathlib import Path
+from typing import Any, Self
 
 from pydantic import ValidationError
 from scrapy import Spider
 from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
+from scrapy.http import Request, Response
+from scrapy.pipelines.files import FilesPipeline
+from scrapy.pipelines.media import MediaPipeline
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -84,3 +89,26 @@ class SQLModelPipeline:
                 raise DropItem(msg) from e
 
         return item
+
+
+class FilePipeline(FilesPipeline):
+    def file_path(
+        self,
+        request: Request,
+        response: Response | None = None,
+        info: MediaPipeline.SpiderInfo | None = None,
+        *,
+        item: Any = None,
+    ) -> str:
+        path: str = super().file_path(request, response, info, item=item)
+
+        extension = Path(path).suffix
+        if not len(extension) and response:
+            content_type_bytes = response.headers.get("Content-Type") or b""
+            content_type = content_type_bytes.decode().lower().split(";", 1)[0].strip()
+            extension = mimetypes.guess_extension(content_type) or ""
+
+            if extension:
+                path = path + extension
+
+        return path
