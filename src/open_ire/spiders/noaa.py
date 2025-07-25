@@ -63,7 +63,7 @@ class NOAASpider(Spider):
         if citation_text := response.xpath('//textarea[@id="Genericpreview"]/text()').get():
             extra["citation_text"] = citation_text.strip()
         if keywords := response.xpath('//meta[@name="citation_keywords"]/@content').getall():
-            extra["keywords"] = list(dict.fromkeys(k for k in keywords if k))
+            extra["keywords"] = list({k.strip() for k in keywords if k and k.strip()})
 
         return extra
 
