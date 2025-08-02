@@ -20,8 +20,10 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "msgraph-sdk",
     "pandas",
     "python-dateutil",
+    "python-dotenv",
     "requests",
     "scrapy",
     "sqlmodel",
@@ -93,7 +95,7 @@ disallow_incomplete_defs = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = "scrapy.*"
+module = "msgraph_core.*"
 ignore_missing_imports = true
 
 [tool.ruff]

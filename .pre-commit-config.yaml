@@ -59,7 +59,9 @@ repos:
         files: src|tests
         args: []
         additional_dependencies:
+          - msgraph-sdk
           - pytest
+          - python-dotenv
           - scrapy
           - sqlmodel
           - types-python-dateutil
