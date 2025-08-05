@@ -61,9 +61,10 @@ ROBOTSTXT_OBEY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "open_ire.pipelines.FilePipeline": 1,
-    "open_ire.pipelines.DuplicatesPipeline": 200,
-    "open_ire.pipelines.SQLModelPipeline": 300,
+    "open_ire.pipelines.LocalFilePipeline": 1,
+    "open_ire.pipelines.SharePointPipeline": 200,
+    "open_ire.pipelines.DuplicatesPipeline": 300,
+    "open_ire.pipelines.SQLModelPipeline": 400,
 }
 FILES_STORE = "output"
 MEDIA_ALLOW_REDIRECTS = True
@@ -96,3 +97,5 @@ FEED_EXPORT_ENCODING = "utf-8"
 # Open IRE Settings
 OPEN_IRE_DATABASE_FILE = "output/open_ire.db"
 OPEN_IRE_DEFAULT_TERM = "university of washington"
+
+SHAREPOINT_BASE_PATH = "open_ire"

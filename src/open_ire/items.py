@@ -10,3 +10,4 @@ class ArticleItem(ArticleBase):
 
     file_urls: list[str] = Field(default_factory=list)
     files: list[dict[str, str]] | None = None
+    store_urls: list[str] = Field(default_factory=list)

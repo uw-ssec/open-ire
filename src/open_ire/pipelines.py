@@ -14,6 +14,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile
+from open_ire.sharepoint import SharePoint
 
 # Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
 
@@ -59,8 +60,11 @@ class SQLModelPipeline:
             raise DropItem(msg)
 
         valid_files = []
-        for file_data in item.files:
+        for i, file_data in enumerate(item.files):
             try:
+                if item.store_urls and i < len(item.store_urls) and item.store_urls[i]:
+                    file_data["store_url"] = item.store_urls[i]
+
                 file_row = ArticleFile(**file_data)
                 valid_files.append(file_row)
             except ValidationError:
@@ -70,7 +74,7 @@ class SQLModelPipeline:
             msg = f"All files for article '{item.reference}' failed validation."
             raise DropItem(msg)
 
-        article_row = Article(**item.model_dump(exclude={"files", "file_urls"}))
+        article_row = Article(**item.model_dump(exclude={"files", "file_urls", "store_urls"}))
         with Session(self.engine) as session:
             try:
                 session.add(article_row)
@@ -91,7 +95,7 @@ class SQLModelPipeline:
         return item
 
 
-class FilePipeline(FilesPipeline):
+class LocalFilePipeline(FilesPipeline):
     def file_path(
         self,
         request: Request,
@@ -101,6 +105,8 @@ class FilePipeline(FilesPipeline):
         item: Any = None,
     ) -> str:
         path: str = super().file_path(request, response, info, item=item)
+        if item and hasattr(item, "repository") and item.repository:
+            path = path.replace("full/", f"{item.repository}/", 1)
 
         extension = Path(path).suffix
         if not len(extension) and response:
@@ -112,3 +118,69 @@ class FilePipeline(FilesPipeline):
                 path = path + extension
 
         return path
+
+
+class SharePointPipeline:
+    """
+    Pipeline to upload files to the SharePoint drive.
+    """
+
+    def __init__(self, sharepoint_base_path: str, local_base_path: str) -> None:
+        self.sharepoint = SharePoint(base_path=sharepoint_base_path)
+        self.base_path = Path(local_base_path)
+
+    @classmethod
+    def from_crawler(cls, crawler: Crawler) -> Self:
+        if not (local_base_path := crawler.settings.get("FILES_STORE", "")):
+            msg = "FILES_STORE must be set in settings.py"
+            raise RuntimeError(msg)
+
+        sharepoint_base_path = crawler.settings.get("SHAREPOINT_BASE_PATH", "open_ire")
+
+        return cls(sharepoint_base_path, local_base_path)
+
+    def open_spider(self, spider: Spider) -> None:
+        pass
+
+    def close_spider(self, spider: Spider) -> None:
+        pass
+
+    async def _save_file(self, file_data: dict[str, str], spider: Spider) -> str:
+        sharepoint_path = file_data.get("path", "")
+        local_file_path = self.base_path / sharepoint_path
+
+        if not local_file_path.exists():
+            msg = f"Local file not found: {local_file_path}"
+            spider.logger.error(msg)
+            return ""
+
+        store_url = ""
+        try:
+            msg = f"Uploading file to SharePoint: {local_file_path} -> {sharepoint_path}"
+            spider.logger.info(msg)
+            upload_result = await self.sharepoint.upload_file(local_file_path, sharepoint_path)
+            if upload_result.location:
+                drive_item = await self.sharepoint.get_item(sharepoint_path)
+
+                if drive_item and drive_item.web_url:
+                    store_url = drive_item.web_url
+
+        except Exception as e:
+            msg = f"Error uploading file {local_file_path}: {e}"
+            spider.logger.error(msg)
+
+        return store_url
+
+    async def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
+        if not item.files:
+            msg = f"No files found for article '{item.reference}'."
+            spider.logger.warning(msg)
+            return item
+
+        store_urls = []
+        for file_data in item.files:
+            store_urls.append(await self._save_file(file_data, spider))
+
+        item.store_urls = store_urls
+
+        return item
