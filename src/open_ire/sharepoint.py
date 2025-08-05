@@ -123,6 +123,30 @@ class SharePoint:
             )
             return await task.upload()
 
+    async def download_file(self, sharepoint_path: str, local_file_path: Path) -> None:
+        """
+        Download a file from SharePoint Drive.
+
+        Args:
+            sharepoint_path: Path to the file in SharePoint.
+            local_file_path: Local destination path for the downloaded file.
+        """
+        drive_id = await self._get_drive_id()
+        item_id = self._item_id_from_path(sharepoint_path)
+        stream = (
+            await self._client.drives.by_drive_id(drive_id)
+            .items.by_drive_item_id(item_id)
+            .content.get()
+        )
+
+        if stream is None:
+            msg = f"Failed to download file from SharePoint: {sharepoint_path}"
+            raise RuntimeError(msg)
+
+        local_file_path.parent.mkdir(parents=True, exist_ok=True)
+        with local_file_path.open("wb") as local_file:
+            local_file.write(stream)
+
     async def delete_item(self, item_path: str) -> bool:
         """
         Delete a file from SharePoint Drive.
