@@ -33,10 +33,11 @@ dependencies = [
 dev = [
     "nox",
     "pre-commit",
+    "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
     "pytest-xdist",
-    "pytest>=6",
+    "pytest",
     "types-python-dateutil",
 ]
 docs = [
@@ -157,6 +158,7 @@ dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
+test = "python -m pytest -ra --cov=open_ire"
 pre-commit-install = "pre-commit install"
 pre-commit-all = "pre-commit run --all-files"
 pre-commit = "pre-commit run"

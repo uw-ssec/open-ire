@@ -18,11 +18,13 @@ from msgraph_core.tasks import LargeFileUploadTask
 class SharePoint:
     def __init__(
         self,
+        base_path: str,
         tenant_id: str | None = None,
         client_id: str | None = None,
         site_id: str | None = None,
         client_secret: str | None = None,
     ) -> None:
+        self.base_path: str = base_path
         self.client_id: str = client_id or os.getenv("SHAREPOINT_CLIENT_ID") or ""
         self.tenant_id: str = tenant_id or os.getenv("SHAREPOINT_TENANT_ID") or ""
         self.site_id: str = site_id or os.getenv("SHAREPOINT_SITE_ID") or ""
@@ -32,22 +34,12 @@ class SharePoint:
             msg = (
                 "Missing required parameters for SharePoint client. Set the environment variables "
                 "SHAREPOINT_CLIENT_ID, SHAREPOINT_TENANT_ID, SHAREPOINT_SITE_ID, and SHAREPOINT_CLIENT_SECRET "
-                "or pass them as arguments to the constructor."
+                "or pass them as arguments to the client constructor."
             )
             raise ValueError(msg)
 
         self._drive_id: str | None = None
         self._client = self._authenticate(secret)
-
-    @staticmethod
-    def _item_id_from_path(item_path: str) -> str:
-        if item_path.startswith("/"):
-            item_path = item_path[1:]
-
-        if item_path.endswith("/"):
-            item_path = item_path[:-1]
-
-        return f"root:/{item_path}:/"
 
     def _authenticate(self, client_secret: str) -> GraphServiceClient:
         credential = ClientSecretCredential(
@@ -58,6 +50,15 @@ class SharePoint:
         scopes = ["https://graph.microsoft.com/.default"]
 
         return GraphServiceClient(credential, scopes)
+
+    def _item_id_from_path(self, item_path: str) -> str:
+        if item_path.startswith("/"):
+            item_path = item_path[1:]
+
+        if item_path.endswith("/"):
+            item_path = item_path[:-1]
+
+        return f"root:/{self.base_path}/{item_path}:/"
 
     async def _get_drive_id(self) -> str:
         """Get the default drive for the SharePoint site."""
