@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "open_ire"
 dynamic = ["version"]
-description = "Python project repository template for developing python package."
+description = "A configurable crawler for collecting articles from open-access research repositories."
 readme = "README.md"
 requires-python = ">=3.12"
 classifiers = [
@@ -13,7 +13,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development :: Build Tools",
@@ -158,10 +157,11 @@ dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
-test = "python -m pytest -ra --cov=open_ire"
-pre-commit-install = "pre-commit install"
-pre-commit-all = "pre-commit run --all-files"
+dotenv = "cp .env.example .env"
 pre-commit = "pre-commit run"
+pre-commit-all = "pre-commit run --all-files"
+pre-commit-install = "pre-commit install"
+test = "python -m pytest -ra --cov=open_ire"
 
 [tool.pixi.tasks.spider]
 args = [

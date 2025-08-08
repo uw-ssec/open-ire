@@ -2069,8 +2069,8 @@ packages:
   requires_python: '>=3.9'
 - pypi: ./
   name: open-ire
-  version: 0.1.dev33
-  sha256: 6160d581405b70409d4513327f0d8509b89d6b0ab32f4fa2492af648eff6f770
+  version: 0.1.dev36
+  sha256: cf061273342bc92858f8ebdc1eb24b093c46535dc541d4135ea3713854eae860
   requires_dist:
   - msgraph-sdk
   - pandas
