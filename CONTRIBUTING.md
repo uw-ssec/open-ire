@@ -110,21 +110,21 @@ can execute the following command to run the full test suite:
 pixi run test
 ```
 
-This command executes `python -m pytest -ra --cov=open_ire` which:
+This command executes `python -m pytest -ra --cov=open_ire`, which:
 
 - Runs all tests in the `tests/` directory.
 - Shows a short test summary (`-ra`).
 - Generates coverage reports for the `src/open_ire` package.
 
-You can also run specific test files or test functions:
+#### Running Specific Tests
 
-- Run all tests in a specific file:
+Run all tests in a specific file:
 
 ```bash
 python -m pytest tests/test_sharepoint.py
 ```
 
-- Run a specific test function:
+Run a specific test function:
 
 ```bash
 python -m pytest tests/test_sharepoint.py::TestSharePoint::test_init_with_env
@@ -134,8 +134,6 @@ Make sure to activate the `dev` or `all` environment before running tests.
 
 ### Project Architecture
 
-![Project Architecture](docs/images/architecture.png)
-
 Open IRE is built on
 [Scrapy](https://docs.scrapy.org/en/latest/topics/architecture.html) with a
 modular architecture that separates data collection, processing, and storage
@@ -144,3 +142,5 @@ components.
 Many system behaviors can be configured through the
 [Scrapy settings](https://docs.scrapy.org/en/latest/topics/settings.html) file
 (`src/open_ire/settings.py`).
+
+![Project Architecture](docs/images/architecture.png)
