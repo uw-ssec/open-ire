@@ -33,6 +33,17 @@ Request:
 
 Your contributions make this project better—thank you for your support! 🚀
 
+## Development
+
+### General Workflow
+
+1. Set up your development environment with `pixi install`.
+2. Configure your `.env` file.
+3. Install pre-commit hooks with `pixi run pre-commit-install`.
+4. Create a feature branch.
+5. Make your changes and ensure tests and pre-commit checks pass.
+6. Submit a pull request.
+
 ### Configuring Pre-commit
 
 PRs will fail style and formatting checks as configured by
@@ -44,13 +55,17 @@ To do this, install [Pixi](https://pixi.sh/latest/) using either the
 [instructions on their website](https://pixi.sh/latest/#installation), or the
 commands below:
 
-**MacOS/Linux:**
+**macOS/Linux:**
 
-```
-curl -fsSL https://pixi.sh/install.sh | bash
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-**Windows:** [Check the website](https://pixi.sh/latest/#installation)
+**Windows:**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm -useb https://pixi.sh/install.ps1 | iex"
+```
 
 #### Configure Pre-commit to run on every commit
 
@@ -72,3 +87,60 @@ pixi run pre-commit
 ```
 pixi run pre-commit-all
 ```
+
+#### Available Pixi Environments
+
+- `default`: Basic execution environment.
+- `dev`: Development environment with testing tools.
+- `docs`: Documentation building environment.
+- `all`: All features combined.
+
+To activate one of these environments, run the following command:
+
+```bash
+pixi shell -e <environment>
+```
+
+### Running Tests
+
+This project uses [pytest](https://pytest.org/) as its testing framework. You
+can execute the following command to run the full test suite:
+
+```bash
+pixi run test
+```
+
+This command executes `python -m pytest -ra --cov=open_ire`, which:
+
+- Runs all tests in the `tests/` directory.
+- Shows a short test summary (`-ra`).
+- Generates coverage reports for the `src/open_ire` package.
+
+#### Running Specific Tests
+
+Run all tests in a specific file:
+
+```bash
+python -m pytest tests/test_sharepoint.py
+```
+
+Run a specific test function:
+
+```bash
+python -m pytest tests/test_sharepoint.py::TestSharePoint::test_init_with_env
+```
+
+Make sure to activate the `dev` or `all` environment before running tests.
+
+### Project Architecture
+
+Open IRE is built on
+[Scrapy](https://docs.scrapy.org/en/latest/topics/architecture.html) with a
+modular architecture that separates data collection, processing, and storage
+components.
+
+Many system behaviors can be configured through the
+[Scrapy settings](https://docs.scrapy.org/en/latest/topics/settings.html) file
+(`src/open_ire/settings.py`).
+
+![Project Architecture](docs/images/architecture.png)

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "open_ire"
 dynamic = ["version"]
-description = "Python project repository template for developing python package."
+description = "A configurable crawler for collecting articles from open-access research repositories."
 readme = "README.md"
 requires-python = ">=3.12"
 classifiers = [
@@ -13,15 +13,16 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "msgraph-sdk",
     "pandas",
     "python-dateutil",
+    "python-dotenv",
     "requests",
     "scrapy",
     "sqlmodel",
@@ -31,10 +32,11 @@ dependencies = [
 dev = [
     "nox",
     "pre-commit",
+    "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
     "pytest-xdist",
-    "pytest>=6",
+    "pytest",
     "types-python-dateutil",
 ]
 docs = [
@@ -93,7 +95,7 @@ disallow_incomplete_defs = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = "scrapy.*"
+module = "msgraph_core.*"
 ignore_missing_imports = true
 
 [tool.ruff]
@@ -155,9 +157,11 @@ dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
-pre-commit-install = "pre-commit install"
-pre-commit-all = "pre-commit run --all-files"
+dotenv = "cp .env.example .env"
 pre-commit = "pre-commit run"
+pre-commit-all = "pre-commit run --all-files"
+pre-commit-install = "pre-commit install"
+test = "python -m pytest -ra --cov=open_ire"
 
 [tool.pixi.tasks.spider]
 args = [

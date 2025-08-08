@@ -1,60 +1,109 @@
-# python-project-template
+<div align="center">
 
-<span><img src="https://img.shields.io/badge/SSEC-Project-purple?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA0AAAAOCAQAAABedl5ZAAAACXBIWXMAAAHKAAABygHMtnUxAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAMNJREFUGBltwcEqwwEcAOAfc1F2sNsOTqSlNUopSv5jW1YzHHYY/6YtLa1Jy4mbl3Bz8QIeyKM4fMaUxr4vZnEpjWnmLMSYCysxTcddhF25+EvJia5hhCudULAePyRalvUteXIfBgYxJufRuaKuprKsbDjVUrUj40FNQ11PTzEmrCmrevPhRcVQai8m1PRVvOPZgX2JttWYsGhD3atbHWcyUqX4oqDtJkJiJHUYv+R1JbaNHJmP/+Q1HLu2GbNoSm3Ft0+Y1YMdPSTSwQAAAABJRU5ErkJggg==&style=plastic" /><span>
-![BSD License](https://badgen.net/badge/license/BSD-3-Clause/blue)
-[![Hatch project](https://img.shields.io/badge/%F0%9F%A5%9A-Hatch-4051b5.svg)](https://github.com/pypa/hatch)
+# Open IRE
+
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![Pixi](https://img.shields.io/badge/pixi-package%20manager-4051b5.svg)](https://pixi.sh/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
-[![Documentation Status](https://readthedocs.org/projects/ssec-python-project-template/badge/?version=latest)](https://ssec-python-project-template.readthedocs.io/en/latest/?badge=latest)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/uw-ssec/python-project-template/main.svg)](https://results.pre-commit.ci/latest/github/uw-ssec/python-project-template/main)
-[![CI](https://github.com/uw-ssec/python-project-template/actions/workflows/ci.yml/badge.svg)](https://github.com/uw-ssec/python-project-template/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/uw-ssec/python-project-template/graph/badge.svg?token=13LYMLQBZL)](https://codecov.io/gh/uw-ssec/python-project-template)
+</div>
 
-Python project repository template for developing python package. This template
-includes a basic structure for developing a python package, including a license,
-documentation, testing, and continuous integration. It is based on the
-[Scientific Python Library Development Guide and Cookiecutter](https://github.com/scientific-python/cookie).
+<div align="center">
+A configurable crawler for collecting articles from open-access research repositories.
+</div>
 
-This repository contains a template for developing a python project. To start,
-click on the green
-[Use this template](https://github.com/uw-ssec/python-project-template/generate)
-in the top right. This will allow you to create a new project using this base
-template.
+## Installation
 
-## What's included
+### 1. Prerequisites
 
-This template contains the following:
+First, install the [Pixi](https://pixi.sh/latest/#getting-started) package
+manager:
 
-1. Python package setup files for building python package to a distribution. See
-   [PyPA packaging user guide](https://packaging.python.org/en/latest/) for more
-   info.
-2. Basic license file (currently BSD 3-Clause License, but can be modified to
-   specific project). See [choose a license](https://choosealicense.com/) for
-   more licenses.
-3. Starter [Jupyter Book](https://jupyterbook.org) based documentation
-   structure.
-4. Single test example to demonstrate the use of
-   [pytest](https://docs.pytest.org/en/7.2.x/).
-5. [GitHub workflow](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions)
-   config to run tests.
-6. [Pre-commit](https://pre-commit.com/) config to enable code style checks
-   before committing.
-7. [Read The Docs](https://readthedocs.org/) config to enable free hosting of
-   documentation.
-8. Code coverage analysis with
-   [`coverage.py`](https://coverage.readthedocs.io/en/7.2.3/) via
-   [`pytest-cov`](https://pytest-cov.readthedocs.io/en/latest/).
+**macOS/Linux:**
 
-## Open source licensing
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+```
 
-Statement from Schmidt Sciences:
+**Windows:**
 
-_Schmidt Sciences expects that any code from projects funded by Schmidt Sciences
-be released as open source under an
-[OSI](https://opensource.org/licenses)-approved permissive license (such as
-[Apache v2.0](https://choosealicense.com/licenses/apache-2.0/) or
-[MIT](https://choosealicense.com/licenses/mit/)). We recommend that projects
-avoid using GPL due to known complexities associated with it. We encourage
-projects to publish data used for peer-reviewed scientific articles along with
-the code used to produce the results. Additionally, we recommend avoiding any
-license modifications for simplicity, and alignment with standard practices._
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm -useb https://pixi.sh/install.ps1 | iex"
+```
+
+For more installation options, visit the
+[Pixi installation guide](https://pixi.sh/latest/#installation).
+
+### 2. Installation from Source
+
+```bash
+git clone https://github.com/uw-ssec/open-ire.git
+cd open-ire
+pixi install
+```
+
+## Getting Started
+
+### 1. Environment Setup
+
+Copy the example environment file and configure your settings. This step is
+necessary for storing collected files in a Microsoft SharePoint Drive.
+Alternatively, you can disable the `SharePointPipeline` in
+`src/open_ire/settings.py`.
+
+```bash
+pixi run dotenv
+```
+
+Edit the `.env` file with your SharePoint credentials:
+
+```bash
+SHAREPOINT_TENANT_ID=<your_application_tenant_id>
+SHAREPOINT_CLIENT_ID=<your_application_id>
+SHAREPOINT_SITE_ID=<your_sharepoint_site_id>
+SHAREPOINT_CLIENT_SECRET=<your_application_client_secret>
+```
+
+### 2. Activate the Environment
+
+Activate the Pixi environment:
+
+```bash
+pixi shell
+```
+
+Or run commands directly with:
+
+```bash
+pixi run <command>
+```
+
+### 3. Development Setup
+
+For detailed development setup including pre-commit hooks, please see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Running
+
+This project includes several spiders for crawling open-access repositories. Run
+a spider with:
+
+```bash
+pixi run spider <spider_name>
+```
+
+Each spider supports a custom list of terms to include in the search:
+
+```bash
+pixi run spider <spider_name> --terms "term1,term2,..."
+```
+
+## Contributing
+
+We welcome contributions! Please see our contribution guidelines:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [RSE Guidelines](https://rse-guidelines.readthedocs.io/en/latest/)
+- [Scientific Python Development Guide](https://learn.scientific-python.org/development/)

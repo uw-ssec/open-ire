@@ -52,9 +52,9 @@ class ArticleBase(SQLModel):
 class Article(ArticleBase, table=True):
     """SQLModel to store article metadata."""
 
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),
@@ -78,10 +78,11 @@ class ArticleFile(SQLModel, table=True):
         Checksum of the file.
     """
 
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    url: str
-    path: str
     checksum: str
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    path: str
+    store_url: str | None = None
+    url: str
 
     article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
     article: Article | None = Relationship(back_populates="files")
