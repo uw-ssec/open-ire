@@ -95,22 +95,6 @@ class TestSQLModelPipeline:
             results = session.exec(select(Article)).all()
             assert len(results) == 1
 
-    def test_drops_item_on_empty_files(
-        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
-        """An item is dropped if its 'files' attribute is empty."""
-        item.files = []
-        with pytest.raises(DropItem):
-            pipeline.process_item(item, spider)
-
-    def test_drops_item_on_invalid_files(
-        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
-        """An item is dropped if all its files fail validation."""
-        item.files = [{"url": "https://example.com/file.pdf"}]
-        with pytest.raises(DropItem):
-            pipeline.process_item(item, spider)
-
     def test_drops_duplicate_item(
         self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
     ):

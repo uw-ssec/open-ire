@@ -1,3 +1,5 @@
+from datetime import datetime
+
 # Scrapy settings for open_ire project
 #
 # For simplicity, this file contains only settings considered important or
@@ -7,7 +9,6 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 BOT_NAME = "open_ire"
-
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 
@@ -16,6 +17,11 @@ USER_AGENT = "open_ire (+https://lib.uw.edu/)"
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
+
+# Logging
+datestamp = datetime.now().strftime("%Y-%m-%d")
+LOG_LEVEL = "INFO"
+LOG_FILE = f"output/open_ire_{datestamp}.log"
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 # CONCURRENT_REQUESTS = 32
@@ -54,16 +60,17 @@ ROBOTSTXT_OBEY = True
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
-# EXTENSIONS = {
-#    "scrapy.extensions.telnet.TelnetConsole": None,
-# }
+EXTENSIONS = {
+    "scrapy.extensions.corestats.CoreStats": 500,
+    "scrapy.extensions.periodic_log.PeriodicLog": 500,
+}
 
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "open_ire.pipelines.LocalFilePipeline": 1,
-    "open_ire.pipelines.SharePointPipeline": 200,
-    "open_ire.pipelines.DuplicatesPipeline": 300,
+    "open_ire.pipelines.DuplicatesPipeline": 100,
+    "open_ire.pipelines.LocalFilePipeline": 200,
+    # "open_ire.pipelines.SharePointPipeline": 300,
     "open_ire.pipelines.SQLModelPipeline": 400,
 }
 FILES_STORE = "output"

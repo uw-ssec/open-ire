@@ -55,24 +55,19 @@ class SQLModelPipeline:
         self.engine.dispose()
 
     def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
-        if not item.files:
-            msg = f"No files found for article '{item.reference}'."
-            raise DropItem(msg)
-
         valid_files = []
-        for i, file_data in enumerate(item.files):
+        files = item.files or []
+        for i, file_data in enumerate(files):
             try:
                 if item.store_urls and i < len(item.store_urls) and item.store_urls[i]:
                     file_data["store_url"] = item.store_urls[i]
 
+                file_path = Path(file_data.get("path", ""))
+                file_data["extension"] = file_path.suffix.lstrip(".")
                 file_row = ArticleFile(**file_data)
                 valid_files.append(file_row)
             except ValidationError:
                 spider.logger.warning("Skipping file due to validation error for article.")
-
-        if not valid_files:
-            msg = f"All files for article '{item.reference}' failed validation."
-            raise DropItem(msg)
 
         article_row = Article(**item.model_dump(exclude={"files", "file_urls", "store_urls"}))
         with Session(self.engine) as session:

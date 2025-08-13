@@ -71,16 +71,22 @@ class ArticleFile(SQLModel, table=True):
     article_id:
         Foreign key to the Article table.
     url:
-        URL of the file.
+        Original URL of the file.
     path:
         Local path where the file is stored.
     checksum:
         Checksum of the file.
+    store_url:
+        URL to the remote backup location.
+    size:
+        Size of the file in bytes.
     """
 
-    checksum: str
+    checksum: str = Field(unique=True)
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    extension: str
     path: str
+    size: int | None = None
     store_url: str | None = None
     url: str
 

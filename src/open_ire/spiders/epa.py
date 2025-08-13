@@ -42,12 +42,13 @@ class EPASpider(Spider):
         file_hrefs = response.xpath(
             "//a[starts-with(@href, 'si_public_file_download.cfm')]/@href"
         ).getall()
+        gov_hrefs = response.xpath(
+            "//div[contains(@class, 'node-page')]//a[starts-with(@href, 'http') and contains(@href, '.gov') and not(contains(@href, 'epa.gov'))]/@href"
+        ).getall()
 
-        urls = []
-        for href in file_hrefs:
-            urls.append(response.urljoin(href))
+        urls = [response.urljoin(href) for href in file_hrefs]
 
-        return urls
+        return urls + gov_hrefs
 
     @staticmethod
     def extract_authors(response: Response, title: str) -> str | None:
