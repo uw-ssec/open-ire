@@ -2069,7 +2069,7 @@ packages:
   requires_python: '>=3.9'
 - pypi: ./
   name: open-ire
-  version: 0.1.dev39
+  version: 0.1.dev40
   sha256: bc16df66ea37baa29704f4cbd62fd480f1876957aaa76d3abb1cf38f33da3d8d
   requires_dist:
   - msgraph-sdk
