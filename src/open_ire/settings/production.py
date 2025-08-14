@@ -2,6 +2,7 @@ from datetime import datetime
 
 from .base import *  # noqa: F403
 
+# Crawl responsibly by identifying yourself (and your website) on the user-agent
 USER_AGENT = "open_ire (+https://lib.uw.edu/)"
 
 # Logging

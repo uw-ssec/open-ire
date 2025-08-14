@@ -79,7 +79,7 @@ class TestSQLModelPipeline:
         """
         Create a pipeline instance with an in-memory SQLite DB for each test.
         """
-        instance = SQLModelPipeline(":memory:")
+        instance = SQLModelPipeline(":memory:", "output")
         SQLModel.metadata.create_all(instance.engine)
         yield instance
         instance.engine.dispose()

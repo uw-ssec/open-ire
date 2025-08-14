@@ -1,6 +1,7 @@
 from collections.abc import Generator
+from itertools import repeat
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from dateutil.parser import parse
 from scrapy import Spider
@@ -42,13 +43,22 @@ class EPASpider(Spider):
         file_hrefs = response.xpath(
             "//a[starts-with(@href, 'si_public_file_download.cfm')]/@href"
         ).getall()
-        gov_hrefs = response.xpath(
-            "//div[contains(@class, 'node-page')]//a[starts-with(@href, 'http') and contains(@href, '.gov') and not(contains(@href, 'epa.gov'))]/@href"
+
+        return list({response.urljoin(href) for href in file_hrefs})
+
+    @staticmethod
+    def extract_file_reference_urls(response: Response) -> list[str]:
+        article_page_text = response.xpath("//div[contains(@class, 'node-page')]//text()").getall()
+
+        full_text = " ".join(article_page_text).upper()
+        if "DATA/SOFTWARE" not in full_text:
+            return []
+
+        file_reference_hrefs = response.xpath(
+            "//div[contains(@class, 'node-page')]//a[starts-with(@href, 'http') and not(contains(@href, 'epa.gov'))]/@href"
         ).getall()
 
-        urls = [response.urljoin(href) for href in file_hrefs]
-
-        return urls + gov_hrefs
+        return list(set(file_reference_hrefs))
 
     @staticmethod
     def extract_authors(response: Response, title: str) -> str | None:
@@ -72,7 +82,7 @@ class EPASpider(Spider):
             if next_href is not None:
                 yield Request(response.urljoin(next_href))
 
-    def parse_detail(self, response: Response) -> Generator[ArticleItem]:
+    def parse_detail(self, response: Response) -> Generator[Request | ArticleItem]:
         title = response.css('meta[name="DC.title"]::attr(content)').get()
         abstract = response.css('meta[name="DC.description"]::attr(content)').get()
         reference = response.xpath('//span[@id="recordID"]/text()').get()
@@ -91,7 +101,7 @@ class EPASpider(Spider):
         item = ArticleItem(
             abstract=abstract,
             authors=self.extract_authors(response, title or ""),
-            file_urls=self.extract_file_urls(response),
+            file_urls=list(self.extract_file_urls(response)),
             publication_date=publication_date,
             reference=reference,
             repository=self.name,
@@ -99,4 +109,42 @@ class EPASpider(Spider):
             url=response.url,
         )
 
-        yield item
+        file_reference_urls = self.extract_file_reference_urls(response)
+        if file_reference_urls:
+            url = file_reference_urls.pop()
+            yield Request(
+                url,
+                callback=self.parse_datagov_detail,
+                meta={"item": item, "file_reference_urls": file_reference_urls},
+            )
+        else:
+            yield item
+
+    def parse_datagov_detail(self, response: Response) -> Generator[Request | ArticleItem]:
+        next_url = None
+        if file_reference_urls := response.meta.get("file_reference_urls", []):
+            next_url = file_reference_urls.pop()
+
+        data_download_hrefs = response.meta.get("data_download_hrefs", [])
+        parsed_url = urlparse(response.url.lower())
+        if "data.gov" in parsed_url.netloc:
+            hrefs = response.xpath(
+                "//ul[@class='resource-list']//a[contains(., 'Download')]/@href"
+            ).getall()
+            hrefs = [response.urljoin(href) for href in hrefs]
+            data_download_hrefs += list(zip(repeat(response.url), hrefs))
+
+        if next_url:
+            yield Request(
+                next_url,
+                callback=self.parse_datagov_detail,
+                meta={
+                    "item": response.meta["item"],
+                    "file_reference_urls": file_reference_urls,
+                    "data_download_hrefs": data_download_hrefs,
+                },
+            )
+        else:
+            item = response.meta["item"]
+            item["file_reference_urls"] = data_download_hrefs
+            yield item

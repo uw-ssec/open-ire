@@ -11,7 +11,6 @@ BOT_NAME = "open_ire"
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 
-# Crawl responsibly by identifying yourself (and your website) on the user-agent
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 # Obey robots.txt rules
@@ -22,8 +21,9 @@ ROBOTSTXT_OBEY = True
 ITEM_PIPELINES = {
     "open_ire.pipelines.DuplicatesPipeline": 100,
     "open_ire.pipelines.LocalFilePipeline": 200,
-    "open_ire.pipelines.SharePointPipeline": 300,
-    "open_ire.pipelines.SQLModelPipeline": 400,
+    "open_ire.pipelines.FileReferencePipeline": 300,
+    "open_ire.pipelines.SharePointPipeline": 400,
+    "open_ire.pipelines.SQLModelPipeline": 500,
 }
 FILES_STORE = "output"
 MEDIA_ALLOW_REDIRECTS = True
