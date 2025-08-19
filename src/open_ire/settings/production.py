@@ -6,9 +6,9 @@ from .base import *  # noqa: F403
 USER_AGENT = "open_ire (+https://lib.uw.edu/)"
 
 # Logging
-datestamp = datetime.now().strftime("%Y-%m-%d")
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_LEVEL = "INFO"
-LOG_FILE = f"output/open_ire_{datestamp}.log"
+LOG_FILE = f"output/open_ire__{timestamp}.log"
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
