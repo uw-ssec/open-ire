@@ -1,22 +1,15 @@
-import pytest
 from scrapy.http import HtmlResponse
-from scrapy.utils.test import get_crawler
 
+from open_ire.settings import OPEN_IRE_SEARCH_TERMS
 from open_ire.spiders.eric import EricSpider
 
 
 class TestEricSpider:
-    @pytest.fixture
-    def spider(self):
-        """Create a spider instance for testing."""
-        crawler = get_crawler(spidercls=EricSpider)
-        return EricSpider.from_crawler(crawler)
-
     def test_default_params(self):
         """Test spider initialization with default parameters."""
         spider = EricSpider()
         assert spider.name == "eric"
-        assert len(spider.start_urls) == 1
+        assert len(spider.start_urls) == len(OPEN_IRE_SEARCH_TERMS)
         assert "eric.ed.gov" in spider.start_urls[0]
         assert "pg=1" in spider.start_urls[0]
 

@@ -46,7 +46,13 @@ TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
 # Open IRE Settings
-OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
-OPEN_IRE_DEFAULT_TERM = "university of washington"
-
+OPEN_IRE_SEARCH_TERMS = [
+    "univ. of washington",
+    "university of washington",
+    "uw.edu",
+    "washington sea grant",
+    "washinton.edu",
+]
 SHAREPOINT_BASE_PATH = "open_ire"
+OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
+OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)

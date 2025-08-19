@@ -88,8 +88,8 @@ class ArticleFile(ArticleFileBase, table=True):
 
     Attributes
     ----------
-    checksum: Checksum of the downloaded file.
     id: Primary key for the database.
+    checksum: Checksum of the downloaded file.
     path: Local path where the file is stored.
     store_url: URL to the remote backup location (e.g., SharePoint).
     """
@@ -112,6 +112,7 @@ class ArticleFileReference(ArticleFileBase, table=True):
     Attributes
     ----------
     id: Primary key for the database.
+    source_url: URL of the website where the file `url` was found.
     """
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

@@ -1,7 +1,7 @@
 import mimetypes
 from pathlib import Path
 from typing import Any, Self
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from pydantic import ValidationError
 from scrapy import Spider
@@ -70,13 +70,7 @@ class SQLModelPipeline:
 
         for file_ref in file_references:
             try:
-                article_file_refs.append(
-                    ArticleFileReference(
-                        url=file_ref["url"],
-                        size=file_ref.get("size"),
-                        extension=file_ref.get("extension"),
-                    )
-                )
+                article_file_refs.append(ArticleFileReference(**file_ref))
             except ValidationError:
                 spider.logger.warning("Skipping file reference due to validation error.")
 
@@ -160,6 +154,43 @@ class LocalFilePipeline(FilesPipeline):
     Stores files in the local filesystem, using the `repository` field as the subdirectory.
     """
 
+    @staticmethod
+    def _extract_filename_from_content_disposition(
+        content_disposition: str,
+    ) -> str | None:
+        if not content_disposition:
+            return None
+
+        for part in (p.strip() for p in content_disposition.split(";")):
+            if part.lower().startswith("filename="):
+                return part[9:].strip("\"'")
+            if part.lower().startswith("filename*=") and "''" in part:
+                # RFC 5987
+                filename_part = part[10:].strip().split("''", 1)[-1]
+                return unquote(filename_part)
+
+        return None
+
+    @staticmethod
+    def _extract_extension_from_content_type(content_type: str) -> str:
+        clean_content_type = content_type.lower().split(";", 1)[0].strip()
+        if extension := mimetypes.guess_extension(clean_content_type):
+            return extension.lower()
+
+        return ""
+
+    def _extract_file_extension(self, response: Response) -> str:
+        content_disposition = (response.headers.get("Content-Disposition") or b"").decode()
+        if content_disposition:
+            filename = self._extract_filename_from_content_disposition(content_disposition)
+            if filename and (extension := Path(filename).suffix):
+                return extension.lower()
+
+        if content_type_bytes := response.headers.get("Content-Type", b""):
+            return self._extract_extension_from_content_type(content_type_bytes.decode())
+
+        return ""
+
     def file_path(
         self,
         request: Request,
@@ -168,18 +199,17 @@ class LocalFilePipeline(FilesPipeline):
         *,
         item: Any = None,
     ) -> str:
-        path: str = super().file_path(request, response, info, item=item)
-        if item and hasattr(item, "repository") and item.repository:
+        path = super().file_path(request, response, info, item=item)
+
+        if item and getattr(item, "repository", None):
             path = path.replace("full/", f"{item.repository}/", 1)
 
-        extension = Path(path).suffix
-        if not len(extension) and response:
-            content_type_bytes = response.headers.get("Content-Type") or b""
-            content_type = content_type_bytes.decode().lower().split(";", 1)[0].strip()
-            extension = mimetypes.guess_extension(content_type) or ""
-
-            if extension:
-                path = path + extension
+        if (
+            response
+            and not Path(path).suffix
+            and (extension := self._extract_file_extension(response))
+        ):
+            path += extension
 
         return path
 
@@ -205,7 +235,7 @@ class FileReferencePipeline:
         parsed = urlparse(url)
         if path := parsed.path:
             extension = Path(path).suffix.lstrip(".")
-            return extension if extension else None
+            return extension.lower() if extension else None
 
         return None
 

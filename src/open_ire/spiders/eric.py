@@ -7,7 +7,7 @@ from scrapy import Spider
 from scrapy.http import Request, Response
 
 from open_ire.items import ArticleItem
-from open_ire.settings import OPEN_IRE_DEFAULT_TERM
+from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 
 class EricSpider(Spider):
@@ -15,7 +15,7 @@ class EricSpider(Spider):
 
     def __init__(
         self,
-        terms: str = OPEN_IRE_DEFAULT_TERM,
+        terms: str = OPEN_IRE_DEFAULT_TERMS,
         page: str | None = None,
         *args: Any,
         **kwargs: Any,

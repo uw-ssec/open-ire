@@ -2,21 +2,16 @@ import pytest
 from scrapy.http import HtmlResponse
 from scrapy.utils.test import get_crawler
 
+from open_ire.settings import OPEN_IRE_SEARCH_TERMS
 from open_ire.spiders.noaa import NOAASpider
 
 
 class TestNOAASpider:
-    @pytest.fixture
-    def spider(self):
-        """Create a spider instance for testing."""
-        crawler = get_crawler(spidercls=NOAASpider)
-        return NOAASpider.from_crawler(crawler)
-
     def test_default_params(self):
         """Test spider initialization with default parameters."""
         spider = NOAASpider()
         assert spider.name == "noaa"
-        assert len(spider.start_urls) == 1
+        assert len(spider.start_urls) == len(OPEN_IRE_SEARCH_TERMS)
         assert "repository.library.noaa.gov" in spider.start_urls[0]
         assert "maxResults=100" in spider.start_urls[0]
         assert "start=" not in spider.start_urls[0]
