@@ -1,3 +1,5 @@
+from requests import utils as requests_utils
+
 # Scrapy settings for open_ire project
 #
 # For simplicity, this file contains only settings considered important or
@@ -10,8 +12,7 @@
 BOT_NAME = "open_ire"
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
-
-USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+USER_AGENT = requests_utils.default_user_agent()
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -27,6 +28,7 @@ ITEM_PIPELINES = {
 }
 FILES_STORE = "output"
 MEDIA_ALLOW_REDIRECTS = True
+DOWNLOAD_DELAY = 3
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
@@ -47,6 +49,8 @@ FEED_EXPORT_ENCODING = "utf-8"
 
 # Open IRE Settings
 OPEN_IRE_SEARCH_TERMS = [
+    "friday harbor laboratories",
+    "harborview injury prevention and research center",
     "univ. of washington",
     "university of washington",
     "uw.edu",
