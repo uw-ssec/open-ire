@@ -13,7 +13,7 @@ from scrapy.pipelines.files import FilesPipeline
 from scrapy.pipelines.media import MediaPipeline
 from scrapy.utils.defer import maybe_deferred_to_future
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference
@@ -76,6 +76,29 @@ class SQLModelPipeline:
 
         return article_file_refs
 
+    @staticmethod
+    def _find_existing_article(session: Session, item: ArticleItem) -> Article | None:
+        return session.exec(
+            select(Article).where(
+                Article.repository == item.repository,
+                Article.reference == item.reference,
+            )
+        ).first()
+
+    @staticmethod
+    def _save_article_files(
+        session: Session,
+        article_id: Any,
+        article_files: list[ArticleFile] | list[ArticleFileReference],
+    ) -> None:
+        for file_row in article_files:
+            file_row.article_id = article_id
+            try:
+                session.add(file_row)
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+
     def _get_file_size(self, file_path: Path) -> int | None:
         full_path = Path(self.files_base_path) / file_path
         try:
@@ -111,40 +134,76 @@ class SQLModelPipeline:
     def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
         self.engine.dispose()
 
+    def _update_existing_article(
+        self,
+        session: Session,
+        existing_article: Article,
+        item_data: dict[str, Any],
+        article_files: list[ArticleFile],
+        file_references: list[ArticleFileReference],
+    ) -> None:
+        for key, value in item_data.items():
+            if key not in ("id", "created_at"):
+                setattr(existing_article, key, value)
+
+        session.commit()
+        session.refresh(existing_article)
+
+        self._save_article_files(session, existing_article.id, article_files)
+        self._save_article_files(session, existing_article.id, file_references)
+
+        session.commit()
+
+    def _create_new_article(
+        self,
+        session: Session,
+        item_data: dict[str, Any],
+        article_files: list[ArticleFile],
+        file_references: list[ArticleFileReference],
+    ) -> None:
+        article = Article(**item_data)
+
+        try:
+            session.add(article)
+            session.commit()
+            session.refresh(article)
+
+            self._save_article_files(session, article.id, article_files)
+            self._save_article_files(session, article.id, file_references)
+
+            session.commit()
+
+        except IntegrityError as e:
+            session.rollback()
+            msg = "Duplicate item found in database."
+            raise DropItem(msg) from e
+
     def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
         article_files = self._get_article_files(item, spider)
         file_references = self._get_article_file_references(item, spider)
-        article = Article(
-            **item.model_dump(
-                exclude={
-                    "file_reference_urls",
-                    "file_references",
-                    "file_urls",
-                    "files",
-                    "store_urls",
-                }
-            )
+        item_data = item.model_dump(
+            exclude={
+                "file_reference_urls",
+                "file_references",
+                "file_urls",
+                "files",
+                "store_urls",
+            }
         )
+
         with Session(self.engine) as session:
-            try:
-                session.add(article)
-                session.commit()
-                session.refresh(article)
+            existing_article = self._find_existing_article(session, item)
 
-                for file_row in article_files:
-                    file_row.article_id = article.id
-                    session.add(file_row)
-
-                for file_ref in file_references:
-                    file_ref.article_id = article.id
-                    session.add(file_ref)
-
-                session.commit()
-
-            except IntegrityError as e:
-                session.rollback()
-                msg = "Duplicate item found in database."
-                raise DropItem(msg) from e
+            if existing_article:
+                self._update_existing_article(
+                    session,
+                    existing_article,
+                    item_data,
+                    article_files,
+                    file_references,
+                )
+            else:
+                self._create_new_article(session, item_data, article_files, file_references)
 
         return item
 

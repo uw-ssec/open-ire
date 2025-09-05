@@ -95,18 +95,6 @@ class TestSQLModelPipeline:
             results = session.exec(select(Article)).all()
             assert len(results) == 1
 
-    def test_drops_duplicate_item(
-        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
-        """The pipeline drops an item that violates the unique constraint."""
-        pipeline.process_item(item, spider)
-
-        duplicate_item = item.model_copy()
-        duplicate_item.title = "A Different Title, Same Reference"
-
-        with pytest.raises(DropItem):
-            pipeline.process_item(duplicate_item, spider)
-
 
 class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""

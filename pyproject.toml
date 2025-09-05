@@ -155,7 +155,7 @@ dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
-dotenv = "cp .env.example .env"
+dotenv = "mkdir output && cp .env.example .env"
 pre-commit = "pre-commit run"
 pre-commit-all = "pre-commit run --all-files"
 pre-commit-install = "pre-commit install"

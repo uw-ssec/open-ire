@@ -80,7 +80,7 @@ class ArticleFileBase(SQLModel):
     created_at: datetime = Field(default_factory=datetime.now, index=True)
     extension: str | None = None
     size: int | None = None
-    url: str
+    url: str = Field(unique=True)
 
 
 class ArticleFile(ArticleFileBase, table=True):
