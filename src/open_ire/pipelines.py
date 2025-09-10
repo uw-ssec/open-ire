@@ -6,7 +6,6 @@ from urllib.parse import unquote, urlparse
 from pydantic import ValidationError
 from scrapy import Spider
 from scrapy.crawler import Crawler
-from scrapy.exceptions import DropItem
 from scrapy.http import Request, Response
 from scrapy.http.request import NO_CALLBACK
 from scrapy.pipelines.files import FilesPipeline
@@ -15,6 +14,7 @@ from scrapy.utils.defer import maybe_deferred_to_future
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine
 
+from open_ire.errors import ConfigurationError, DatabaseDuplicateItemError, DuplicateItemError
 from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.sharepoint import SharePoint
@@ -32,8 +32,8 @@ class DuplicatesPipeline:
 
     def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
         if item.reference in self.seen:
-            msg = f"Item ID already seen: {item.reference} by {spider.name} spider"
-            raise DropItem(msg)
+            raise DuplicateItemError(item.reference, spider.name)
+
         self.seen.add(item.reference)
         return item
 
@@ -52,12 +52,12 @@ class SQLModelPipeline:
     def from_crawler(cls, crawler: Crawler) -> Self:
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         if not db_path:
-            msg = "OPEN_IRE_DATABASE_FILE must be set in settings.py"
-            raise RuntimeError(msg)
+            conf = "OPEN_IRE_DATABASE_FILE"
+            raise ConfigurationError(conf)
 
         if not (files_base_path := crawler.settings.get("FILES_STORE", "")):
-            msg = "FILES_STORE must be set in settings.py"
-            raise RuntimeError(msg)
+            conf = "FILES_STORE"
+            raise ConfigurationError(conf)
 
         return cls(db_path, files_base_path)
 
@@ -143,8 +143,7 @@ class SQLModelPipeline:
 
             except IntegrityError as e:
                 session.rollback()
-                msg = "Duplicate item found in database."
-                raise DropItem(msg) from e
+                raise DatabaseDuplicateItemError() from e
 
         return item
 
@@ -288,8 +287,8 @@ class SharePointPipeline:
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
         if not (local_base_path := crawler.settings.get("FILES_STORE", "")):
-            msg = "FILES_STORE must be set in settings.py"
-            raise RuntimeError(msg)
+            conf = "FILES_STORE"
+            raise ConfigurationError(conf)
 
         sharepoint_base_path = crawler.settings.get("SHAREPOINT_BASE_PATH", "open_ire")
 

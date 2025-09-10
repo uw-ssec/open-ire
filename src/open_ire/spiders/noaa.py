@@ -1,18 +1,44 @@
-from collections.abc import Generator
+from collections.abc import AsyncIterator
+from datetime import date
+from types import MappingProxyType
 from typing import Any
-from urllib.parse import urlencode
 
+import requests
 from dateutil.parser import parse
 from scrapy import Spider
-from scrapy.http import Request, Response
 
+from open_ire.errors import SpiderParameterError
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+
+# See https://github.com/NOAA-Central-Library-NCL/NOAA_IR/blob/master/noaa_json_api/pandas-ir.ipynb for
+# details on the document fields.
 
 
 class NOAASpider(Spider):
     name = "noaa"
-    page_count = 100
+
+    EXTRA_FIELD_MAPPINGS = MappingProxyType(
+        {
+            "collection": ("rdf.isMemberOf",),
+            "conference": ("mods.name_conference",),
+            "journal_title": ("mods.related_original",),
+            "keywords": ("mods.subject_topic", "keywords"),
+            "publisher": ("mods.sm_publisher",),
+            "type": ("mods.type_of_resource",),
+            "volume": ("mods.volume",),
+        }
+    )
+    SEARCHABLE_FIELDS = frozenset(
+        {
+            "keywords",
+            "mods.abstract",
+            "mods.name_corporate",
+            "mods.name_personal",
+            "mods.note",
+            "mods.title",
+        }
+    )
 
     def __init__(
         self,
@@ -21,92 +47,149 @@ class NOAASpider(Spider):
         *args: Any,
         **kwargs: Any,
     ) -> None:
+        if page:
+            param = "page"
+            raise SpiderParameterError(param, self.name)
+
         super().__init__(*args, **kwargs)
-        search_params = {"maxResults": str(self.page_count)}
-
-        self.target_page = int(page) if page else None
-        if self.target_page:
-            search_params["start"] = str(self.page_count * (self.target_page - 1))
-
-        self.start_urls = [
-            (
-                "https://repository.library.noaa.gov/gsearch?"
-                f"{urlencode({'terms': term.strip(), **search_params})}"
-            )
-            for term in terms.split(",")
-        ]
+        self.terms: list[str] = self._normalize_terms(terms)
 
     @staticmethod
-    def extract_file_urls(response: Response) -> list[str]:
-        file_hrefs = response.xpath('//meta[@name="citation_pdf_url"]/@content').getall()
-
-        urls = []
-        for href in file_hrefs:
-            urls.append(response.urljoin(href))
-
-        return urls
+    def _normalize_terms(terms: str) -> list[str]:
+        return [term.strip().lower() for term in terms.split(",") if term.strip()]
 
     @staticmethod
-    def extract_extra_details(response: Response) -> dict[str, Any]:
+    def _get_field_value(doc: dict[str, Any], fields: list[str]) -> Any:
+        for field in fields:
+            if doc.get(field):
+                return doc[field]
+
+        return None
+
+    @staticmethod
+    def _normalize_field_value(value: Any) -> str | None:
+        if not value:
+            return None
+
+        if isinstance(value, list):
+            return str(value[0]).strip() if value else None
+
+        return str(value).strip()
+
+    def _extract_authors(self, doc: dict[str, Any]) -> str | None:
+        author_fields = ["mods.name_personal"]
+
+        authors_value = self._get_field_value(doc, author_fields)
+        if not authors_value:
+            return None
+
+        if isinstance(authors_value, list):
+            authors_list = [str(author).strip() for author in authors_value if author]
+        else:
+            authors_list = [str(authors_value).strip()]
+
+        return ", ".join(authors_list) if authors_list else None
+
+    def _extract_publication_date(self, doc: dict[str, Any]) -> date | None:
+        date_fields = ["mods.ss_publishyear"]
+
+        for field in date_fields:
+            date_value = self._get_field_value(doc, [field])
+            if not date_value:
+                continue
+
+            date_text = self._normalize_field_value(date_value) or ""
+            try:
+                return parse(date_text).date()
+            except (ValueError, TypeError):
+                continue
+
+        return None
+
+    def _extract_extra_details(self, doc: dict[str, Any]) -> dict[str, Any]:
         extra: dict[str, Any] = {}
 
-        if volume := response.xpath('//meta[@name="citation_volume"]/@content').get():
-            extra["volume"] = volume
-        if publisher := response.xpath('//meta[@name="citation_publisher"]/@content').get():
-            extra["publisher"] = publisher
-        if journal_title := response.xpath('//meta[@name="citation_journal_title"]/@content').get():
-            extra["journal_title"] = journal_title
-        if conference := response.xpath('//meta[@name="citation_conference"]/@content').get():
-            extra["conference"] = conference
-        if language := response.xpath('//meta[@name="citation_language"]/@content').get():
-            extra["language"] = language
-        if citation_text := response.xpath('//textarea[@id="Genericpreview"]/text()').get():
-            extra["citation_text"] = citation_text.strip()
-        if keywords := response.xpath('//meta[@name="citation_keywords"]/@content').getall():
-            extra["keywords"] = list({k.strip() for k in keywords if k and k.strip()})
+        for extra_key, doc_fields in self.EXTRA_FIELD_MAPPINGS.items():
+            value = self._get_field_value(doc, list(doc_fields))
+            if not value:
+                continue
+
+            if extra_key == "keywords":
+                extra[extra_key] = self._extract_keywords(value)
+            else:
+                normalized_value = self._normalize_field_value(value)
+                if normalized_value:
+                    extra[extra_key] = normalized_value
 
         return extra
 
-    def parse(self, response: Response, **kwargs: Any) -> Generator[Request]:  # noqa: ARG002
-        articles_hrefs = response.xpath(
-            '//div[contains(@class, "search-result-row")]//div[contains(@class, "object-title")]/a/@href'
-        ).getall()
-        for href in articles_hrefs:
-            yield Request(response.urljoin(href), callback=self.parse_detail)
+    @staticmethod
+    def _extract_keywords(value: Any) -> list[str]:
+        if isinstance(value, list):
+            keywords = {str(k).strip() for k in value if k and str(k).strip()}
+        else:
+            keywords = {str(value).strip()} if str(value).strip() else set()
 
-        if self.target_page is None:
-            next_href = response.xpath('//a[contains(@class, "arrow-cont")]/@href').get()
-            if next_href is not None:
-                yield Request(response.urljoin(next_href))
+        return list(keywords)
 
-    def parse_detail(self, response: Response) -> Generator[ArticleItem]:
-        reference = response.url.strip("/").split("/")[-1]
-        title = response.xpath('//meta[@name="citation_title"]/@content').get()
-        abstract = response.xpath('//meta[@name="citation_abstract"]/@content').get()
-        doi = response.xpath('//meta[@name="citation_doi"]/@content').get()
-        authors = response.xpath('//meta[@name="citation_author"]/@content').getall()
-        publication_date_text = (
-            response.xpath('//meta[@name="citation_publication_date"]/@content').get() or ""
+    def _document_matches_terms(self, doc: dict[str, Any]) -> bool:
+        if not self.terms:
+            return True
+
+        searchable_text = self._build_searchable_text(doc)
+        return any(term in searchable_text for term in self.terms)
+
+    def _build_searchable_text(self, doc: dict[str, Any]) -> str:
+        text_parts: list[str] = []
+
+        for field in self.SEARCHABLE_FIELDS:
+            if field not in doc or not doc[field]:
+                continue
+
+            value = doc[field]
+            if isinstance(value, list):
+                text_parts.extend(str(v).lower() for v in value if v)
+            else:
+                text_parts.append(str(value).lower())
+
+        return " ".join(text_parts)
+
+    def _create_article_item(self, doc: dict[str, Any]) -> ArticleItem:
+        reference = doc.get("PID", "").split(":")[-1]
+
+        title = self._normalize_field_value(self._get_field_value(doc, ["mods.title"]))
+        abstract = self._normalize_field_value(self._get_field_value(doc, ["mods.abstract"]))
+        doi = self._normalize_field_value(
+            self._get_field_value(doc, ["mods.sm_digital_object_identifier"])
         )
-        issn = response.xpath('//meta[@name="citation_issn"]/@content').get()
+        issn = self._normalize_field_value(self._get_field_value(doc, ["mods.sm_issn"]))
 
-        try:
-            publication_date = parse(publication_date_text).date()
-        except (ValueError, TypeError):
-            publication_date = None
+        article_url = f"https://repository.library.noaa.gov/view/noaa/{reference}"
+        file_urls = [f"{article_url}/noaa_{reference}_DS1.pdf"]
 
-        item = ArticleItem(
+        return ArticleItem(
             abstract=abstract,
-            authors=", ".join(authors),
+            authors=self._extract_authors(doc),
             doi=doi,
-            extra=self.extract_extra_details(response),
-            file_urls=self.extract_file_urls(response),
+            extra=self._extract_extra_details(doc),
+            file_urls=file_urls,
             issn=issn,
-            publication_date=publication_date,
+            publication_date=self._extract_publication_date(doc),
             reference=reference,
             repository=self.name,
-            title=title,
-            url=response.url,
+            title=title or "",
+            url=article_url,
         )
 
-        yield item
+    async def start(self) -> AsyncIterator[Any]:
+        r = requests.get(
+            "https://repository.library.noaa.gov/fedora/export/download/collection/noaa"
+        )
+        r.raise_for_status()
+
+        data = r.json()
+        docs = data.get("response", {}).get("docs", [])
+
+        for doc in docs:
+            if self._document_matches_terms(doc):
+                yield self._create_article_item(doc)
