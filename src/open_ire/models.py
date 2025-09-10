@@ -14,6 +14,7 @@ class ArticleBase(SQLModel):
     abstract: Summary or abstract of the resource, if available.
     authors: Names of the authors or creators of the resource.
     created_at: Datetime when the article was added to this database.
+    updated_at: Datetime when the article was last updated in this database.
     doi: Digital Object Identifier, if assigned.
     eissn: Electronic International Standard Serial Number, if available.
     isbn: International Standard Book Number, if assigned.
@@ -28,6 +29,7 @@ class ArticleBase(SQLModel):
     abstract: str | None = None
     authors: str | None = None
     created_at: datetime = Field(default_factory=datetime.now, index=True)
+    updated_at: datetime = Field(default_factory=datetime.now, index=True)
     doi: str | None = None
     eissn: str | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -80,7 +82,7 @@ class ArticleFileBase(SQLModel):
     created_at: datetime = Field(default_factory=datetime.now, index=True)
     extension: str | None = None
     size: int | None = None
-    url: str
+    url: str = Field(unique=True)
 
 
 class ArticleFile(ArticleFileBase, table=True):
