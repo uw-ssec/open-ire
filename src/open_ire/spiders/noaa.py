@@ -7,6 +7,7 @@ import requests
 from dateutil.parser import parse
 from scrapy import Spider
 
+from open_ire.errors import SpiderParameterError
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
@@ -47,8 +48,8 @@ class NOAASpider(Spider):
         **kwargs: Any,
     ) -> None:
         if page:
-            msg = "The NOAA spider does not support page parameter"
-            raise ValueError(msg)
+            param = "page"
+            raise SpiderParameterError(param, self.name)
 
         super().__init__(*args, **kwargs)
         self.terms: list[str] = self._normalize_terms(terms)
