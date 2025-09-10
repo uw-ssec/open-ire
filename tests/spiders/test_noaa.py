@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from open_ire.errors import SpiderParameterError
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 from open_ire.spiders.noaa import NOAASpider
 
@@ -21,8 +22,12 @@ class TestNOAASpider:
 
     def test_page_param_not_supported(self):
         """Test that page parameter raises ValueError."""
-        with pytest.raises(ValueError, match="The NOAA spider does not support page parameter"):
+        with pytest.raises(SpiderParameterError) as e:
             NOAASpider(page="2")
+
+        assert e.value.parameter == "page"
+        assert e.value.spider_name == NOAASpider.name
+
 
     def test_normalize_terms(self):
         """Test term normalization."""
