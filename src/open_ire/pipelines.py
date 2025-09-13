@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import unquote, urlparse
 
+from itemadapter import ItemAdapter
 from pydantic import ValidationError
+from requests import utils as requests_utils
 from scrapy import Spider
 from scrapy.crawler import Crawler
 from scrapy.http import Request, Response
@@ -237,17 +239,28 @@ class LocalFilePipeline(FilesPipeline):
 
         return ""
 
-    def _extract_file_extension(self, response: Response) -> str:
+    @staticmethod
+    def _extract_file_extension(response: Response) -> str:
         content_disposition = (response.headers.get("Content-Disposition") or b"").decode()
         if content_disposition:
-            filename = self._extract_filename_from_content_disposition(content_disposition)
+            filename = LocalFilePipeline._extract_filename_from_content_disposition(
+                content_disposition
+            )
             if filename and (extension := Path(filename).suffix):
                 return extension.lower()
 
         if content_type_bytes := response.headers.get("Content-Type", b""):
-            return self._extract_extension_from_content_type(content_type_bytes.decode())
+            return LocalFilePipeline._extract_extension_from_content_type(
+                content_type_bytes.decode()
+            )
 
         return ""
+
+    def get_media_requests(self, item: Any, info: MediaPipeline.SpiderInfo) -> list[Request]:  # noqa: ARG002
+        urls = ItemAdapter(item).get(self.files_urls_field, [])
+        return [
+            Request(u, headers=requests_utils.default_headers(), callback=NO_CALLBACK) for u in urls
+        ]
 
     def file_path(
         self,

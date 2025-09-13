@@ -25,6 +25,7 @@ dependencies = [
     "python-dotenv",
     "requests",
     "scrapy",
+    "scrapy-playwright",
     "sqlmodel",
 ]
 

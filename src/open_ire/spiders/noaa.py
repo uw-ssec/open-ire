@@ -76,6 +76,15 @@ class NOAASpider(Spider):
 
         return str(value).strip()
 
+    @staticmethod
+    def _extract_keywords(value: Any) -> list[str]:
+        if isinstance(value, list):
+            keywords = {str(k).strip() for k in value if k and str(k).strip()}
+        else:
+            keywords = {str(value).strip()} if str(value).strip() else set()
+
+        return list(keywords)
+
     def _extract_authors(self, doc: dict[str, Any]) -> str | None:
         author_fields = ["mods.name_personal"]
 
@@ -122,15 +131,6 @@ class NOAASpider(Spider):
                     extra[extra_key] = normalized_value
 
         return extra
-
-    @staticmethod
-    def _extract_keywords(value: Any) -> list[str]:
-        if isinstance(value, list):
-            keywords = {str(k).strip() for k in value if k and str(k).strip()}
-        else:
-            keywords = {str(value).strip()} if str(value).strip() else set()
-
-        return list(keywords)
 
     def _document_matches_terms(self, doc: dict[str, Any]) -> bool:
         if not self.terms:

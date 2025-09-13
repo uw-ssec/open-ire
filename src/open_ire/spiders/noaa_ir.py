@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
@@ -47,6 +48,16 @@ class NOAASpider(Spider):
         return urls
 
     @staticmethod
+    def _extract_publication_date(response: Response) -> date | None:
+        date_text = response.xpath('//meta[@name="citation_publication_date"]/@content').get() or ""
+        try:
+            publication_date = parse(date_text).date()
+        except (ValueError, TypeError):
+            publication_date = None
+
+        return publication_date
+
+    @staticmethod
     def extract_extra_details(response: Response) -> dict[str, Any]:
         extra: dict[str, Any] = {}
 
@@ -85,15 +96,7 @@ class NOAASpider(Spider):
         abstract = response.xpath('//meta[@name="citation_abstract"]/@content').get()
         doi = response.xpath('//meta[@name="citation_doi"]/@content').get()
         authors = response.xpath('//meta[@name="citation_author"]/@content').getall()
-        publication_date_text = (
-            response.xpath('//meta[@name="citation_publication_date"]/@content').get() or ""
-        )
         issn = response.xpath('//meta[@name="citation_issn"]/@content').get()
-
-        try:
-            publication_date = parse(publication_date_text).date()
-        except (ValueError, TypeError):
-            publication_date = None
 
         item = ArticleItem(
             abstract=abstract,
@@ -102,7 +105,7 @@ class NOAASpider(Spider):
             extra=self.extract_extra_details(response),
             file_urls=self.extract_file_urls(response),
             issn=issn,
-            publication_date=publication_date,
+            publication_date=self._extract_publication_date(response),
             reference=reference,
             repository=self.name,
             title=title,
