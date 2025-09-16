@@ -91,7 +91,6 @@ class CDCStacksSpider(Spider):
                 callback=self.parse_detail,
                 meta={"playwright": True},
             )
-            break
 
         if self.target_page is None:
             next_href = response.xpath("//a[@id='nextPage']/@href").get()

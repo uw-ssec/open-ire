@@ -52,10 +52,10 @@ class TestCDCStacksSpider:
 
         requests = list(spider.parse(response))
 
-        assert len(requests) == 2
+        assert len(requests) == 3
         assert requests[0].url == "https://stacks.cdc.gov/view/cdc/123"
         assert requests[0].callback == spider.parse_detail
-        assert requests[1].url == "https://stacks.cdc.gov/gsearch?start=21"
+        assert requests[-1].url == "https://stacks.cdc.gov/gsearch?start=21"
 
     def test_parse_detail(self):
         """Test the parse_detail method extracts article metadata correctly."""
