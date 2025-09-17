@@ -13,7 +13,7 @@ from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 class NOAASpider(Spider):
     name = "noaa_ir"
-    page_count = 100
+    page_size = 100
 
     def __init__(
         self,
@@ -23,11 +23,11 @@ class NOAASpider(Spider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        search_params = {"maxResults": str(self.page_count)}
+        search_params = {"maxResults": str(self.page_size)}
 
         self.target_page = int(page) if page else None
         if self.target_page:
-            search_params["start"] = str(self.page_count * (self.target_page - 1))
+            search_params["start"] = str(self.page_size * (self.target_page - 1))
 
         self.start_urls = [
             (

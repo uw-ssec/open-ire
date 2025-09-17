@@ -13,7 +13,7 @@ from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 class CDCStacksSpider(Spider):
     name = "cdc_stacks"
-    page_count = 20
+    page_size = 20
     custom_settings = {"DOWNLOAD_DELAY": 10, "USER_AGENT": None}  # noqa: RUF012
 
     def __init__(
@@ -28,7 +28,7 @@ class CDCStacksSpider(Spider):
         search_params = {}
         self.target_page = int(page) if page else None
         if self.target_page:
-            search_params["start"] = str(self.page_count * (self.target_page - 1) + 1)
+            search_params["start"] = str(self.page_size * (self.target_page - 1) + 1)
 
         self.start_urls = [
             f"https://stacks.cdc.gov/gsearch?{urlencode({'terms': term.strip(), **search_params})}"

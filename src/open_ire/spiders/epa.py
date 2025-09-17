@@ -13,7 +13,7 @@ from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 class EPASpider(Spider):
     name = "epa"
-    page_count = 25
+    page_size = 25
     custom_settings = {"ROBOTSTXT_OBEY": False}  # noqa: RUF012
 
     def __init__(
@@ -24,11 +24,11 @@ class EPASpider(Spider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        search_params = {"count": str(self.page_count)}
+        search_params = {"count": str(self.page_size)}
 
         self.target_page = int(page) if page else None
         if self.target_page:
-            search_params["startIndex"] = str(self.page_count * (self.target_page - 1) + 1)
+            search_params["startIndex"] = str(self.page_size * (self.target_page - 1) + 1)
 
         self.start_urls = [
             (
