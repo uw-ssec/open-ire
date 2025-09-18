@@ -26,6 +26,10 @@ ITEM_PIPELINES = {
     "open_ire.pipelines.SharePointPipeline": 400,
     "open_ire.pipelines.SQLModelPipeline": 500,
 }
+DOWNLOAD_HANDLERS = {
+    "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+    "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+}
 FILES_STORE = "output"
 MEDIA_ALLOW_REDIRECTS = True
 DOWNLOAD_DELAY = 3
@@ -46,6 +50,12 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
 # Set settings whose default value is deprecated to a future-proof value
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
+
+# Playwright settings
+PLAYWRIGHT_LAUNCH_OPTIONS = {
+    "headless": False,
+    "timeout": 20 * 1000,  # 20 seconds
+}
 
 # Open IRE Settings
 OPEN_IRE_SEARCH_TERMS = [

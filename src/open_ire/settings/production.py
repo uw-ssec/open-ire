@@ -17,6 +17,12 @@ EXTENSIONS = {
     "scrapy.extensions.periodic_log.PeriodicLog": 500,
 }
 
+# Playwright settings
+PLAYWRIGHT_LAUNCH_OPTIONS = {
+    "headless": True,
+    "timeout": 20 * 1000,  # 20 seconds
+}
+
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 # CONCURRENT_REQUESTS = 32
 

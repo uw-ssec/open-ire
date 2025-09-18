@@ -21,8 +21,8 @@ class EricSpider(Spider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.page = page
-        search_params = {"ft": "on", "pg": "1" if self.page is None else self.page}
+        self.target_page = page
+        search_params = {"ft": "on", "pg": "1" if self.target_page is None else self.target_page}
         self.start_urls = [
             f"https://eric.ed.gov/?{urlencode({'q': term.strip(), **search_params})}"
             for term in terms.split(",")
@@ -42,7 +42,7 @@ class EricSpider(Spider):
         for href in articles_hrefs:
             yield Request(response.urljoin(href), callback=self.parse_detail)
 
-        if self.page is None:
+        if self.target_page is None:
             next_href = response.xpath("//div/a[text()='Next Page »']/@href").get()
             if next_href is not None:
                 yield Request(response.urljoin(next_href))
