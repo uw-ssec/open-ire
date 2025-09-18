@@ -16,7 +16,11 @@ from scrapy.utils.defer import maybe_deferred_to_future
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from open_ire.errors import ConfigurationError, DatabaseDuplicateItemError, DuplicateItemError
+from open_ire.errors import (
+    ConfigurationError,
+    DatabaseDuplicateItemError,
+    DuplicateItemError,
+)
 from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.sharepoint import SharePoint
@@ -89,6 +93,7 @@ class SQLModelPipeline:
 
     @staticmethod
     def _save_article_files(
+        spider: Spider,
         session: Session,
         article_id: Any,
         article_files: list[ArticleFile] | list[ArticleFileReference],
@@ -98,8 +103,10 @@ class SQLModelPipeline:
             try:
                 session.add(file_row)
                 session.flush()
-            except IntegrityError:
+            except IntegrityError as e:
+                msg = f"Integrity error while saving file for article '{article_id}: {e}"
                 session.rollback()
+                spider.logger.warning(msg)
 
     def _get_file_size(self, file_path: Path) -> int | None:
         full_path = Path(self.files_base_path) / file_path
@@ -138,6 +145,7 @@ class SQLModelPipeline:
 
     def _update_existing_article(
         self,
+        spider: Spider,
         session: Session,
         existing_article: Article,
         item_data: dict[str, Any],
@@ -151,13 +159,14 @@ class SQLModelPipeline:
         session.commit()
         session.refresh(existing_article)
 
-        self._save_article_files(session, existing_article.id, article_files)
-        self._save_article_files(session, existing_article.id, file_references)
+        self._save_article_files(spider, session, existing_article.id, article_files)
+        self._save_article_files(spider, session, existing_article.id, file_references)
 
         session.commit()
 
     def _create_new_article(
         self,
+        spider: Spider,
         session: Session,
         item_data: dict[str, Any],
         article_files: list[ArticleFile],
@@ -170,8 +179,8 @@ class SQLModelPipeline:
             session.commit()
             session.refresh(article)
 
-            self._save_article_files(session, article.id, article_files)
-            self._save_article_files(session, article.id, file_references)
+            self._save_article_files(spider, session, article.id, article_files)
+            self._save_article_files(spider, session, article.id, file_references)
 
             session.commit()
 
@@ -193,10 +202,9 @@ class SQLModelPipeline:
         )
 
         with Session(self.engine) as session:
-            existing_article = self._find_existing_article(session, item)
-
-            if existing_article:
+            if existing_article := self._find_existing_article(session, item):
                 self._update_existing_article(
+                    spider,
                     session,
                     existing_article,
                     item_data,
@@ -204,7 +212,7 @@ class SQLModelPipeline:
                     file_references,
                 )
             else:
-                self._create_new_article(session, item_data, article_files, file_references)
+                self._create_new_article(spider, session, item_data, article_files, file_references)
 
         return item
 
@@ -311,7 +319,7 @@ class FileReferencePipeline:
         return None
 
     async def _get_file_reference(
-        self, source_url: str, reference_url: str, spider: Spider
+        self, spider: Spider, source_url: str, reference_url: str
     ) -> dict[str, str | int | None]:
         file_reference: dict[str, str | int | None] = {
             "extension": self._extract_extension(reference_url),
@@ -339,7 +347,7 @@ class FileReferencePipeline:
 
         file_references = []
         for source_url, ref_url in item.file_reference_urls:
-            file_reference = await self._get_file_reference(source_url, ref_url, spider)
+            file_reference = await self._get_file_reference(spider, source_url, ref_url)
             file_references.append(file_reference)
 
         item.file_references = file_references

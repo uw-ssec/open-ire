@@ -65,7 +65,7 @@ OPEN_IRE_SEARCH_TERMS = [
     "university of washington",
     "uw.edu",
     "washington sea grant",
-    "washinton.edu",
+    "washington.edu",
 ]
 SHAREPOINT_BASE_PATH = "open_ire"
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
