@@ -24,7 +24,7 @@ class TestCDCStacksSpider:
         assert len(spider.start_urls) == 2
         assert "terms=unittest" in spider.start_urls[0]
         assert "terms=sample" in spider.start_urls[1]
-        assert "start=21" in spider.start_urls[0]
+        assert "start=100" in spider.start_urls[0]
 
     def test_parse_next(self):
         """Test the parse method yields the next requests."""
@@ -41,7 +41,7 @@ class TestCDCStacksSpider:
                         <a href="/view/cdc/456">Article 2</a>
                     </div>
                 </div>
-                <a id="nextPage" href="/gsearch?start=21">Next</a>
+                <a id="nextPage" href="/gsearch?start=100">Next</a>
             </body>
         </html>
         """
@@ -53,9 +53,10 @@ class TestCDCStacksSpider:
         requests = list(spider.parse(response))
 
         assert len(requests) == 3
-        assert requests[0].url == "https://stacks.cdc.gov/view/cdc/123"
         assert requests[0].callback == spider.parse_detail
-        assert requests[-1].url == "https://stacks.cdc.gov/gsearch?start=21"
+        assert requests[0].url == "https://stacks.cdc.gov/view/cdc/123"
+        assert requests[1].url == "https://stacks.cdc.gov/view/cdc/456"
+        assert requests[-1].url == "https://stacks.cdc.gov/gsearch?start=100"
 
     def test_parse_detail(self):
         """Test the parse_detail method extracts article metadata correctly."""

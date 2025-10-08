@@ -98,7 +98,7 @@ class ArticleFile(ArticleFileBase, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
-    checksum: str = Field(unique=True)
+    checksum: str = Field()
     path: str
     store_url: str | None = None
 
