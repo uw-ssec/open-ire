@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
     "msgraph-sdk",
     "pandas",
+    "playwright",
     "python-dateutil",
     "python-dotenv",
     "requests",
