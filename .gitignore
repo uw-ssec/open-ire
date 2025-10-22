@@ -135,6 +135,7 @@ dmypy.json
 .idea
 
 # Local Package
+data/
 version.py
 
 # pixi environments
