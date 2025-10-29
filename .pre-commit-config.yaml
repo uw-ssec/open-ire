@@ -63,6 +63,7 @@ repos:
           - msgraph-sdk
           - pytest
           - python-dotenv
+          - rapidfuzz
           - scrapy
           - sqlmodel
           - types-python-dateutil

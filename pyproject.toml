@@ -24,6 +24,7 @@ dependencies = [
     "playwright",
     "python-dateutil",
     "python-dotenv",
+    "rapidfuzz",
     "requests",
     "scrapy",
     "scrapy-playwright",
@@ -174,6 +175,10 @@ args = [
     { "arg" = "terms", "default" = "university of washington" },
 ]
 cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
+
+[tool.pixi.tasks.oap]
+args = ["spider", "faculty_file"]
+cmd = "scrapy crawl oap_{{ spider }} -a faculty_csv={{ faculty_file }}"
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"

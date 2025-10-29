@@ -122,3 +122,34 @@ class ArticleFileReference(ArticleFileBase, table=True):
     source_url: str | None = None
 
     article: Article | None = Relationship(back_populates="file_references")
+
+
+class OAPublicationBase(SQLModel):
+    """Base SQLModel for OAP metadata."""
+
+    authors: str = Field(index=True)
+    created_at: datetime = Field(default_factory=datetime.now, index=True)
+    doi: str = Field(index=True)
+    external_id: str = Field(index=True)
+    is_open_access: bool | None = None
+    journal_name: str | None = None
+    matched_author: str | None = None
+    matched_email: str | None = None
+    oa_status: str | None = None
+    publication_date: date | None = Field(default=None, index=True)
+    publication_type: str | None = None
+    publication_year: int | None = Field(default=None, index=True)
+    repository: str = Field(index=True)
+    title: str
+    updated_at: datetime = Field(default_factory=datetime.now, index=True)
+
+
+class OAPublication(OAPublicationBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "repository", "external_id", name="uq_oap_publication_repository_external_id"
+        ),
+        UniqueConstraint("doi", name="uq_oap_publication_doi"),
+    )
