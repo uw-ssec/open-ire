@@ -183,3 +183,4 @@ cmd = "scrapy crawl oap_{{ spider }} -a faculty_csv={{ faculty_file }}"
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
 pre-commit = ">=4.2.0,<5"
+python = "<=3.13.0"
