@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPublicationItem
+from open_ire.items import OAPPublicationItem
 from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
 from open_ire.spiders.oap_base import OAPBaseSpider
 
@@ -110,7 +110,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
     def parse_publications(
         self, response: Response, author_id: str
-    ) -> Generator[Request | OAPublicationItem, None, None]:
+    ) -> Generator[Request | OAPPublicationItem, None, None]:
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
 
@@ -125,7 +125,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         if next_cursor := meta.get("next_cursor"):
             yield from self._request_publications(author_id, cursor=next_cursor)
 
-    def _build_item(self, publication: dict[str, Any]) -> OAPublicationItem | None:
+    def _build_item(self, publication: dict[str, Any]) -> OAPPublicationItem | None:
         external_id = publication.get("id")
         if not external_id:
             return None
@@ -137,7 +137,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
-        return OAPublicationItem(
+        return OAPPublicationItem(
             authors=self._join_or_none(author_names),
             doi=publication.get("doi"),
             external_id=str(external_id),
