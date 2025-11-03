@@ -81,6 +81,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         )
 
     async def start(self) -> AsyncIterator[Request]:
+        """Generate initial requests to search for authors by name within the institution."""
         for name in self.faculty_lookup["raw"]:
             params = {
                 "filter": f"display_name.search:{name},last_known_institutions.id:{self.institution_id}",
@@ -91,10 +92,11 @@ class OAPOpenAlexSpider(OAPBaseSpider):
             yield Request(
                 url,
                 headers=self.request_headers,
-                callback=self.parse_authors,
+                callback=self.author_publication_requests,
             )
 
-    def parse_authors(self, response: Response) -> Generator[Request]:
+    def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:
+        """Parse author search results and generate publication requests."""
         data = json.loads(response.text or "{}")
 
         for author in data.get("results", []):
