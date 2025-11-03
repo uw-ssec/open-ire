@@ -41,7 +41,8 @@ class OAPOpenAlexSpider(OAPBaseSpider):
             if not isinstance(location, dict):
                 continue
 
-            display_name = location.get("source", {}).get("display_name")
+            source = location.get("source") or {}
+            display_name = source.get("display_name")
             if display_name and isinstance(display_name, str):
                 return str(display_name)
 
