@@ -50,17 +50,17 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
     @staticmethod
     def _extract_authors(publication: dict[str, Any]) -> list[str]:
-        authorship_names: list[str] = []
-        authors = publication.get("authorships", [])
-        for authorship in authors:
+        author_names: list[str] = []
+        authorships = publication.get("authorships", [])
+        for authorship in authorships:
             if not isinstance(authorship, dict):
                 continue
 
             display_name = authorship.get("author", {}).get("display_name")
             if display_name and isinstance(display_name, str):
-                authorship_names.append(display_name)
+                author_names.append(display_name)
 
-        return authorship_names
+        return author_names
 
     def _request_publications(
         self, author_id: str, cursor: str = "*"
@@ -128,15 +128,15 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         if not external_id:
             return None
 
-        authorship_names = self._extract_authors(publication)
+        author_names = self._extract_authors(publication)
 
-        matched_names, matched_emails = self._collect_matches(authorship_names)
+        matched_names, matched_emails = self._collect_matches(author_names)
 
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
         return OAPublicationItem(
-            authors=self._join_or_none(authorship_names),
+            authors=self._join_or_none(author_names),
             doi=publication.get("doi"),
             external_id=str(external_id),
             is_open_access=is_oa,
