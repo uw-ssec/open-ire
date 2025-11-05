@@ -151,18 +151,20 @@ platforms = ["osx-arm64", "osx-64", "win-64"]
 [tool.pixi.pypi-dependencies]
 open_ire = { path = ".", editable = true }
 
+[tool.pixi.feature.dev.pypi-dependencies]
+open_ire = { path = ".", editable = true, extras = ["dev"] }
+
+[tool.pixi.feature.docs.pypi-dependencies]
+open_ire = { path = ".", editable = true, extras = ["docs"] }
+
 [tool.pixi.environments]
 default = { solve-group = "default" }
-all = { features = ["all", "dev", "docs"], solve-group = "default" }
+all = { features = ["dev", "docs"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 dotenv = "mkdir output && cp .env.example .env"
-pre-commit = "pre-commit run"
-pre-commit-all = "pre-commit run --all-files"
-pre-commit-install = "pre-commit install"
-test = "python -m pytest -ra --cov=open_ire"
 
 [tool.pixi.tasks.start]
 args = ["spider"]
@@ -180,7 +182,15 @@ cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
 args = ["spider", "faculty_file"]
 cmd = "scrapy crawl oap_{{ spider }} -a faculty_csv={{ faculty_file }}"
 
+[tool.pixi.feature.dev.tasks]
+pre-commit = "pre-commit run"
+pre-commit-all = "pre-commit run --all-files"
+pre-commit-install = "pre-commit install"
+test = "python -m pytest -ra --cov=open_ire"
+
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
+
+[tool.pixi.feature.dev.dependencies]
 pre-commit = ">=4.2.0,<5"
 python = "<=3.13.0"
