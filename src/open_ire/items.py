@@ -1,6 +1,6 @@
 from sqlmodel import Field
 
-from open_ire.models import ArticleBase, OAPublicationBase
+from open_ire.models import ArticleBase, OAPPublicationBase
 
 
 class ArticleItem(ArticleBase):
@@ -15,7 +15,7 @@ class ArticleItem(ArticleBase):
     store_urls: list[str] = Field(default_factory=list)
 
 
-class OAPublicationItem(OAPublicationBase):
+class OAPPublicationItem(OAPPublicationBase):
     """
     Scrapy data model for OAP metadata.
     """

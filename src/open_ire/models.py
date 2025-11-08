@@ -124,7 +124,7 @@ class ArticleFileReference(ArticleFileBase, table=True):
     article: Article | None = Relationship(back_populates="file_references")
 
 
-class OAPublicationBase(SQLModel):
+class OAPPublicationBase(SQLModel):
     """Base SQLModel for OAP metadata."""
 
     authors: str = Field(index=True)
@@ -144,7 +144,7 @@ class OAPublicationBase(SQLModel):
     updated_at: datetime = Field(default_factory=datetime.now, index=True)
 
 
-class OAPublication(OAPublicationBase, table=True):
+class OAPPublication(OAPPublicationBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     __table_args__ = (

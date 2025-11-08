@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPublicationItem
+from open_ire.items import OAPPublicationItem
 from open_ire.settings import OAP_WOS_ORGANIZATION
 from open_ire.spiders.oap_base import OAPBaseSpider
 
@@ -121,7 +121,7 @@ class OAPWoSSpider(OAPBaseSpider):
 
     def parse_publications(
         self, response: Response, page: int
-    ) -> Generator[Request | OAPublicationItem]:
+    ) -> Generator[Request | OAPPublicationItem]:
         data = json.loads(response.text or "{}")
         records = self._as_list(
             data.get("Data", {}).get("Records", {}).get("records", {}).get("REC")
@@ -146,7 +146,7 @@ class OAPWoSSpider(OAPBaseSpider):
                 cb_kwargs={"page": next_page},
             )
 
-    def _build_item(self, publication: Any) -> OAPublicationItem | None:
+    def _build_item(self, publication: Any) -> OAPPublicationItem | None:
         if not isinstance(publication, dict):
             return None
 
@@ -177,7 +177,7 @@ class OAPWoSSpider(OAPBaseSpider):
             None,
         )
 
-        return OAPublicationItem(
+        return OAPPublicationItem(
             authors=self._join_or_none(authors),
             doi=doi,
             external_id=str(external_id),

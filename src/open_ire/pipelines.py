@@ -22,8 +22,8 @@ from open_ire.errors import (
     DatabaseDuplicateItemError,
     DuplicateItemError,
 )
-from open_ire.items import ArticleItem, OAPublicationItem
-from open_ire.models import Article, ArticleFile, ArticleFileReference, OAPublication
+from open_ire.items import ArticleItem, OAPPublicationItem
+from open_ire.models import Article, ArticleFile, ArticleFileReference, OAPPublication
 from open_ire.sharepoint import SharePoint
 
 # Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
@@ -439,16 +439,16 @@ class OAPPublicationSQLModelPipeline:
         return cls(db_path)
 
     @staticmethod
-    def _find_existing(session: Session, item: OAPublicationItem) -> OAPublication | None:
-        statement = select(OAPublication).where(
-            OAPublication.repository == item.repository,
-            OAPublication.external_id == item.external_id,
+    def _find_existing(session: Session, item: OAPPublicationItem) -> OAPPublication | None:
+        statement = select(OAPPublication).where(
+            OAPPublication.repository == item.repository,
+            OAPPublication.external_id == item.external_id,
         )
         return session.exec(statement).first()
 
     @staticmethod
     def _update_existing(
-        record: OAPublication,
+        record: OAPPublication,
         item_data: dict[str, Any],
         session: Session,
     ) -> None:
@@ -461,7 +461,7 @@ class OAPPublicationSQLModelPipeline:
 
     @staticmethod
     def _create_new(session: Session, item_data: dict[str, Any]) -> None:
-        session.add(OAPublication(**item_data))
+        session.add(OAPPublication(**item_data))
 
     def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
         SQLModel.metadata.create_all(self.engine)
@@ -470,7 +470,7 @@ class OAPPublicationSQLModelPipeline:
         self.engine.dispose()
 
     def process_item(self, item: Any, spider: Spider) -> Any:
-        if not isinstance(item, OAPublicationItem):
+        if not isinstance(item, OAPPublicationItem):
             return item
 
         item.updated_at = datetime.now()
