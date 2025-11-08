@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,8 @@ from open_ire.errors import (
 from open_ire.items import ArticleItem, OAPPublicationItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference, OAPPublication
 from open_ire.sharepoint import SharePoint
+
+logger = logging.getLogger(__name__)
 
 # Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
 
@@ -61,6 +64,11 @@ class SQLModelPipeline:
         if not db_path:
             conf = "OPEN_IRE_DATABASE_FILE"
             raise ConfigurationError(conf)
+
+        parent_dir = Path(db_path).parent
+        if not parent_dir.exists():
+            parent_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Created OPEN_IRE database directory at %s", parent_dir)
 
         if not (files_base_path := crawler.settings.get("FILES_STORE", "")):
             conf = "FILES_STORE"
@@ -435,6 +443,11 @@ class OAPPublicationSQLModelPipeline:
         if not db_path:
             conf = "OPEN_IRE_DATABASE_FILE"
             raise ConfigurationError(conf)
+
+        parent_dir = Path(db_path).parent
+        if not parent_dir.exists():
+            parent_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Created OPEN_IRE database directory at %s", parent_dir)
 
         return cls(db_path)
 
