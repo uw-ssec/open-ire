@@ -1,18 +1,22 @@
 import json
 from collections.abc import AsyncIterator, Generator
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
+from dateutil.parser import parse
+from scrapy import Spider
 from scrapy.http import Request, Response
 
+from open_ire.faculty import AuthorMatcher
 from open_ire.items import ArticleItem
 from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
-from open_ire.spiders.oap_base import OAPBaseSpider
 
 
-class OAPOpenAlexSpider(OAPBaseSpider):
+class OAPOpenAlexSpider(Spider):
     name = "oap_openalex"
     base_url = "https://api.openalex.org"
+    page_size = 25
 
     def __init__(
         self,
@@ -21,13 +25,40 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().__init__(faculty_csv, *args, **kwargs)
+        super().__init__(*args, **kwargs)
+
+        if not faculty_csv:
+            msg = "The 'faculty_csv' argument is required."
+            raise ValueError(msg)
 
         self.start_date = start_date
         self.institution_id = OAP_OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {
             "User-Agent": f"mailto:{OAP_OPENALEX_CONTACT_EMAIL}"
         }
+        self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
+        self.faculty_names = list(self.author_matcher.faculty_lookup["raw"].keys())
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return None
 
     @staticmethod
     def _extract_journal_name(publication: dict[str, Any]) -> str | None:
@@ -82,7 +113,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
     async def start(self) -> AsyncIterator[Request]:
         """Generate initial requests to search for authors by name within the institution."""
-        for name in self.faculty_lookup["raw"]:
+        for name in self.faculty_names:
             params = {
                 "filter": f"display_name.search:{name},last_known_institutions.id:{self.institution_id}",
                 "per_page": str(self.page_size),
@@ -132,19 +163,10 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
         author_names = self._extract_authors(publication)
 
-        matched_names, matched_emails = self._collect_matches(author_names)
+        matched_names, matched_emails = self.author_matcher.collect_matches(author_names)
 
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
-        publication_date = (
-            self._parse_date(publication.get("publication_date"))
-            or self._parse_date(publication.get("publication_year"))
-            or None
-        )
-
-        if not publication_date:
-            message = "Publication date is required"
-            raise ValueError(message)
 
         return ArticleItem(
             authors=self._join_or_none(author_names),
@@ -160,7 +182,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
             },
             publication_date=self._parse_date(publication.get("publication_date")),
             reference=str(external_id),
-            repository=self.repository_name,
+            repository=self.name,
             title=publication.get("title"),
             url=publication.get("doi"),
         )

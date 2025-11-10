@@ -1,127 +1,9 @@
 import csv
-import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
-from typing import Any
 
-from dateutil.parser import parse
 from rapidfuzz import fuzz
-from scrapy import Spider
-
-
-class OAPBaseSpider(Spider):
-    name = "oap_base"
-    page_size = 25
-    similarity_threshold = 0.9
-
-    def __init__(self, faculty_csv: str, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-        if self.name == "oap_base":
-            msg = "OAPBaseSpider should not be used directly. Please use a subclass instead."
-            raise ValueError(msg)
-
-        if not faculty_csv:
-            msg = "The 'faculty_csv' argument is required."
-            raise ValueError(msg)
-
-        self.repository_name = self.name.split("_")[-1]
-        self.faculty_index = FacultyIndex(Path(faculty_csv).resolve())
-        self.faculty_lookup = self.faculty_index.get_lookup(self.repository_name)
-
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", value or "")
-        normalized = "".join(ch for ch in normalized if ch.isalnum() or ch.isspace())
-        return " ".join(normalized.lower().split())
-
-    @staticmethod
-    def _similarity(left: str, right: str) -> float:
-        if not left or not right:
-            return 0.0
-
-        return fuzz.token_set_ratio(left, right) / 100
-
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        return ", ".join(values) if values else None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        if value is None:
-            return None
-
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            pass
-
-        match = re.search(r"(19|20)\d{2}", str(value))
-        if match:
-            return int(match.group())
-
-        return None
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        if not value:
-            return None
-
-        try:
-            parsed = parse(str(value))
-        except (ValueError, TypeError):
-            return None
-
-        return parsed.date()
-
-    def _match_from_lookup(
-        self, candidate: str, lookup: dict[str, str], normalized_lookup: dict[str, str]
-    ) -> tuple[str | None, str | None]:
-        normalized_candidate = self._normalize_text(candidate)
-
-        if normalized_candidate in normalized_lookup:
-            original = normalized_lookup[normalized_candidate]
-            return original, lookup[original]
-
-        best_match: str | None = None
-        best_score = 0.0
-
-        for original in lookup:
-            normalized_original = self._normalize_text(original)
-            score = self._similarity(normalized_candidate, normalized_original)
-
-            if score > best_score:
-                best_match = original
-                best_score = score
-
-        if best_match and best_score >= self.similarity_threshold:
-            return best_match, lookup[best_match]
-
-        return None, None
-
-    def match_author(self, candidate: str) -> tuple[str | None, str | None]:
-        return self._match_from_lookup(
-            candidate, self.faculty_lookup["raw"], self.faculty_lookup["normalized"]
-        )
-
-    def _collect_matches(
-        self,
-        names: list[str],
-    ) -> tuple[list[str], list[str]]:
-        matched_names: set[str] = set()
-        matched_emails: set[str] = set()
-
-        for name in names:
-            matched_name, matched_email = self.match_author(name)
-            if matched_name:
-                matched_names.add(matched_name)
-
-            if matched_email:
-                matched_emails.add(matched_email)
-
-        return list(matched_names), list(matched_emails)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,3 +112,65 @@ class FacultyIndex:
             raise ValueError(msg)
 
         return self.lookups[repository]
+
+
+class AuthorMatcher:
+    def __init__(self, faculty_csv_path: str, repository: str, similarity_threshold: float = 0.9):
+        self.similarity_threshold = similarity_threshold
+        faculty_index = FacultyIndex(Path(faculty_csv_path).resolve())
+        self.faculty_lookup = faculty_index.get_lookup(repository)
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", value or "")
+        normalized = "".join(ch for ch in normalized if ch.isalnum() or ch.isspace())
+        return " ".join(normalized.lower().split())
+
+    @staticmethod
+    def _similarity(left: str, right: str) -> float:
+        if not left or not right:
+            return 0.0
+        return fuzz.token_set_ratio(left, right) / 100
+
+    def _match_from_lookup(
+        self, candidate: str, lookup: dict[str, str], normalized_lookup: dict[str, str]
+    ) -> tuple[str | None, str | None]:
+        normalized_candidate = self._normalize_text(candidate)
+
+        if normalized_candidate in normalized_lookup:
+            original = normalized_lookup[normalized_candidate]
+            return original, lookup[original]
+
+        best_match: str | None = None
+        best_score = 0.0
+
+        for original in lookup:
+            normalized_original = self._normalize_text(original)
+            score = self._similarity(normalized_candidate, normalized_original)
+
+            if score > best_score:
+                best_match = original
+                best_score = score
+
+        if best_match and best_score >= self.similarity_threshold:
+            return best_match, lookup[best_match]
+
+        return None, None
+
+    def match_author(self, candidate: str) -> tuple[str | None, str | None]:
+        return self._match_from_lookup(
+            candidate, self.faculty_lookup["raw"], self.faculty_lookup["normalized"]
+        )
+
+    def collect_matches(self, names: list[str]) -> tuple[list[str], list[str]]:
+        matched_names: set[str] = set()
+        matched_emails: set[str] = set()
+
+        for name in names:
+            matched_name, matched_email = self.match_author(name)
+            if matched_name:
+                matched_names.add(matched_name)
+            if matched_email:
+                matched_emails.add(matched_email)
+
+        return sorted(matched_names), sorted(matched_emails)

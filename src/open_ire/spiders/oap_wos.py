@@ -1,20 +1,25 @@
 import datetime
 import json
 import os
+import re
 from collections.abc import AsyncIterator, Generator
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
+from dateutil.parser import parse
+from scrapy import Spider
 from scrapy.http import Request, Response
 
+from open_ire.faculty import AuthorMatcher
 from open_ire.items import ArticleItem
 from open_ire.settings import OAP_WOS_ORGANIZATION
-from open_ire.spiders.oap_base import OAPBaseSpider
 
 
-class OAPWoSSpider(OAPBaseSpider):
+class OAPWoSSpider(Spider):
     name = "oap_wos"
     base_url = "https://api.clarivate.com/api/wos/"
+    page_size = 25
 
     def __init__(
         self,
@@ -24,7 +29,11 @@ class OAPWoSSpider(OAPBaseSpider):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().__init__(faculty_csv, *args, **kwargs)
+        super().__init__(*args, **kwargs)
+
+        if not faculty_csv:
+            msg = "The 'faculty_csv' argument is required."
+            raise ValueError(msg)
 
         current_year = datetime.date.today().year
         self.organization = OAP_WOS_ORGANIZATION
@@ -45,7 +54,34 @@ class OAPWoSSpider(OAPBaseSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
+        self.author_matcher = AuthorMatcher(faculty_csv, "wos")
         self.query = self._build_query()
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+        match = re.search(r"(19|20)\d{2}", str(value))
+        if match:
+            return int(match.group())
+        return None
 
     @staticmethod
     def _validate_year(raw_year: str, field_name: str) -> int:
@@ -91,7 +127,7 @@ class OAPWoSSpider(OAPBaseSpider):
         return [value]
 
     def _build_query(self) -> str:
-        authors = list(self.faculty_lookup["raw"].keys())
+        authors = list(self.author_matcher.faculty_lookup["raw"].keys())
         author_clause = " OR ".join(f'"{name.title()}"' for name in authors)
 
         return (
@@ -161,7 +197,7 @@ class OAPWoSSpider(OAPBaseSpider):
 
         names = self._as_list(summary.get("names", {}).get("name"))
         authors = self._extract_authors(names)
-        matched_names, matched_emails = self._collect_matches(authors)
+        matched_names, matched_emails = self.author_matcher.collect_matches(authors)
 
         pub_info = summary.get("pub_info", {})
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
@@ -191,7 +227,7 @@ class OAPWoSSpider(OAPBaseSpider):
                 pub_info.get("coverdate") or pub_info.get("sortdate")
             ),
             reference=str(external_id),
-            repository=self.repository_name,
+            repository=self.name,
             title=title,
             url=doi,
         )
