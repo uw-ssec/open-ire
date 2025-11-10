@@ -15,7 +15,6 @@ class OAPBaseSpider(Spider):
     name = "oap_base"
     page_size = 25
     similarity_threshold = 0.9
-    custom_settings = {"ITEM_PIPELINES": {"open_ire.pipelines.OAPPublicationSQLModelPipeline": 500}}  # noqa: RUF012
 
     def __init__(self, faculty_csv: str, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

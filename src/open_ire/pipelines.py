@@ -1,6 +1,5 @@
 import logging
 import mimetypes
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Self
 from urllib.parse import unquote, urlparse
@@ -23,8 +22,8 @@ from open_ire.errors import (
     DatabaseDuplicateItemError,
     DuplicateItemError,
 )
-from open_ire.items import ArticleItem, OAPPublicationItem
-from open_ire.models import Article, ArticleFile, ArticleFileReference, OAPPublication
+from open_ire.items import ArticleItem
+from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.sharepoint import SharePoint
 
 logger = logging.getLogger(__name__)
@@ -426,81 +425,5 @@ class SharePointPipeline:
             store_urls.append(await self._save_file(file_data, spider))
 
         item.store_urls = store_urls
-
-        return item
-
-
-class OAPPublicationSQLModelPipeline:
-    """Persist OAP publication items into the configured SQLite database."""
-
-    def __init__(self, db_path: str) -> None:
-        self.db_url = f"sqlite:///{db_path}"
-        self.engine = create_engine(self.db_url)
-
-    @classmethod
-    def from_crawler(cls, crawler: Crawler) -> Self:
-        db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
-        if not db_path:
-            conf = "OPEN_IRE_DATABASE_FILE"
-            raise ConfigurationError(conf)
-
-        parent_dir = Path(db_path).parent
-        if not parent_dir.exists():
-            parent_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("Created OPEN_IRE database directory at %s", parent_dir)
-
-        return cls(db_path)
-
-    @staticmethod
-    def _find_existing(session: Session, item: OAPPublicationItem) -> OAPPublication | None:
-        statement = select(OAPPublication).where(
-            OAPPublication.repository == item.repository,
-            OAPPublication.external_id == item.external_id,
-        )
-        return session.exec(statement).first()
-
-    @staticmethod
-    def _update_existing(
-        record: OAPPublication,
-        item_data: dict[str, Any],
-        session: Session,
-    ) -> None:
-        for key, value in item_data.items():
-            if key not in {"id", "created_at"}:
-                setattr(record, key, value)
-
-        record.updated_at = datetime.now()
-        session.add(record)
-
-    @staticmethod
-    def _create_new(session: Session, item_data: dict[str, Any]) -> None:
-        session.add(OAPPublication(**item_data))
-
-    def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
-        SQLModel.metadata.create_all(self.engine)
-
-    def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
-        self.engine.dispose()
-
-    def process_item(self, item: Any, spider: Spider) -> Any:
-        if not isinstance(item, OAPPublicationItem):
-            return item
-
-        item.updated_at = datetime.now()
-        item_data = item.model_dump()
-
-        with Session(self.engine) as session:
-            try:
-                if existing := self._find_existing(session, item):
-                    self._update_existing(existing, item_data, session)
-                else:
-                    self._create_new(session, item_data)
-
-                session.commit()
-            except IntegrityError:
-                session.rollback()
-                spider.logger.warning(
-                    "Duplicate OAP publication skipped: %s (%s)", item.external_id, item.repository
-                )
 
         return item
