@@ -2,9 +2,10 @@ import json
 import pytest
 from pathlib import Path
 from scrapy.http import HtmlResponse, Request
+from typing import Any
 from urllib.parse import urlparse, parse_qs
 
-from open_ire.items import OAPPublicationItem
+from open_ire.items import ArticleItem
 from open_ire.spiders.oap_openalex import OAPOpenAlexSpider
 
 @pytest.fixture
@@ -15,6 +16,22 @@ Amina ElSayed,Amina,ElSayed,amina.elsayed@example.edu
     csv_path = tmp_path / "dummy.csv"
     csv_path.write_text(csv_content)
     return csv_path
+
+@pytest.fixture
+def dummy_publication() -> dict[str, Any]:
+    return {
+        "id": "W123",
+        "title": "A Study on Testing",
+        "publication_date": "2022-05-15",
+        "primary_location": {
+            "source": {"display_name": "Journal of Testing"}
+        },
+        "authorships": [
+            {"author": {"display_name": "Alice Smith"}},
+            {"author": {"display_name": "Bob Jones"}}
+        ],
+        "doi": "https://doi.org/10.1234/test.doi"
+    }
 
 class TestOAPOpenAlexSpider:
     def test_extract_journal_name(self) -> None:
@@ -98,22 +115,11 @@ class TestOAPOpenAlexSpider:
         assert requests[0].url.startswith(spider.base_url + "/works")
         assert requests[1].url.startswith(spider.base_url + "/works")
 
-    def test_parse_publications(self, dummy_csv) -> None:
+    def test_parse_publications(self, dummy_csv, dummy_publication) -> None:
         spider = OAPOpenAlexSpider(faculty_csv=str(dummy_csv))
         publication_data = {
             "results": [
-                {
-                    "id": "W123",
-                    "title": "A Study on Testing",
-                    "primary_location": {
-                        "source": {"display_name": "Journal of Testing"}
-                    },
-                    "authorships": [
-                        {"author": {"display_name": "Alice Smith"}},
-                        {"author": {"display_name": "Bob Jones"}}
-                    ],
-                    "doi": "10.1234/test.doi"
-                },
+                {**dummy_publication,},
                 "invalid publication"
             ],
             "meta": {
@@ -127,29 +133,17 @@ class TestOAPOpenAlexSpider:
         )
 
         emitted = list(spider.parse_publications(response, author_id="A1"))
-        assert isinstance(emitted[0], OAPPublicationItem)
+        assert isinstance(emitted[0], ArticleItem)
         assert isinstance(emitted[1], Request)
 
-    def test_build_item(self, dummy_csv) -> None:
+    def test_build_item(self, dummy_csv, dummy_publication) -> None:
         spider = OAPOpenAlexSpider(faculty_csv=str(dummy_csv))
-        publication = {
-            "id": "W123",
-            "title": "A Study on Testing",
-            "primary_location": {
-                "source": {"display_name": "Journal of Testing"}
-            },
-            "authorships": [
-                {"author": {"display_name": "Alice Smith"}},
-                {"author": {"display_name": "Bob Jones"}}
-            ],
-            "doi": "10.1234/test.doi"
-        }
 
-        item = spider._build_item(publication)
-        assert isinstance(item, OAPPublicationItem)
-        assert item.doi == "10.1234/test.doi"
+        item = spider._build_item(dummy_publication)
+        assert isinstance(item, ArticleItem)
+        assert item.doi == "https://doi.org/10.1234/test.doi"
         assert item.title == "A Study on Testing"
-        assert item.journal_name == "Journal of Testing"
+        assert item.extra["journal_name"] == "Journal of Testing"
         assert item.authors == "Alice Smith, Bob Jones"
 
     @pytest.mark.asyncio

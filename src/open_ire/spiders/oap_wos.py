@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPPublicationItem
+from open_ire.items import ArticleItem
 from open_ire.settings import OAP_WOS_ORGANIZATION
 from open_ire.spiders.oap_base import OAPBaseSpider
 
@@ -119,9 +119,7 @@ class OAPWoSSpider(OAPBaseSpider):
             cb_kwargs={"page": 1},
         )
 
-    def parse_publications(
-        self, response: Response, page: int
-    ) -> Generator[Request | OAPPublicationItem]:
+    def parse_publications(self, response: Response, page: int) -> Generator[Request | ArticleItem]:
         data = json.loads(response.text or "{}")
         records = self._as_list(
             data.get("Data", {}).get("Records", {}).get("records", {}).get("REC")
@@ -146,7 +144,7 @@ class OAPWoSSpider(OAPBaseSpider):
                 cb_kwargs={"page": next_page},
             )
 
-    def _build_item(self, publication: Any) -> OAPPublicationItem | None:
+    def _build_item(self, publication: Any) -> ArticleItem | None:
         if not isinstance(publication, dict):
             return None
 
@@ -177,18 +175,23 @@ class OAPWoSSpider(OAPBaseSpider):
             None,
         )
 
-        return OAPPublicationItem(
+        return ArticleItem(
             authors=self._join_or_none(authors),
             doi=doi,
-            external_id=str(external_id),
-            journal_name=self._extract_journal_name(titles),
-            matched_author=self._join_or_none(matched_names),
-            matched_email=self._join_or_none(matched_emails),
+            extra={
+                "journal_name": self._extract_journal_name(titles),
+                "matched_author": self._join_or_none(matched_names),
+                "matched_email": self._join_or_none(matched_emails),
+                "publication_type": summary.get("doctypes", {}).get("doctype"),
+                "publication_year": self._parse_year(
+                    pub_info.get("pubyear") or pub_info.get("coverdate")
+                ),
+            },
             publication_date=self._parse_date(
                 pub_info.get("coverdate") or pub_info.get("sortdate")
             ),
-            publication_type=summary.get("doctypes", {}).get("doctype"),
-            publication_year=self._parse_year(pub_info.get("pubyear") or pub_info.get("coverdate")),
+            reference=str(external_id),
             repository=self.repository_name,
             title=title,
+            url=doi,
         )

@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPPublicationItem
+from open_ire.items import ArticleItem
 from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
 from open_ire.spiders.oap_base import OAPBaseSpider
 
@@ -110,7 +110,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
     def parse_publications(
         self, response: Response, author_id: str
-    ) -> Generator[Request | OAPPublicationItem, None, None]:
+    ) -> Generator[Request | ArticleItem, None, None]:
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
 
@@ -125,7 +125,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         if next_cursor := meta.get("next_cursor"):
             yield from self._request_publications(author_id, cursor=next_cursor)
 
-    def _build_item(self, publication: dict[str, Any]) -> OAPPublicationItem | None:
+    def _build_item(self, publication: dict[str, Any]) -> ArticleItem | None:
         external_id = publication.get("id")
         if not external_id:
             return None
@@ -136,19 +136,31 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
+        publication_date = (
+            self._parse_date(publication.get("publication_date"))
+            or self._parse_date(publication.get("publication_year"))
+            or None
+        )
 
-        return OAPPublicationItem(
+        if not publication_date:
+            message = "Publication date is required"
+            raise ValueError(message)
+
+        return ArticleItem(
             authors=self._join_or_none(author_names),
             doi=publication.get("doi"),
-            external_id=str(external_id),
-            is_open_access=is_oa,
-            journal_name=self._extract_journal_name(publication),
-            matched_author=self._join_or_none(matched_names),
-            matched_email=self._join_or_none(matched_emails),
-            oa_status=oa_status,
+            extra={
+                "is_open_access": is_oa,
+                "journal_name": self._extract_journal_name(publication),
+                "matched_author": self._join_or_none(matched_names),
+                "matched_email": self._join_or_none(matched_emails),
+                "oa_status": oa_status,
+                "publication_type": publication.get("type"),
+                "publication_year": self._parse_year(publication.get("publication_year")),
+            },
             publication_date=self._parse_date(publication.get("publication_date")),
-            publication_type=publication.get("type"),
-            publication_year=self._parse_year(publication.get("publication_year")),
+            reference=str(external_id),
             repository=self.repository_name,
             title=publication.get("title"),
+            url=publication.get("doi"),
         )

@@ -5,7 +5,7 @@ from scrapy.http import HtmlResponse, Request
 from typing import Any
 from urllib.parse import urlparse, parse_qs
 
-from open_ire.items import OAPPublicationItem
+from open_ire.items import ArticleItem
 from open_ire.spiders.oap_wos import OAPWoSSpider
 
 @pytest.fixture
@@ -79,29 +79,29 @@ class TestOAPWoSSpider:
     def test_build_item(self, dummy_spider: OAPWoSSpider, dummy_record: dict[str, Any]) -> None:
         item = dummy_spider._build_item(dummy_record)
 
-        assert isinstance(item, OAPPublicationItem)
+        assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
-        assert item.publication_year == 2020
+        assert item.extra["publication_year"] == 2020
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == "ElSayed, A, Doe, J"
-        assert item.matched_author is None
+        assert item.extra["matched_author"] is None
 
     def test_parse_publications(self, dummy_spider: OAPWoSSpider, dummy_response: HtmlResponse) -> None:
         results = list(dummy_spider.parse_publications(dummy_response, page=1))
 
-        items = [res for res in results if isinstance(res, OAPPublicationItem)]
+        items = [res for res in results if isinstance(res, ArticleItem)]
         requests = [res for res in results if isinstance(res, Request)]
 
         assert len(items) == 1
         assert len(requests) == 0
 
         item = items[0]
-        assert item.external_id == "WOS:000123456789"
+        assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
-        assert item.publication_year == 2020
+        assert item.extra["publication_year"] == 2020
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == "ElSayed, A, Doe, J"
-        assert item.matched_author is None
+        assert item.extra["matched_author"] is None
 
     def test_validate_year(self, dummy_spider: OAPWoSSpider) -> None:
         assert dummy_spider._validate_year("2020", "Some Field") == 2020
