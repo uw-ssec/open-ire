@@ -38,6 +38,7 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
+    "pytest-snapshot",
     "pytest-xdist",
     "pytest",
     "types-python-dateutil",
