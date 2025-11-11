@@ -1,6 +1,7 @@
 exclude: |
   (?x)^(
     docs/conf.py|
+    tests/fixtures/|
     pixi.lock
   )
 
