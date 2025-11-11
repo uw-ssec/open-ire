@@ -17,7 +17,19 @@ USER_AGENT = requests_utils.default_user_agent()
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
 
-# Configure item pipelines
+# ============================================================================
+# MIDDLEWARES
+# ============================================================================
+# See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
+SPIDER_MIDDLEWARES = {
+    "open_ire.middlewares.SaveResponsesMiddleware": None,  # disabled
+}
+
+SAVE_RESPONSES_DIR = "tests/fixtures/responses"
+
+# =============================================================================
+# ITEM PIPELINES
+# =============================================================================
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
     "open_ire.pipelines.DuplicatesPipeline": 100,
