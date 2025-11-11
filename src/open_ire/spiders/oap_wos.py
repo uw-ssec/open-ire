@@ -2,38 +2,34 @@ import datetime
 import json
 import os
 import re
-from collections.abc import AsyncIterator, Generator
+from collections.abc import Generator
 from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
-from scrapy import Spider
 from scrapy.http import Request, Response
 
-from open_ire.faculty import AuthorMatcher
+from open_ire.faculty import AuthorMatcher, FacultyRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import OAP_WOS_ORGANIZATION
+from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPWoSSpider(Spider):
+class OAPWoSSpider(FacultySearchSpider):
     name = "oap_wos"
     base_url = "https://api.clarivate.com/api/wos/"
     page_size = 25
 
     def __init__(
         self,
-        faculty_csv: str,
         start_year: str = "2018",
         end_year: str | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-
-        if not faculty_csv:
-            msg = "The 'faculty_csv' argument is required."
-            raise ValueError(msg)
+        faculty_csv = kwargs["faculty_csv"]
 
         current_year = datetime.date.today().year
         self.organization = OAP_WOS_ORGANIZATION
@@ -55,7 +51,10 @@ class OAPWoSSpider(Spider):
 
         self.headers = {"X-ApiKey": self.api_key}
         self.author_matcher = AuthorMatcher(faculty_csv, "wos")
-        self.query = self._build_query()
+
+    def _get_author_name(self, record: FacultyRecord) -> str:
+        """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
+        return record.wos_name
 
     @staticmethod
     def _join_or_none(values: list[str]) -> str | None:
@@ -126,36 +125,37 @@ class OAPWoSSpider(Spider):
 
         return [value]
 
-    def _build_query(self) -> str:
-        authors = list(self.author_matcher.faculty_lookup["raw"].keys())
-        author_clause = " OR ".join(f'"{name.title()}"' for name in authors)
-
+    def _build_query(self, term: str) -> str:
         return (
-            f'AU=({author_clause}) AND OG=("{self.organization}") '
+            f'AU=("{term}") AND OG=("{self.organization}") '
             f"AND PY=({self.start_year}-{self.end_year})"
         )
 
-    def _build_params(self, page: int) -> dict[str, Any]:
+    def _build_params(self, query: str, page: int) -> dict[str, Any]:
         return {
             "count": self.page_size,
             "databaseId": "WOS",
             "page": page,
             "sortField": "PY+D",
-            "usrQuery": self.query,
+            "usrQuery": query,
         }
 
-    async def start(self) -> AsyncIterator[Request]:
-        params = self._build_params(page=1)
+    def build_search_request(self, term: str) -> Request:
+        """Build a search request for a single author term."""
+        query = self._build_query(term)
+        params = self._build_params(query, page=1)
         url = f"{self.base_url}?{urlencode(params)}"
 
-        yield Request(
+        return Request(
             url,
             headers=self.headers,
             callback=self.parse_publications,
-            cb_kwargs={"page": 1},
+            cb_kwargs={"query": query, "page": 1},
         )
 
-    def parse_publications(self, response: Response, page: int) -> Generator[Request | ArticleItem]:
+    def parse_publications(
+        self, response: Response, query: str, page: int
+    ) -> Generator[Request | ArticleItem, None, None]:
         data = json.loads(response.text or "{}")
         records = self._as_list(
             data.get("Data", {}).get("Records", {}).get("records", {}).get("REC")
@@ -170,14 +170,14 @@ class OAPWoSSpider(Spider):
 
         if (page - 1) * self.page_size + emitted < total:
             next_page = page + 1
-            params = self._build_params(page=next_page)
+            params = self._build_params(query, page=next_page)
             next_url = f"{self.base_url}?{urlencode(params)}"
 
             yield Request(
                 next_url,
                 headers=self.headers,
                 callback=self.parse_publications,
-                cb_kwargs={"page": next_page},
+                cb_kwargs={"query": query, "page": next_page},
             )
 
     def _build_item(self, publication: Any) -> ArticleItem | None:

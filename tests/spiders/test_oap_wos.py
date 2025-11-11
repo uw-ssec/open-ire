@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qs
 from open_ire.items import ArticleItem
 from open_ire.spiders.oap_wos import OAPWoSSpider
 
+
 @pytest.fixture
 def dummy_csv(tmp_path: Path) -> Path:
     csv_content = """Full Name,FirstName,LastName,Email
@@ -16,6 +17,7 @@ Amina ElSayed,Amina,ElSayed,amina.elsayed@example.edu
     csv_path = tmp_path / "dummy.csv"
     csv_path.write_text(csv_content)
     return csv_path
+
 
 @pytest.fixture
 def dummy_record() -> dict[str, Any]:
@@ -44,36 +46,25 @@ def dummy_record() -> dict[str, Any]:
         },
         "dynamic_data": {
             "cluster_related": {
-                "identifiers": {
-                    "identifier": [{"type": "doi", "value": "10.1000/sampledoi"}]
-                }
+                "identifiers": {"identifier": [{"type": "doi", "value": "10.1000/sampledoi"}]}
             }
         },
     }
 
-@pytest.fixture
-def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
-    json_body = {
-        "Data": {
-            "Records": {
-                "records": {
-                    "REC": [dummy_record]
-                }
-            }
-        }
-    }
-    body_str = json.dumps(json_body)
-    response = HtmlResponse(
-        url="http://example.com/api",
-        body=body_str,
-        encoding="utf-8"
-    )
-    return response
 
 @pytest.fixture
-def dummy_spider(dummy_csv: Path, monkeypatch) -> OAPWoSSpider:
+def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
+    json_body = {"Data": {"Records": {"records": {"REC": [dummy_record]}}}}
+    body_str = json.dumps(json_body)
+    response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+    return response
+
+
+@pytest.fixture
+def spider(dummy_csv: Path, monkeypatch) -> OAPWoSSpider:
     monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
     return OAPWoSSpider(faculty_csv=str(dummy_csv), start_year="2020", end_year="2021")
+
 
 class TestOAPWoSSpider:
     def test_build_item(self, dummy_spider: OAPWoSSpider, dummy_record: dict[str, Any]) -> None:
@@ -86,9 +77,9 @@ class TestOAPWoSSpider:
         assert item.authors == "ElSayed, A, Doe, J"
         assert item.extra["matched_author"] is None
 
-    def test_parse_publications(self, dummy_spider: OAPWoSSpider, dummy_response: HtmlResponse) -> None:
-        results = list(dummy_spider.parse_publications(dummy_response, page=1))
-
+    def test_parse_publications(self, spider: OAPWoSSpider, dummy_response: HtmlResponse) -> None:
+        query = spider._build_query("Kemi Adeyemi")
+        results = list(spider.parse_publications(dummy_response, query, page=1))
         items = [res for res in results if isinstance(res, ArticleItem)]
         requests = [res for res in results if isinstance(res, Request)]
 
@@ -108,11 +99,7 @@ class TestOAPWoSSpider:
         with pytest.raises(ValueError):
             dummy_spider._validate_year("NotAYear", "Some Field")
 
-    @pytest.mark.asyncio
-    async def test_start(self, dummy_spider: OAPWoSSpider) -> None:
-        requests = []
-        async for req in dummy_spider.start():
-            requests.append(req)
+    def test_build_search_request(self, spider: OAPWoSSpider) -> None:
+        request = spider.build_search_request("Adeyemi Kemi")
 
-        assert len(requests) == 1
-        assert requests[0].url.startswith(dummy_spider.base_url + "?count=25&databaseId=WOS")
+        assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
