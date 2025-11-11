@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from open_ire.items import ArticleItem
-from open_ire.spiders.oap_wos import OAPWoSSpider
+from open_ire.spiders.wos import WoSSpider
 
 
 @pytest.fixture
@@ -61,14 +61,14 @@ def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
 
 
 @pytest.fixture
-def spider(dummy_csv: Path, monkeypatch) -> OAPWoSSpider:
+def spider(dummy_csv: Path, monkeypatch) -> WoSSpider:
     monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
-    return OAPWoSSpider(faculty_csv=str(dummy_csv), start_year="2020", end_year="2021")
+    return WoSSpider(faculty_csv=str(dummy_csv), start_year="2020", end_year="2021")
 
 
-class TestOAPWoSSpider:
-    def test_build_item(self, dummy_spider: OAPWoSSpider, dummy_record: dict[str, Any]) -> None:
-        item = dummy_spider._build_item(dummy_record)
+class TestWoSSpider:
+    def test_build_item(self, spider: WoSSpider, dummy_record: dict[str, Any]) -> None:
+        item = spider._build_item(dummy_record)
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
@@ -77,7 +77,7 @@ class TestOAPWoSSpider:
         assert item.authors == "ElSayed, A, Doe, J"
         assert item.extra["matched_author"] is None
 
-    def test_parse_publications(self, spider: OAPWoSSpider, dummy_response: HtmlResponse) -> None:
+    def test_parse_publications(self, spider: WoSSpider, dummy_response: HtmlResponse) -> None:
         query = spider._build_query("Kemi Adeyemi")
         results = list(spider.parse_publications(dummy_response, query, page=1))
         items = [res for res in results if isinstance(res, ArticleItem)]
@@ -94,12 +94,12 @@ class TestOAPWoSSpider:
         assert item.authors == "ElSayed, A, Doe, J"
         assert item.extra["matched_author"] is None
 
-    def test_validate_year(self, dummy_spider: OAPWoSSpider) -> None:
-        assert dummy_spider._validate_year("2020", "Some Field") == 2020
+    def test_validate_year(self, spider: WoSSpider) -> None:
+        assert spider._validate_year("2020", "Some Field") == 2020
         with pytest.raises(ValueError):
-            dummy_spider._validate_year("NotAYear", "Some Field")
+            spider._validate_year("NotAYear", "Some Field")
 
-    def test_build_search_request(self, spider: OAPWoSSpider) -> None:
+    def test_build_search_request(self, spider: WoSSpider) -> None:
         request = spider.build_search_request("Adeyemi Kemi")
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")

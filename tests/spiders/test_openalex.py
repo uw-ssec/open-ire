@@ -6,18 +6,18 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from open_ire.items import ArticleItem
-from open_ire.spiders.oap_openalex import OAPOpenAlexSpider
+from open_ire.spiders.openalex import OpenAlexSpider
 
 
 @pytest.fixture
-def spider(tmp_path: Path) -> OAPOpenAlexSpider:
+def spider(tmp_path: Path) -> OpenAlexSpider:
     csv_content = """Full Name,FirstName,LastName,Email
 Kemi Adeyemi,Kemi,Adeyemi,kadeyemi@uw.edu
 """
     csv_path = tmp_path / "adeyemi.csv"
     csv_path.write_text(csv_content)
 
-    return OAPOpenAlexSpider(faculty_csv=str(csv_path))
+    return OpenAlexSpider(faculty_csv=str(csv_path))
 
 
 @pytest.fixture
@@ -35,23 +35,23 @@ def dummy_publication() -> dict[str, Any]:
     }
 
 
-class TestOAPOpenAlexSpider:
+class TestOpenAlexSpider:
     def test_extract_journal_name(self) -> None:
         primary_location = {"source": {"display_name": "Journal of Testing"}}
         locations = [{"source": {"display_name": "Alternate Journal Name"}}]
         publication_with_primary = {"primary_location": primary_location, "locations": locations}
         publication_without_primary = {"primary_location": None, "locations": locations}
 
-        journal_name = OAPOpenAlexSpider._extract_journal_name(publication_with_primary)
+        journal_name = OpenAlexSpider._extract_journal_name(publication_with_primary)
         assert journal_name == "Journal of Testing"
 
-        journal_name = OAPOpenAlexSpider._extract_journal_name(publication_without_primary)
+        journal_name = OpenAlexSpider._extract_journal_name(publication_without_primary)
         assert journal_name == "Alternate Journal Name"
 
-        journal_name = OAPOpenAlexSpider._extract_journal_name({})
+        journal_name = OpenAlexSpider._extract_journal_name({})
         assert journal_name == None
 
-        journal_name = OAPOpenAlexSpider._extract_journal_name(
+        journal_name = OpenAlexSpider._extract_journal_name(
             {"primary_location": "invalid data", "locations": ["invalid location"]}
         )
         assert journal_name == None
@@ -66,10 +66,10 @@ class TestOAPOpenAlexSpider:
             ]
         }
 
-        authors = OAPOpenAlexSpider._extract_authors(publication)
+        authors = OpenAlexSpider._extract_authors(publication)
         assert authors == ["Alice Smith", "Bob Jones"]
 
-        authors = OAPOpenAlexSpider._extract_authors({})
+        authors = OpenAlexSpider._extract_authors({})
         assert authors == []
 
     @pytest.mark.parametrize(

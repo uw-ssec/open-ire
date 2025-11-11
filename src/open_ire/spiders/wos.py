@@ -12,12 +12,12 @@ from scrapy.http import Request, Response
 
 from open_ire.faculty import AuthorMatcher, FacultyRecord
 from open_ire.items import ArticleItem
-from open_ire.settings import OAP_WOS_ORGANIZATION
+from open_ire.settings import WOS_ORGANIZATION
 from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPWoSSpider(FacultySearchSpider):
-    name = "oap_wos"
+class WoSSpider(FacultySearchSpider):
+    name = "wos"
     base_url = "https://api.clarivate.com/api/wos/"
     page_size = 25
 
@@ -32,7 +32,7 @@ class OAPWoSSpider(FacultySearchSpider):
         faculty_csv = kwargs["faculty_csv"]
 
         current_year = datetime.date.today().year
-        self.organization = OAP_WOS_ORGANIZATION
+        self.organization = WOS_ORGANIZATION
         self.start_year = self._validate_year(start_year, "start_year")
 
         if end_year is None:

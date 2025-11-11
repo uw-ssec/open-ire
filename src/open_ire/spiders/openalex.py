@@ -9,12 +9,12 @@ from scrapy.http import Request, Response
 
 from open_ire.faculty import AuthorMatcher
 from open_ire.items import ArticleItem
-from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
+from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPOpenAlexSpider(FacultySearchSpider):
-    name = "oap_openalex"
+class OpenAlexSpider(FacultySearchSpider):
+    name = "openalex"
     base_url = "https://api.openalex.org"
     page_size = 25
 
@@ -34,10 +34,8 @@ class OAPOpenAlexSpider(FacultySearchSpider):
             raise ValueError(msg)
 
         self.start_date = start_date
-        self.institution_id = OAP_OPENALEX_INSTITUTION_ID
-        self.request_headers: dict[str, str] = {
-            "User-Agent": f"mailto:{OAP_OPENALEX_CONTACT_EMAIL}"
-        }
+        self.institution_id = OPENALEX_INSTITUTION_ID
+        self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
         self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
 
     @staticmethod
