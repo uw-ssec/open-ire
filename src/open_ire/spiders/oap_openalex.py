@@ -1,34 +1,36 @@
 import json
-from collections.abc import AsyncIterator, Generator
+from collections.abc import Generator
 from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
-from scrapy import Spider
 from scrapy.http import Request, Response
 
 from open_ire.faculty import AuthorMatcher
 from open_ire.items import ArticleItem
 from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
+from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPOpenAlexSpider(Spider):
+class OAPOpenAlexSpider(FacultySearchSpider):
     name = "oap_openalex"
     base_url = "https://api.openalex.org"
     page_size = 25
 
     def __init__(
         self,
-        faculty_csv: str,
         start_date: str = "2018-01-01",
         *args: Any,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
 
+        # The 'faculty_csv' argument is passed to the parent class,
+        # but we need it to initialize the AuthorMatcher.
+        faculty_csv = kwargs.get("faculty_csv")
         if not faculty_csv:
-            msg = "The 'faculty_csv' argument is required."
+            msg = "The 'faculty_csv' argument is required for the OpenAlex spider."
             raise ValueError(msg)
 
         self.start_date = start_date
@@ -37,7 +39,6 @@ class OAPOpenAlexSpider(Spider):
             "User-Agent": f"mailto:{OAP_OPENALEX_CONTACT_EMAIL}"
         }
         self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
-        self.faculty_names = list(self.author_matcher.faculty_lookup["raw"].keys())
 
     @staticmethod
     def _join_or_none(values: list[str]) -> str | None:
@@ -111,20 +112,19 @@ class OAPOpenAlexSpider(Spider):
             cb_kwargs={"author_id": author_id},
         )
 
-    async def start(self) -> AsyncIterator[Request]:
-        """Generate initial requests to search for authors by name within the institution."""
-        for name in self.faculty_names:
-            params = {
-                "filter": f"display_name.search:{name},last_known_institutions.id:{self.institution_id}",
-                "per_page": str(self.page_size),
-            }
-            url = f"{self.base_url}/authors?{urlencode(params)}"
+    def build_search_request(self, term: str) -> Request:
+        """Build the initial search request for a given author name."""
+        params = {
+            "filter": f"display_name.search:{term},last_known_institutions.id:{self.institution_id}",
+            "per_page": str(self.page_size),
+        }
+        url = f"{self.base_url}/authors?{urlencode(params)}"
 
-            yield Request(
-                url,
-                headers=self.request_headers,
-                callback=self.author_publication_requests,
-            )
+        return Request(
+            url,
+            headers=self.request_headers,
+            callback=self.author_publication_requests,
+        )
 
     def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:
         """Parse author search results and generate publication requests."""
