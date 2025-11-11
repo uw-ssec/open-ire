@@ -163,24 +163,26 @@ all = { features = ["dev", "docs"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
-[tool.pixi.tasks]
-dotenv = "mkdir output && cp .env.example .env"
+[tool.pixi.tasks.dotenv]
+cmd = "mkdir output && cp .env.example .env"
+
+[tool.pixi.tasks.faculty-search]
+args = ["spider", "faculty_csv"]
+cmd = "scrapy crawl {{ spider }} -a faculty_csv={{ faculty_csv }}"
+
+[tool.pixi.tasks.spider]
+args = ["spider"]
+depends-on = [
+    { task = "terms-search", args = ["{{ spider }}", "university of washington", "1"] }
+]
 
 [tool.pixi.tasks.start]
 args = ["spider"]
 cmd = "scrapy crawl {{ spider }}"
 
-[tool.pixi.tasks.spider]
-args = [
-    "spider",
-    { "arg" = "page", "default" = "1" },
-    { "arg" = "terms", "default" = "university of washington" },
-]
+[tool.pixi.tasks.terms-search]
+args = ["spider", "terms", "page"]
 cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
-
-[tool.pixi.tasks.oap]
-args = ["spider", "faculty_file"]
-cmd = "scrapy crawl oap_{{ spider }} -a faculty_csv={{ faculty_file }}"
 
 [tool.pixi.feature.dev.tasks]
 pre-commit = "pre-commit run"
