@@ -49,16 +49,16 @@ pixi install
 
 ### 1. Environment Setup
 
-Copy the example environment file and configure your settings. This step is
-necessary for storing collected files in a Microsoft SharePoint Drive.
-Alternatively, you can disable the `SharePointPipeline` in
-`src/open_ire/settings.py`.
-
 ```bash
 pixi run dotenv
 ```
 
-Edit the `.env` file with your SharePoint credentials:
+This command creates the environment file template `.env` that you then need to
+edit to configure your settings. The only required setting is `ENVIRONMENT`,
+which needs to be set to either `development` or `production`.
+
+To store collected files in a Microsoft SharePoint Drive, you also need to set
+your SharePoint credentials:
 
 ```bash
 SHAREPOINT_TENANT_ID=<your_application_tenant_id>
@@ -66,6 +66,9 @@ SHAREPOINT_CLIENT_ID=<your_application_id>
 SHAREPOINT_SITE_ID=<your_sharepoint_site_id>
 SHAREPOINT_CLIENT_SECRET=<your_application_client_secret>
 ```
+
+Alternatively, you can disable the `SharePointPipeline` in
+`src/open_ire/settings.py`.
 
 ### 2. Activate the Environment
 
@@ -83,22 +86,43 @@ pixi run <command>
 
 ### 3. Development Setup
 
-For detailed development setup including pre-commit hooks, please see
+For detailed development setup, including pre-commit hooks, please see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Running
 
-This project includes several spiders for crawling open-access repositories. Run
-a spider with:
+This project includes spiders for crawling repositories using two main methods:
+a list of keywords or a CSV file of faculty names.
+
+### Search by Keyword
+
+To run a spider with a custom list of search terms, use the `terms-search`
+command:
 
 ```bash
-pixi run spider <spider_name>
+pixi run terms-search <spider_name> "term1,term2,..." [<page>]
 ```
 
-Each spider supports a custom list of terms to include in the search:
+For example, to search the `eric` repository:
 
 ```bash
-pixi run spider <spider_name> --terms "term1,term2,..."
+pixi run terms-search eric "ocean acidification,coral bleaching"
+```
+
+### Search by Faculty
+
+To run a spider that supports searching by author against a list of faculty, use
+the `faculty-search` command. This requires a CSV file with `FirstName`,
+`LastName`, and `Email` columns.
+
+```bash
+pixi run faculty-search <spider_name> <path_to_csv>
+```
+
+For example, to search `openalex` using a faculty file:
+
+```bash
+pixi run faculty-search openalex data/faculty.csv
 ```
 
 ## Contributing
