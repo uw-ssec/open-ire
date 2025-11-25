@@ -10,11 +10,13 @@ from pydantic import ValidationError
 from requests import utils as requests_utils
 from scrapy import Spider
 from scrapy.crawler import Crawler
+from scrapy.exceptions import DropItem
 from scrapy.http import Request, Response
 from scrapy.http.request import NO_CALLBACK
 from scrapy.pipelines.files import FilesPipeline
 from scrapy.pipelines.media import MediaPipeline
 from scrapy.utils.defer import maybe_deferred_to_future
+from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -34,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 class DuplicatesPipeline:
     """
-    Drops duplicate items for a given spider using the `reference` field.
+    Drops duplicate items for a given spider session using the `reference` field.
     """
 
     def __init__(self) -> None:
@@ -48,15 +50,22 @@ class DuplicatesPipeline:
         return item
 
 
-class SQLModelPipeline:
-    """
-    Persist ArticleItem metadata + downloaded-file info into SQLite via SQLModel.
-    """
+class BaseSQLModelPipeline:
+    """Base setup for pipelines that interact with the SQLite database."""
 
-    def __init__(self, db_path: str, files_base_path: str) -> None:
+    def __init__(self, db_path: str, files_base_path: str | None = None) -> None:
+        self.engine: Engine | None = None
+        self.db_path = db_path
         self.files_base_path = files_base_path
-        self.db_url = f"sqlite:///{db_path}"
-        self.engine = create_engine(self.db_url, connect_args={"check_same_thread": False})
+
+    @staticmethod
+    def find_existing_article(session: Session, item: ArticleItem) -> Article | None:
+        return session.exec(
+            select(Article).where(
+                Article.repository == item.repository,
+                Article.reference == item.reference,
+            )
+        ).first()
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
@@ -76,6 +85,59 @@ class SQLModelPipeline:
 
         return cls(db_path, files_base_path)
 
+    def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
+        if self.engine:
+            return
+
+        self.engine = create_engine(
+            f"sqlite:///{self.db_path}", connect_args={"check_same_thread": False}
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+    def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
+        if self.engine:
+            self.engine.dispose()
+
+
+class SkipExistingPipeline(BaseSQLModelPipeline):
+    """
+    Skips items that already exist in the database.
+
+    Intended to short-circuit file downloads and downstream pipelines when OPEN_IRE_SKIP_EXISTING is enabled.
+    """
+
+    @staticmethod
+    def _should_skip_existing(crawler: Crawler) -> bool:
+        return bool(crawler.settings.getbool("OPEN_IRE_SKIP_EXISTING", False))
+
+    def open_spider(self, spider: Spider) -> None:
+        if not self._should_skip_existing(spider.crawler):
+            return
+
+        super().open_spider(spider)
+
+    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
+        if not self._should_skip_existing(spider.crawler):
+            return item
+
+        with Session(self.engine) as session:
+            if self.find_existing_article(session, item) is not None:
+                spider.logger.info(
+                    "Skipping existing article '%s' from repository '%s'.",
+                    item.reference,
+                    item.repository,
+                )
+                msg = "Article already exists in database."
+                raise DropItem(msg)
+
+        return item
+
+
+class SQLModelPipeline(BaseSQLModelPipeline):
+    """
+    Persist ArticleItem metadata + downloaded-file info into SQLite via SQLModel.
+    """
+
     @staticmethod
     def _get_article_file_references(
         item: ArticleItem, spider: Spider
@@ -90,15 +152,6 @@ class SQLModelPipeline:
                 spider.logger.warning("Skipping file reference due to validation error.")
 
         return article_file_refs
-
-    @staticmethod
-    def _find_existing_article(session: Session, item: ArticleItem) -> Article | None:
-        return session.exec(
-            select(Article).where(
-                Article.repository == item.repository,
-                Article.reference == item.reference,
-            )
-        ).first()
 
     @staticmethod
     def _save_article_files(
@@ -118,7 +171,7 @@ class SQLModelPipeline:
                 spider.logger.warning(msg)
 
     def _get_file_size(self, file_path: Path) -> int | None:
-        full_path = Path(self.files_base_path) / file_path
+        full_path = Path(self.files_base_path or "") / file_path
         try:
             if full_path.exists() and full_path.is_file():
                 return full_path.stat().st_size
@@ -146,11 +199,11 @@ class SQLModelPipeline:
 
         return article_files
 
-    def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
-        SQLModel.metadata.create_all(self.engine)
+    def open_spider(self, spider: Spider) -> None:
+        super().open_spider(spider)
 
-    def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
-        self.engine.dispose()
+    def close_spider(self, spider: Spider) -> None:
+        super().close_spider(spider)
 
     def _update_existing_article(
         self,
@@ -211,7 +264,7 @@ class SQLModelPipeline:
         )
 
         with Session(self.engine) as session:
-            if existing_article := self._find_existing_article(session, item):
+            if existing_article := self.find_existing_article(session, item):
                 self._update_existing_article(
                     spider,
                     session,

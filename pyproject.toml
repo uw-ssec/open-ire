@@ -167,8 +167,11 @@ docs = { features = ["docs"], solve-group = "default" }
 dotenv = "mkdir output && cp .env.example .env"
 
 [tool.pixi.tasks.start]
-args = ["spider"]
-cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}"
+args = [
+    "spider",
+    { "arg" = "skip_existing", "default" = "" },
+]
+cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if skip_existing %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
 
 [tool.pixi.tasks.spider]
 args = [

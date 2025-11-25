@@ -101,11 +101,13 @@ class TestSQLModelPipeline:
     """Tests the processing and validation logic of the SQLModelPipeline."""
 
     @pytest.fixture
-    def pipeline(self) -> Generator[SQLModelPipeline]:
+    def pipeline(self, spider) -> Generator[SQLModelPipeline]:
         """
         Create a pipeline instance with an in-memory SQLite DB for each test.
         """
         instance = SQLModelPipeline(":memory:", "output")
+        instance.open_spider(spider)
+        assert instance.engine is not None
         SQLModel.metadata.create_all(instance.engine)
         yield instance
         instance.engine.dispose()

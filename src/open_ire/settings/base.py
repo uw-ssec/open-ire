@@ -20,11 +20,14 @@ ROBOTSTXT_OBEY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "open_ire.pipelines.DuplicatesPipeline": 100,
-    "open_ire.pipelines.LocalFilePipeline": 200,
-    "open_ire.pipelines.FileReferencePipeline": 300,
-    "open_ire.pipelines.SharePointPipeline": 400,
-    "open_ire.pipelines.SQLModelPipeline": 500,
+    # Filtering pipelines:
+    "open_ire.pipelines.DuplicatesPipeline": 1,
+    "open_ire.pipelines.SkipExistingPipeline": 2,
+    # Processing pipelines:
+    "open_ire.pipelines.LocalFilePipeline": 100,
+    "open_ire.pipelines.FileReferencePipeline": 200,
+    "open_ire.pipelines.SharePointPipeline": 300,
+    "open_ire.pipelines.SQLModelPipeline": 400,
 }
 DOWNLOAD_HANDLERS = {
     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
@@ -70,6 +73,7 @@ OPEN_IRE_SEARCH_TERMS = [
 SHAREPOINT_BASE_PATH = "open_ire"
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
+OPEN_IRE_SKIP_EXISTING = False
 
 OAP_OPENALEX_INSTITUTION_ID = "i201448701"
 OAP_OPENALEX_CONTACT_EMAIL = "uwtextmine@uw.edu"
