@@ -115,6 +115,7 @@ venv.bak/
 # Spyder project settings
 .spyderproject
 .spyproject
+crawls/
 
 # Rope project settings
 .ropeproject
@@ -136,6 +137,7 @@ dmypy.json
 
 # Local Package
 data/
+logs/*.txt
 version.py
 
 # pixi environments

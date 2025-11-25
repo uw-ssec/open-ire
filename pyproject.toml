@@ -168,7 +168,7 @@ dotenv = "mkdir output && cp .env.example .env"
 
 [tool.pixi.tasks.start]
 args = ["spider"]
-cmd = "scrapy crawl {{ spider }}"
+cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}"
 
 [tool.pixi.tasks.spider]
 args = [
