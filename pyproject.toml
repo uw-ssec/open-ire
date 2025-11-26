@@ -169,9 +169,9 @@ dotenv = "mkdir output && cp .env.example .env"
 [tool.pixi.tasks.start]
 args = [
     "spider",
-    { "arg" = "skip_existing", "default" = "" },
+    { "arg" = "flag", "default" = "" },
 ]
-cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if skip_existing %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
+cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
 
 [tool.pixi.tasks.spider]
 args = [
