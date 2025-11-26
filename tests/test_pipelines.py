@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from scrapy import Spider
+from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
-from sqlmodel import SQLModel, Session, select
+from scrapy.settings import Settings
+from sqlmodel import Session, select
 
 from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference
@@ -15,6 +17,7 @@ from open_ire.pipelines import (
     SQLModelPipeline,
     OAPPublicationSQLModelPipeline,
     SharePointPipeline,
+    SkipExistingPipeline,
 )
 
 
@@ -49,9 +52,7 @@ def item_with_file_references() -> ArticleItem:
         repository="test_repo",
         reference="TEST0002",
         url="https://example.com/article/002",
-        file_reference_urls=[
-            ("https://example.com/article/002", "https://example.com/data.csv")
-        ],
+        file_reference_urls=[("https://example.com/article/002", "https://example.com/data.csv")],
         file_references=[
             {
                 "url": "https://example.com/data.csv",
@@ -66,10 +67,14 @@ def item_with_file_references() -> ArticleItem:
 @pytest.fixture
 def spider() -> Spider:
     """Create a mock spider for testing."""
+    mock_crawler = MagicMock(spec=Crawler)
+    mock_crawler.settings = MagicMock(spec=Settings)
+
     mock_spider = MagicMock(spec=Spider)
     mock_spider.name = "test_spider"
     mock_spider.logger.warning = MagicMock()
     mock_spider.logger.error = MagicMock()
+    mock_spider.crawler = mock_crawler
 
     return mock_spider
 
@@ -97,6 +102,63 @@ class TestDuplicatesPipeline:
         assert spider.name in str(e.value)
 
 
+class TestSkipExistingPipeline:
+    """Tests the SkipExistingPipeline for skipping existing articles."""
+
+    @pytest.fixture
+    def pipeline_enabled(self, spider) -> Generator[SkipExistingPipeline]:
+        spider.crawler.settings["OPEN_IRE_SKIP_EXISTING"] = True
+
+        instance = SkipExistingPipeline(":memory:", "output")
+        instance.open_spider(spider)
+        assert instance.engine is not None
+        yield instance
+        instance.engine.dispose()
+
+    @pytest.fixture
+    def pipeline_disabled(self, spider) -> Generator[SkipExistingPipeline]:
+        spider.crawler.settings["OPEN_IRE_SKIP_EXISTING"] = False
+
+        instance = SkipExistingPipeline(":memory:", "output")
+        instance.open_spider(spider)
+        assert instance.engine is not None
+        yield instance
+        instance.engine.dispose()
+
+    def test_process_item_with_skip_existing_disabled(
+            self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ):
+        result = pipeline_disabled.process_item(item, spider)
+
+        assert result is item
+
+    def test_process_item_with_new_article(
+            self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ):
+        result = pipeline_enabled.process_item(item, spider)
+
+        assert result is item
+
+    def test_process_item_with_existing_article(
+            self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ):
+        with Session(pipeline_enabled.engine) as session:
+            article = Article(
+                title=item.title,
+                authors=item.authors,
+                publication_date=item.publication_date,
+                repository=item.repository,
+                reference=item.reference,
+                url=item.url,
+            )
+            session.add(article)
+            session.commit()
+
+        with pytest.raises(DropItem):
+            pipeline_enabled.process_item(item, spider)
+
+
+
 class TestSQLModelPipeline:
     """Tests the processing and validation logic of the SQLModelPipeline."""
 
@@ -108,7 +170,6 @@ class TestSQLModelPipeline:
         instance = SQLModelPipeline(":memory:", "output")
         instance.open_spider(spider)
         assert instance.engine is not None
-        SQLModel.metadata.create_all(instance.engine)
         yield instance
         instance.engine.dispose()
 
@@ -136,25 +197,27 @@ class TestSQLModelPipeline:
         pipeline.process_item(item_with_file_references, spider)
 
         item_data = item.model_dump()
-        item_data.update({
-            "title": "Updated Article Title",
-            "file_urls": [
-                "https://example.com/article/001.pdf",  # Existing file
-                "https://example.com/article/001-supplement.pdf",  # New file
-            ],
-            "files": [
-                {
-                    "url": "https://example.com/article/001.pdf",
-                    "path": "full/path/to/file.pdf",
-                    "checksum": "abcde12345",  # Same checksum
-                },
-                {
-                    "url": "https://example.com/article/001-supplement.pdf",
-                    "path": "full/path/to/supplement.pdf",
-                    "checksum": "supplement123",  # New file
-                },
-            ],
-        })
+        item_data.update(
+            {
+                "title": "Updated Article Title",
+                "file_urls": [
+                    "https://example.com/article/001.pdf",  # Existing file
+                    "https://example.com/article/001-supplement.pdf",  # New file
+                ],
+                "files": [
+                    {
+                        "url": "https://example.com/article/001.pdf",
+                        "path": "full/path/to/file.pdf",
+                        "checksum": "abcde12345",  # Same checksum
+                    },
+                    {
+                        "url": "https://example.com/article/001-supplement.pdf",
+                        "path": "full/path/to/supplement.pdf",
+                        "checksum": "supplement123",  # New file
+                    },
+                ],
+            }
+        )
         updated_item = ArticleItem(**item_data)
 
         pipeline.process_item(updated_item, spider)
@@ -183,16 +246,18 @@ class TestSQLModelPipeline:
         pipeline.process_item(item, spider)
 
         item_data = item.model_dump()
-        item_data.update({
-            "file_urls": ["https://example.com/article/001-v2.pdf"],
-            "files": [
-                {
-                    "url": "https://example.com/article/001-v2.pdf",
-                    "path": "full/path/to/file-v2.pdf",
-                    "checksum": "xyz789",
-                }
-            ],
-        })
+        item_data.update(
+            {
+                "file_urls": ["https://example.com/article/001-v2.pdf"],
+                "files": [
+                    {
+                        "url": "https://example.com/article/001-v2.pdf",
+                        "path": "full/path/to/file-v2.pdf",
+                        "checksum": "xyz789",
+                    }
+                ],
+            }
+        )
         updated_item = ArticleItem(**item_data)
         result = pipeline.process_item(updated_item, spider)
 
@@ -216,16 +281,18 @@ class TestSQLModelPipeline:
         pipeline.process_item(item, spider)
 
         item_data = item.model_dump()
-        item_data.update({
-            "title": "Different Title",
-            "files": [
-                {
-                    "url": "https://example.com/article/001.pdf",
-                    "path": "different/path/to/file.pdf",
-                    "checksum": "abcde12345",
-                }
-            ],
-        })
+        item_data.update(
+            {
+                "title": "Different Title",
+                "files": [
+                    {
+                        "url": "https://example.com/article/001.pdf",
+                        "path": "different/path/to/file.pdf",
+                        "checksum": "abcde12345",
+                    }
+                ],
+            }
+        )
         updated_item = ArticleItem(**item_data)
         pipeline.process_item(updated_item, spider)
 
@@ -244,20 +311,22 @@ class TestSQLModelPipeline:
         pipeline.process_item(item_with_file_references, spider)
 
         item_data = item_with_file_references.model_dump()
-        item_data.update({
-            "title": "Updated Title",
-            "file_reference_urls": [
-                ("https://example.com/article/002", "https://example.com/data.csv")
-            ],
-            "file_references": [
-                {
-                    "url": "https://example.com/data.csv",
-                    "source_url": "https://example.com/article/002",
-                    "extension": "csv",
-                    "size": 2048,
-                }
-            ],
-        })
+        item_data.update(
+            {
+                "title": "Updated Title",
+                "file_reference_urls": [
+                    ("https://example.com/article/002", "https://example.com/data.csv")
+                ],
+                "file_references": [
+                    {
+                        "url": "https://example.com/data.csv",
+                        "source_url": "https://example.com/article/002",
+                        "extension": "csv",
+                        "size": 2048,
+                    }
+                ],
+            }
+        )
         updated_item = ArticleItem(**item_data)
 
         pipeline.process_item(updated_item, spider)
@@ -268,22 +337,28 @@ class TestSQLModelPipeline:
 
     def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path):
         from types import SimpleNamespace
+
         missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
-        crawler = SimpleNamespace(settings={"OPEN_IRE_DATABASE_FILE": missing_db,
-                                            "FILES_STORE": str(tmp_path)})
-        pipeline = SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
+        crawler = SimpleNamespace(
+            settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
+        )
+        SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
         assert Path(missing_db).parent.exists()
+
 
 class TestOAPPublicationSQLModelPipeline:
     """Tests the processing and validation logic of the OAPPublicationSQLModelPipeline."""
 
     def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path):
         from types import SimpleNamespace
+
         missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
-        crawler = SimpleNamespace(settings={"OPEN_IRE_DATABASE_FILE": missing_db,
-                                            "FILES_STORE": str(tmp_path)})
-        pipeline = OAPPublicationSQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
+        crawler = SimpleNamespace(
+            settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
+        )
+        OAPPublicationSQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
         assert Path(missing_db).parent.exists()
+
 
 class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
@@ -346,9 +421,7 @@ class TestSharePointPipeline:
     @pytest.mark.asyncio
     async def test_item_upload_error(self, pipeline, spider, item):
         """Upload errors should be logged."""
-        pipeline.sharepoint.upload_file = AsyncMock(
-            side_effect=Exception("Upload failed")
-        )
+        pipeline.sharepoint.upload_file = AsyncMock(side_effect=Exception("Upload failed"))
 
         result = await pipeline.process_item(item, spider)
 
