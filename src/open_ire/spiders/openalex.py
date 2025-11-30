@@ -1,33 +1,63 @@
 import json
-from collections.abc import AsyncIterator, Generator
+from collections.abc import Generator
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
+from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPPublicationItem
-from open_ire.settings import OAP_OPENALEX_CONTACT_EMAIL, OAP_OPENALEX_INSTITUTION_ID
-from open_ire.spiders.oap_base import OAPBaseSpider
+from open_ire.faculty import AuthorMatcher
+from open_ire.items import ArticleItem
+from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
+from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPOpenAlexSpider(OAPBaseSpider):
-    name = "oap_openalex"
+class OpenAlexSpider(FacultySearchSpider):
+    name = "openalex"
     base_url = "https://api.openalex.org"
+    page_size = 25
 
     def __init__(
         self,
-        faculty_csv: str,
         start_date: str = "2018-01-01",
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().__init__(faculty_csv, *args, **kwargs)
+        super().__init__(*args, **kwargs)
+
+        # The 'faculty_csv' argument is passed to the parent class,
+        # but we need it to initialize the AuthorMatcher.
+        faculty_csv = kwargs.get("faculty_csv")
+        if not faculty_csv:
+            msg = "The 'faculty_csv' argument is required for the OpenAlex spider."
+            raise ValueError(msg)
 
         self.start_date = start_date
-        self.institution_id = OAP_OPENALEX_INSTITUTION_ID
-        self.request_headers: dict[str, str] = {
-            "User-Agent": f"mailto:{OAP_OPENALEX_CONTACT_EMAIL}"
-        }
+        self.institution_id = OPENALEX_INSTITUTION_ID
+        self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
+        self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return None
 
     @staticmethod
     def _extract_journal_name(publication: dict[str, Any]) -> str | None:
@@ -80,20 +110,19 @@ class OAPOpenAlexSpider(OAPBaseSpider):
             cb_kwargs={"author_id": author_id},
         )
 
-    async def start(self) -> AsyncIterator[Request]:
-        """Generate initial requests to search for authors by name within the institution."""
-        for name in self.faculty_lookup["raw"]:
-            params = {
-                "filter": f"display_name.search:{name},last_known_institutions.id:{self.institution_id}",
-                "per_page": str(self.page_size),
-            }
-            url = f"{self.base_url}/authors?{urlencode(params)}"
+    def build_search_request(self, term: str) -> Request:
+        """Build the initial search request for a given author name."""
+        params = {
+            "filter": f"display_name.search:{term},last_known_institutions.id:{self.institution_id}",
+            "per_page": str(self.page_size),
+        }
+        url = f"{self.base_url}/authors?{urlencode(params)}"
 
-            yield Request(
-                url,
-                headers=self.request_headers,
-                callback=self.author_publication_requests,
-            )
+        return Request(
+            url,
+            headers=self.request_headers,
+            callback=self.author_publication_requests,
+        )
 
     def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:
         """Parse author search results and generate publication requests."""
@@ -110,7 +139,7 @@ class OAPOpenAlexSpider(OAPBaseSpider):
 
     def parse_publications(
         self, response: Response, author_id: str
-    ) -> Generator[Request | OAPPublicationItem, None, None]:
+    ) -> Generator[Request | ArticleItem, None, None]:
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
 
@@ -125,30 +154,33 @@ class OAPOpenAlexSpider(OAPBaseSpider):
         if next_cursor := meta.get("next_cursor"):
             yield from self._request_publications(author_id, cursor=next_cursor)
 
-    def _build_item(self, publication: dict[str, Any]) -> OAPPublicationItem | None:
+    def _build_item(self, publication: dict[str, Any]) -> ArticleItem | None:
         external_id = publication.get("id")
         if not external_id:
             return None
 
         author_names = self._extract_authors(publication)
 
-        matched_names, matched_emails = self._collect_matches(author_names)
+        matched_names, matched_emails = self.author_matcher.collect_matches(author_names)
 
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
-        return OAPPublicationItem(
+        return ArticleItem(
             authors=self._join_or_none(author_names),
             doi=publication.get("doi"),
-            external_id=str(external_id),
-            is_open_access=is_oa,
-            journal_name=self._extract_journal_name(publication),
-            matched_author=self._join_or_none(matched_names),
-            matched_email=self._join_or_none(matched_emails),
-            oa_status=oa_status,
+            extra={
+                "is_open_access": is_oa,
+                "journal_name": self._extract_journal_name(publication),
+                "matched_author": self._join_or_none(matched_names),
+                "matched_email": self._join_or_none(matched_emails),
+                "oa_status": oa_status,
+                "publication_type": publication.get("type"),
+                "publication_year": self._parse_year(publication.get("publication_year")),
+            },
             publication_date=self._parse_date(publication.get("publication_date")),
-            publication_type=publication.get("type"),
-            publication_year=self._parse_year(publication.get("publication_year")),
-            repository=self.repository_name,
+            reference=str(external_id),
+            repository=self.name,
             title=publication.get("title"),
+            url=publication.get("doi"),
         )

@@ -13,7 +13,6 @@ from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.pipelines import (
     DuplicatesPipeline,
     SQLModelPipeline,
-    OAPPublicationSQLModelPipeline,
     SharePointPipeline,
 )
 
@@ -272,16 +271,6 @@ class TestSQLModelPipeline:
         pipeline = SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
         assert Path(missing_db).parent.exists()
 
-class TestOAPPublicationSQLModelPipeline:
-    """Tests the processing and validation logic of the OAPPublicationSQLModelPipeline."""
-
-    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path):
-        from types import SimpleNamespace
-        missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
-        crawler = SimpleNamespace(settings={"OPEN_IRE_DATABASE_FILE": missing_db,
-                                            "FILES_STORE": str(tmp_path)})
-        pipeline = OAPPublicationSQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
-        assert Path(missing_db).parent.exists()
 
 class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""

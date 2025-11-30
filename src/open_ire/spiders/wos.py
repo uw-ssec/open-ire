@@ -1,33 +1,38 @@
 import datetime
 import json
 import os
-from collections.abc import AsyncIterator, Generator
+import re
+from collections.abc import Generator
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
+from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.items import OAPPublicationItem
-from open_ire.settings import OAP_WOS_ORGANIZATION
-from open_ire.spiders.oap_base import OAPBaseSpider
+from open_ire.faculty import AuthorMatcher, FacultyRecord
+from open_ire.items import ArticleItem
+from open_ire.settings import WOS_ORGANIZATION
+from open_ire.spiders.search import FacultySearchSpider
 
 
-class OAPWoSSpider(OAPBaseSpider):
-    name = "oap_wos"
+class WoSSpider(FacultySearchSpider):
+    name = "wos"
     base_url = "https://api.clarivate.com/api/wos/"
+    page_size = 25
 
     def __init__(
         self,
-        faculty_csv: str,
         start_year: str = "2018",
         end_year: str | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().__init__(faculty_csv, *args, **kwargs)
+        super().__init__(*args, **kwargs)
+        faculty_csv = kwargs["faculty_csv"]
 
         current_year = datetime.date.today().year
-        self.organization = OAP_WOS_ORGANIZATION
+        self.organization = WOS_ORGANIZATION
         self.start_year = self._validate_year(start_year, "start_year")
 
         if end_year is None:
@@ -45,7 +50,37 @@ class OAPWoSSpider(OAPBaseSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
-        self.query = self._build_query()
+        self.author_matcher = AuthorMatcher(faculty_csv, "wos")
+
+    def _get_author_name(self, record: FacultyRecord) -> str:
+        """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
+        return record.wos_name
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+        match = re.search(r"(19|20)\d{2}", str(value))
+        if match:
+            return int(match.group())
+        return None
 
     @staticmethod
     def _validate_year(raw_year: str, field_name: str) -> int:
@@ -90,38 +125,37 @@ class OAPWoSSpider(OAPBaseSpider):
 
         return [value]
 
-    def _build_query(self) -> str:
-        authors = list(self.faculty_lookup["raw"].keys())
-        author_clause = " OR ".join(f'"{name.title()}"' for name in authors)
-
+    def _build_query(self, term: str) -> str:
         return (
-            f'AU=({author_clause}) AND OG=("{self.organization}") '
+            f'AU=("{term}") AND OG=("{self.organization}") '
             f"AND PY=({self.start_year}-{self.end_year})"
         )
 
-    def _build_params(self, page: int) -> dict[str, Any]:
+    def _build_params(self, query: str, page: int) -> dict[str, Any]:
         return {
             "count": self.page_size,
             "databaseId": "WOS",
             "page": page,
             "sortField": "PY+D",
-            "usrQuery": self.query,
+            "usrQuery": query,
         }
 
-    async def start(self) -> AsyncIterator[Request]:
-        params = self._build_params(page=1)
+    def build_search_request(self, term: str) -> Request:
+        """Build a search request for a single author term."""
+        query = self._build_query(term)
+        params = self._build_params(query, page=1)
         url = f"{self.base_url}?{urlencode(params)}"
 
-        yield Request(
+        return Request(
             url,
             headers=self.headers,
             callback=self.parse_publications,
-            cb_kwargs={"page": 1},
+            cb_kwargs={"query": query, "page": 1},
         )
 
     def parse_publications(
-        self, response: Response, page: int
-    ) -> Generator[Request | OAPPublicationItem]:
+        self, response: Response, query: str, page: int
+    ) -> Generator[Request | ArticleItem, None, None]:
         data = json.loads(response.text or "{}")
         records = self._as_list(
             data.get("Data", {}).get("Records", {}).get("records", {}).get("REC")
@@ -136,17 +170,17 @@ class OAPWoSSpider(OAPBaseSpider):
 
         if (page - 1) * self.page_size + emitted < total:
             next_page = page + 1
-            params = self._build_params(page=next_page)
+            params = self._build_params(query, page=next_page)
             next_url = f"{self.base_url}?{urlencode(params)}"
 
             yield Request(
                 next_url,
                 headers=self.headers,
                 callback=self.parse_publications,
-                cb_kwargs={"page": next_page},
+                cb_kwargs={"query": query, "page": next_page},
             )
 
-    def _build_item(self, publication: Any) -> OAPPublicationItem | None:
+    def _build_item(self, publication: Any) -> ArticleItem | None:
         if not isinstance(publication, dict):
             return None
 
@@ -163,7 +197,7 @@ class OAPWoSSpider(OAPBaseSpider):
 
         names = self._as_list(summary.get("names", {}).get("name"))
         authors = self._extract_authors(names)
-        matched_names, matched_emails = self._collect_matches(authors)
+        matched_names, matched_emails = self.author_matcher.collect_matches(authors)
 
         pub_info = summary.get("pub_info", {})
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
@@ -177,18 +211,23 @@ class OAPWoSSpider(OAPBaseSpider):
             None,
         )
 
-        return OAPPublicationItem(
+        return ArticleItem(
             authors=self._join_or_none(authors),
             doi=doi,
-            external_id=str(external_id),
-            journal_name=self._extract_journal_name(titles),
-            matched_author=self._join_or_none(matched_names),
-            matched_email=self._join_or_none(matched_emails),
+            extra={
+                "journal_name": self._extract_journal_name(titles),
+                "matched_author": self._join_or_none(matched_names),
+                "matched_email": self._join_or_none(matched_emails),
+                "publication_type": summary.get("doctypes", {}).get("doctype"),
+                "publication_year": self._parse_year(
+                    pub_info.get("pubyear") or pub_info.get("coverdate")
+                ),
+            },
             publication_date=self._parse_date(
                 pub_info.get("coverdate") or pub_info.get("sortdate")
             ),
-            publication_type=summary.get("doctypes", {}).get("doctype"),
-            publication_year=self._parse_year(pub_info.get("pubyear") or pub_info.get("coverdate")),
-            repository=self.repository_name,
+            reference=str(external_id),
+            repository=self.name,
             title=title,
+            url=doi,
         )
