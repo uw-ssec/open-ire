@@ -1,4 +1,5 @@
 import logging
+import math
 import mimetypes
 from pathlib import Path
 from typing import Any, Self
@@ -435,6 +436,14 @@ class SharePointPipeline:
 
         return cls(sharepoint_base_path, local_base_path)
 
+    @staticmethod
+    def _remove_local_file(local_file_path: Path) -> None:
+        try:
+            local_file_path.unlink()
+        except OSError as e:
+            msg = f"Failed to remove local file {local_file_path}: {e}"
+            logger.warning(msg)
+
     def open_spider(self, spider: Spider) -> None:
         pass
 
@@ -454,12 +463,25 @@ class SharePointPipeline:
         try:
             msg = f"Uploading file to SharePoint: {local_file_path} -> {sharepoint_path}"
             spider.logger.info(msg)
+
             upload_result = await self.sharepoint.upload_file(local_file_path, sharepoint_path)
             if upload_result.location:
                 drive_item = await self.sharepoint.get_item(sharepoint_path)
 
-                if drive_item and drive_item.web_url:
+                if not drive_item:
+                    msg = f"Failed to confirm SharePoint upload: {local_file_path}"
+                    raise RuntimeError(msg)
+
+                if drive_item.web_url:
                     store_url = drive_item.web_url
+
+                local_size = local_file_path.stat().st_size
+                remote_size = drive_item.size or 0.0
+                if math.isclose(local_size, remote_size, rel_tol=0.01, abs_tol=1024.0):
+                    local_file_path.unlink()
+                else:
+                    msg = f"Local file size ({local_file_path}) does not match remote ({store_url})"
+                    spider.logger.error(msg)
 
         except Exception as e:
             msg = f"Error uploading file {local_file_path}: {e}"

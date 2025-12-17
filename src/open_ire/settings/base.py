@@ -1,3 +1,5 @@
+import os
+
 from requests import utils as requests_utils
 
 # Scrapy settings for open_ire project
@@ -70,7 +72,7 @@ OPEN_IRE_SEARCH_TERMS = [
     "washington sea grant",
     "washington.edu",
 ]
-SHAREPOINT_BASE_PATH = "open_ire"
+SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False

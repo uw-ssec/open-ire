@@ -413,3 +413,27 @@ class TestSharePointPipeline:
         assert result == item
         assert result.store_urls == [""]
         spider.logger.error.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_deletes_local_file(self, pipeline, spider, item, tmp_path):
+        """Local file should be deleted when remote size matches"""
+        local_file = tmp_path / "file.pdf"
+        local_file.write_text("A" * 1000)
+        item.files = [{"path": "file.pdf", "url": "https://example.com/file.pdf"}]
+
+        # Match
+        mock_drive_item = MagicMock()
+        mock_drive_item.web_url = "https://sharepoint.com/uploaded"
+        mock_drive_item.size = 1000
+        pipeline.sharepoint.upload_file = AsyncMock(return_value=MagicMock())
+        pipeline.sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
+
+        await pipeline.process_item(item, spider)
+        assert not local_file.exists()  # delete local copy
+
+        # Mismatch
+        local_file.write_text("B" * 2000)
+        mock_drive_item.size = 5000
+        await pipeline.process_item(item, spider)
+        assert local_file.exists()  # preserve local copy
+        spider.logger.error.assert_called()
