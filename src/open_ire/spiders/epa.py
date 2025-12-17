@@ -33,7 +33,7 @@ class EPASpider(Spider):
         self.start_urls = [
             (
                 "https://cfpub.epa.gov/si/si_public_search_results.cfm?"
-                f"{urlencode({'keyword': term.strip(), **search_params})}"
+                f"{urlencode({'searchall': term.strip(), **search_params})}"
             )
             for term in terms.split(",")
         ]
