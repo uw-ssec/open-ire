@@ -177,8 +177,11 @@ depends-on = [
 ]
 
 [tool.pixi.tasks.start]
-args = ["spider"]
-cmd = "scrapy crawl {{ spider }}"
+args = [
+    "spider",
+    { "arg" = "flag", "default" = "" },
+]
+cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
 
 [tool.pixi.tasks.terms-search]
 args = ["spider", "terms", "page"]
