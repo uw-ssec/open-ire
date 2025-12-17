@@ -26,8 +26,8 @@ class TestEPASpider:
 
         assert spider.target_page == 3
         assert len(spider.start_urls) == 2
-        assert "keyword=education" in spider.start_urls[0]
-        assert "keyword=research" in spider.start_urls[1]
+        assert "searchall=education" in spider.start_urls[0]
+        assert "searchall=research" in spider.start_urls[1]
         assert "count=25" in spider.start_urls[0]
         assert "startIndex=51" in spider.start_urls[0]
 
