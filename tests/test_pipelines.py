@@ -68,7 +68,7 @@ def item_with_file_references() -> ArticleItem:
 def spider() -> Spider:
     """Create a mock spider for testing."""
     mock_crawler = MagicMock(spec=Crawler)
-    mock_crawler.settings = MagicMock(spec=Settings)
+    mock_crawler.settings = Settings({"OPEN_IRE_SKIP_EXISTING": True})
 
     mock_spider = MagicMock(spec=Spider)
     mock_spider.name = "test_spider"
@@ -107,7 +107,7 @@ class TestSkipExistingPipeline:
 
     @pytest.fixture
     def pipeline_enabled(self, spider) -> Generator[SkipExistingPipeline]:
-        spider.crawler.settings["OPEN_IRE_SKIP_EXISTING"] = True
+        spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
 
         instance = SkipExistingPipeline(":memory:", "output")
         instance.open_spider(spider)
@@ -117,13 +117,12 @@ class TestSkipExistingPipeline:
 
     @pytest.fixture
     def pipeline_disabled(self, spider) -> Generator[SkipExistingPipeline]:
-        spider.crawler.settings["OPEN_IRE_SKIP_EXISTING"] = False
+        spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
 
         instance = SkipExistingPipeline(":memory:", "output")
         instance.open_spider(spider)
-        assert instance.engine is not None
+        assert instance.engine is None
         yield instance
-        instance.engine.dispose()
 
     def test_process_item_with_skip_existing_disabled(
             self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
