@@ -54,10 +54,12 @@ def dummy_record() -> dict[str, Any]:
 
 @pytest.fixture
 def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
-    json_body = {"Data": {"Records": {"records": {"REC": [dummy_record]}}}}
+    json_body = {
+        "Data": {"Records": {"records": {"REC": [dummy_record]}}},
+        "QueryResult": {"RecordsFound": 1},
+    }
     body_str = json.dumps(json_body)
-    response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
-    return response
+    return HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
 
 
 @pytest.fixture
@@ -103,3 +105,43 @@ class TestWoSSpider:
         request = spider.build_search_request("Adeyemi Kemi")
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
+
+    def test_parse_publications_no_results_records_empty_string(
+        self, spider: WoSSpider
+    ) -> None:
+        # WoS empty results schema: records is an empty string
+        json_body = {
+            "Data": {"Records": {"records": ""}},
+            "QueryResult": {"RecordsFound": 0},
+        }
+        body_str = json.dumps(json_body)
+        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+
+        query = spider._build_query("Nobody Matches")
+        results = list(spider.parse_publications(response, query, page=1))
+
+        items = [res for res in results if isinstance(res, ArticleItem)]
+        requests = [res for res in results if isinstance(res, Request)]
+
+        assert items == []
+        assert requests == []
+
+    def test_parse_publications_records_container_string_is_ignored(
+        self, spider: WoSSpider
+    ) -> None:
+        # Sometimes WoS returns a string in `records` (e.g., error-ish message).
+        json_body = {
+            "Data": {"Records": {"records": "No results found"}},
+            "QueryResult": {"RecordsFound": 0},
+        }
+        body_str = json.dumps(json_body)
+        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+
+        query = spider._build_query("Also Nobody")
+        results = list(spider.parse_publications(response, query, page=1))
+
+        items = [res for res in results if isinstance(res, ArticleItem)]
+        requests = [res for res in results if isinstance(res, Request)]
+
+        assert items == []
+        assert requests == []

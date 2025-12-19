@@ -156,11 +156,49 @@ class WoSSpider(FacultySearchSpider):
     def parse_publications(
         self, response: Response, query: str, page: int
     ) -> Generator[Request | ArticleItem, None, None]:
-        data = json.loads(response.text or "{}")
-        records = self._as_list(
-            data.get("Data", {}).get("Records", {}).get("records", {}).get("REC")
-        )
-        total = data.get("metadata", {}).get("total", 0)
+        raw_text = response.text or ""
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            self.logger.error("WoS returned non-JSON body (first 500 chars): %r", raw_text[:500])
+            return
+
+        if not isinstance(data, dict):
+            self.logger.warning(
+                "Unexpected WoS payload type for query %r: %s",
+                query,
+                type(data).__name__,
+            )
+            return
+
+        records_container = (data.get("Data") or {}).get("Records", {}).get("records")
+
+        # WoS "no results" => records: "" (string). Sometimes errors also show up as strings.
+        if isinstance(records_container, str):
+            if not records_container:
+                self.logger.info("No records found for query: %r", query)
+            else:
+                self.logger.warning(
+                    "Unexpected WoS records payload (string) for query %r: %r",
+                    query,
+                    records_container[:200],
+                )
+            return
+
+        if not isinstance(records_container, dict):
+            self.logger.info(
+                "WoS returned no usable records container for query %r (type=%s)",
+                query,
+                type(records_container).__name__,
+            )
+            return
+
+        records = self._as_list(records_container.get("REC"))
+
+        try:
+            total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
+        except (TypeError, ValueError):
+            total = 0
 
         emitted = 0
         for record in records:
