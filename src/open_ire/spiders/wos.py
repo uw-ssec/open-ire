@@ -267,5 +267,7 @@ class WoSSpider(FacultySearchSpider):
             reference=str(external_id),
             repository=self.name,
             title=title,
-            url=doi,
+            url=f"https://doi.org/{doi}"
+            if doi
+            else f"https://www.webofscience.com/wos/woscc/full-record/{external_id}",
         )

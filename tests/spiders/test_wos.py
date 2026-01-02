@@ -1,3 +1,4 @@
+import copy
 import json
 import pytest
 from pathlib import Path
@@ -78,6 +79,29 @@ class TestWoSSpider:
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == "ElSayed, A, Doe, J"
         assert item.extra["matched_author"] is None
+        assert item.url == "https://doi.org/10.1000/sampledoi"
+
+    def test_build_item_without_doi(self, spider: WoSSpider, dummy_record: dict[str, Any]) -> None:
+        # Remove DOI from the record
+        record_without_doi = copy.deepcopy(dummy_record)
+        record_without_doi["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
+
+        item = spider._build_item(record_without_doi)
+
+        assert isinstance(item, ArticleItem)
+        assert item.doi is None
+        assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
+
+    def test_build_item_missing_identifiers_section(self, spider: WoSSpider, dummy_record: dict[str, Any]) -> None:
+        # Remove entire identifiers section
+        record_no_identifiers = copy.deepcopy(dummy_record)
+        record_no_identifiers["dynamic_data"]["cluster_related"] = {}
+
+        item = spider._build_item(record_no_identifiers)
+
+        assert isinstance(item, ArticleItem)
+        assert item.doi is None
+        assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
     def test_parse_publications(self, spider: WoSSpider, dummy_response: HtmlResponse) -> None:
         query = spider._build_query("Kemi Adeyemi")
