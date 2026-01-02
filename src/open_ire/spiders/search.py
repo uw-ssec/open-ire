@@ -1,5 +1,5 @@
 import abc
-from collections.abc import Generator
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ class SearchSpider(Spider, metaclass=abc.ABCMeta):
 
     search_terms: list[str]
 
-    def start_requests(self) -> Generator[Request, None, None]:
+    async def start(self) -> AsyncIterator[Request]:
         for term in self.search_terms:
             if not term:
                 continue

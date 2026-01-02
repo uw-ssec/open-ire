@@ -134,3 +134,12 @@ class TestOpenAlexSpider:
         parsed_url = urlparse(request.url)
         query_params = parse_qs(parsed_url.query)
         assert "display_name.search:Kemi Adeyemi" in query_params["filter"][0]
+
+    @pytest.mark.asyncio
+    async def test_start(self, spider) -> None:
+        requests = []
+        async for req in spider.start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        assert "Kemi+Adeyemi" in requests[0].url
