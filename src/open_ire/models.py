@@ -3,7 +3,10 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel
+
+from open_ire.enums import OAEvidenceKind, OAStatus
 
 
 class ArticleBase(SQLModel):
@@ -50,6 +53,10 @@ class Article(ArticleBase, table=True):
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
     file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
+    oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
+    oa_status_transitions: list["ArticleOAStatusTransition"] = Relationship(
+        back_populates="article"
+    )
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),
@@ -64,6 +71,15 @@ class Article(ArticleBase, table=True):
     def file_references_size(self) -> int:
         """Total file references size."""
         return sum(f.size for f in self.file_references if f.size)
+
+    @hybrid_property
+    def oa_status(self) -> OAStatus | None:
+        if not self.oa_status_transitions:
+            return None
+
+        latest = max(self.oa_status_transitions, key=lambda t: t.changed_at)
+
+        return latest.to_status
 
 
 class ArticleFileBase(SQLModel):
@@ -122,3 +138,56 @@ class ArticleFileReference(ArticleFileBase, table=True):
     source_url: str | None = None
 
     article: Article | None = Relationship(back_populates="file_references")
+
+
+class ArticleOAEvidence(SQLModel, table=True):
+    """SQLModel to store evidence used to determine OA status.
+
+    Attributes
+    ----------
+    id: Primary key for the database.
+    article_id: Foreign key to the Article table.
+    created_at: Datetime when the evidence was recorded.
+    kind: Evidence category (license, external_oa, version, manual, faculty_author).
+    supports_oa: Whether this evidence supports OA status.
+    source: Origin of the evidence (e.g., "crossref", "openalex", "manual").
+    data: Source-specific payload for evidence details.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.now, index=True)
+
+    kind: OAEvidenceKind = Field(index=True)
+    supports_oa: bool
+    source: str | None = None
+    data: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
+
+    article: Article | None = Relationship(back_populates="oa_evidence")
+
+
+class ArticleOAStatusTransition(SQLModel, table=True):
+    """SQLModel to store OA status transitions for articles.
+
+    Attributes
+    ----------
+    id: Primary key for the database.
+    article_id: Foreign key to the Article table.
+    from_status: Previous OA status (published, ready, partial, or None).
+    to_status: New OA status (published, ready, partial, or None).
+    changed_at: Datetime when the status transition was recorded.
+    rule_version: Ruleset version used to compute the transition.
+    reason_codes: Rule or factor identifiers applied in the decision.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
+
+    from_status: OAStatus | None = Field(default=None, index=True)
+    to_status: OAStatus | None = Field(default=None, index=True)
+    changed_at: datetime = Field(default_factory=datetime.now, index=True)
+
+    rule_version: str | None = None
+    reason_codes: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+
+    article: Article | None = Relationship(back_populates="oa_status_transitions")
