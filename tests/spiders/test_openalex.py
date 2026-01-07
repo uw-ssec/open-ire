@@ -122,7 +122,7 @@ class TestOpenAlexSpider:
     def test_build_item(self, spider, dummy_publication) -> None:
         item = spider._build_item(dummy_publication)
         assert isinstance(item, ArticleItem)
-        assert item.doi == "https://doi.org/10.1234/test.doi"
+        assert item.doi == "https://doi.org/10.1234/test.doi"  # Spider returns original DOI, pipeline normalizes it
         assert item.title == "A Study on Testing"
         assert item.extra["journal_name"] == "Journal of Testing"
         assert item.authors == "Alice Smith, Bob Jones"
