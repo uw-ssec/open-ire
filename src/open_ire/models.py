@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, select
 
 from open_ire.enums import OAEvidenceKind, OAStatus
 
@@ -48,6 +48,8 @@ class ArticleBase(SQLModel):
 class Article(ArticleBase, table=True):
     """SQLModel to store article metadata."""
 
+    model_config = {"ignored_types": (hybrid_property,)}
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
@@ -80,6 +82,16 @@ class Article(ArticleBase, table=True):
         latest = max(self.oa_status_transitions, key=lambda t: t.changed_at)
 
         return latest.to_status
+
+    @oa_status.expression  # type: ignore[no-redef]
+    def oa_status(cls):
+        return (
+            select(ArticleOAStatusTransition.to_status)
+            .where(ArticleOAStatusTransition.article_id == cls.id)
+            .order_by(ArticleOAStatusTransition.changed_at.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
 
 
 class ArticleFileBase(SQLModel):
