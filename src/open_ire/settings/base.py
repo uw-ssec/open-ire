@@ -25,6 +25,8 @@ ITEM_PIPELINES = {
     # Filtering pipelines:
     "open_ire.pipelines.DuplicatesPipeline": 1,
     "open_ire.pipelines.SkipExistingPipeline": 2,
+    # Data normalization pipelines:
+    "open_ire.pipelines.DOINormalizationPipeline": 10,
     # Processing pipelines:
     "open_ire.pipelines.LocalFilePipeline": 100,
     "open_ire.pipelines.FileReferencePipeline": 200,

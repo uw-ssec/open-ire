@@ -34,6 +34,32 @@ logger = logging.getLogger(__name__)
 # Remember to add your pipelines to the `settings.ITEM_PIPELINES` list
 
 
+class DOINormalizationPipeline:
+    """
+    Normalizes DOI field format across all spiders for consistency.
+
+    Strips 'https://doi.org/' prefix from DOI field to store just the identifier,
+    while preserving the full URL format in the url field when appropriate.
+    """
+
+    @staticmethod
+    def _normalize_doi(doi: str | None) -> str | None:
+        """Extract just the DOI identifier from various formats."""
+        if not doi or not isinstance(doi, str) or not doi.strip():  # type: ignore[redundant-expr]
+            return None
+        doi = doi.strip()
+
+        # Strip https://doi.org/ prefix if present
+        if doi.startswith("https://doi.org/"):
+            return doi[16:]  # Remove "https://doi.org/" prefix
+
+        return doi
+
+    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:  # noqa: ARG002
+        item.doi = self._normalize_doi(item.doi)
+        return item
+
+
 class DuplicatesPipeline:
     """
     Drops duplicate items for a given spider session using the `reference` field.
