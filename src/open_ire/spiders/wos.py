@@ -228,7 +228,9 @@ class WoSSpider(AuthorSearchSpider):
             if not isinstance(author, dict):
                 continue
 
-            full_name = author.get("wos_standard") or author.get("display_name")
+            full_name = (
+                author.get("full_name") or author.get("display_name") or author.get("wos_standard")
+            )
             if full_name:
                 authors.append(str(full_name))
 
