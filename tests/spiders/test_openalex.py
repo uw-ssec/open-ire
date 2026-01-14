@@ -125,7 +125,7 @@ class TestOpenAlexSpider:
         assert item.doi == "https://doi.org/10.1234/test.doi"  # Spider returns original DOI, pipeline normalizes it
         assert item.title == "A Study on Testing"
         assert item.extra["journal_name"] == "Journal of Testing"
-        assert item.authors == "Alice Smith, Bob Jones"
+        assert item.authors == "Alice Smith; Bob Jones"
 
     def test_build_search_request(self, spider) -> None:
         request = spider.build_search_request("Kemi Adeyemi")

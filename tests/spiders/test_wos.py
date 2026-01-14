@@ -77,7 +77,7 @@ class TestWoSSpider:
         assert item.title == "Sample Publication Title"
         assert item.extra["publication_year"] == 2020
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == "ElSayed, Amina, Doe, John"
+        assert item.authors == "ElSayed, Amina; Doe, John"
         assert item.url == "https://doi.org/10.1000/sampledoi"
 
     def test_build_item_without_doi(self, spider: WoSSpider, dummy_record: dict[str, Any]) -> None:
@@ -116,7 +116,7 @@ class TestWoSSpider:
         assert item.title == "Sample Publication Title"
         assert item.extra["publication_year"] == 2020
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == "ElSayed, Amina, Doe, John"
+        assert item.authors == "ElSayed, Amina; Doe, John"
 
     def test_validate_year(self, spider: WoSSpider) -> None:
         assert spider._validate_year("2020", "Some Field") == 2020

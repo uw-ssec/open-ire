@@ -20,6 +20,11 @@ class SearchSpider(Spider, metaclass=abc.ABCMeta):
 
     search_terms: list[str]
 
+    @staticmethod
+    def _join_authors(values: list[str]) -> str | None:
+        """Join a list of author names with semicolons, or return None if empty."""
+        return "; ".join(values) if values else None
+
     async def start(self) -> AsyncIterator[Request]:
         for term in self.search_terms:
             if not term:

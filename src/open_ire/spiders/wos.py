@@ -195,12 +195,12 @@ class WoSSpider(AuthorSearchSpider):
         )
 
         return ArticleItem(
-            authors=self._join_or_none(authors),
+            authors=self._join_authors(authors),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "matched_author": self._join_or_none(matched_names),
-                "matched_email": self._join_or_none(matched_emails),
+                "matched_author": self._join_authors(matched_names),
+                "matched_email": self._join_authors(matched_emails),
                 "publication_type": summary.get("doctypes", {}).get("doctype"),
                 "publication_year": self._parse_year(
                     pub_info.get("pubyear") or pub_info.get("coverdate")
@@ -260,11 +260,6 @@ class WoSSpider(AuthorSearchSpider):
             return []
 
         return [value]
-
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        """Join a list of strings with commas, or return None if empty."""
-        return ", ".join(values) if values else None
 
     @staticmethod
     def _parse_date(value: Any) -> date | None:

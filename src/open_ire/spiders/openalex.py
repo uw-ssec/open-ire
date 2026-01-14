@@ -118,13 +118,13 @@ class OpenAlexSpider(AuthorSearchSpider):
         is_oa = publication.get("open_access", {}).get("is_oa")
 
         return ArticleItem(
-            authors=self._join_or_none(author_names),
+            authors=self._join_authors(author_names),
             doi=publication.get("doi"),
             extra={
                 "is_open_access": is_oa,
                 "journal_name": self._extract_journal_name(publication),
-                "matched_author": self._join_or_none(matched_names),
-                "matched_email": self._join_or_none(matched_emails),
+                "matched_author": self._join_authors(matched_names),
+                "matched_email": self._join_authors(matched_emails),
                 "oa_status": oa_status,
                 "publication_type": publication.get("type"),
                 "publication_year": self._parse_year(publication.get("publication_year")),
@@ -176,11 +176,6 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     # === LOW-LEVEL UTILITY FUNCTIONS ===
     # These are generic utility functions for data processing
-
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        """Join a list of strings with commas, or return None if empty."""
-        return ", ".join(values) if values else None
 
     @staticmethod
     def _parse_date(value: Any) -> date | None:
