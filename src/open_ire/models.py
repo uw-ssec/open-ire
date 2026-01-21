@@ -188,8 +188,7 @@ class ArticleOAStatusTransition(SQLModel, table=True):
     from_status: Previous OA status (published, ready, partial, or None).
     to_status: New OA status (published, ready, partial, or None).
     changed_at: Datetime when the status transition was recorded.
-    rule_version: Ruleset version used to compute the transition.
-    reason_codes: Rule or factor identifiers applied in the decision.
+    reasons: Rule or factor identifiers applied in the decision.
     """
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -199,7 +198,6 @@ class ArticleOAStatusTransition(SQLModel, table=True):
     to_status: OAStatus | None = Field(default=None, index=True)
     changed_at: datetime = Field(default_factory=datetime.now, index=True)
 
-    rule_version: str | None = None
-    reason_codes: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    reasons: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
     article: Article | None = Relationship(back_populates="oa_status_transitions")

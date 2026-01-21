@@ -9,7 +9,7 @@ from scrapy.http import Request, Response
 
 from open_ire.faculty import AuthorMatcher
 from open_ire.items import ArticleItem
-from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
+from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import FacultySearchSpider
 
 
@@ -35,7 +35,7 @@ class OpenAlexSpider(FacultySearchSpider):
 
         self.start_date = start_date
         self.institution_id = OPENALEX_INSTITUTION_ID
-        self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
+        self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
         self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
 
     @staticmethod
