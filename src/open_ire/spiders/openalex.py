@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
+from open_ire.author import AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
@@ -32,6 +33,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.start_date = start_date
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
+
+    def _get_author_name(self, record: AuthorRecord) -> str:
+        return f"{record.first_name} {record.last_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow

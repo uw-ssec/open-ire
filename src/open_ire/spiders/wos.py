@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
+from open_ire.author import AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
 from open_ire.spiders.search import AuthorSearchSpider
@@ -52,6 +53,9 @@ class WoSSpider(AuthorSearchSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
+
+    def _get_author_name(self, record: AuthorRecord) -> str:
+        return f"{record.last_name} {record.first_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
