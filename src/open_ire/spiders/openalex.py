@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.author import AuthorMatcher
 from open_ire.items import ArticleItem
 from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
@@ -33,7 +32,6 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.start_date = start_date
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
-        self.author_matcher = AuthorMatcher(author_csv, "openalex")
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
@@ -112,8 +110,6 @@ class OpenAlexSpider(AuthorSearchSpider):
             return None
 
         author_names = self._extract_authors(publication)
-        matched_names, matched_emails = self.author_matcher.collect_matches(author_names)
-
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
@@ -123,8 +119,6 @@ class OpenAlexSpider(AuthorSearchSpider):
             extra={
                 "is_open_access": is_oa,
                 "journal_name": self._extract_journal_name(publication),
-                "matched_author": self._join_authors(matched_names),
-                "matched_email": self._join_authors(matched_emails),
                 "oa_status": oa_status,
                 "publication_type": publication.get("type"),
                 "publication_year": self._parse_year(publication.get("publication_year")),

@@ -10,7 +10,6 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.author import AuthorMatcher, AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
 from open_ire.spiders.search import AuthorSearchSpider
@@ -33,7 +32,6 @@ class WoSSpider(AuthorSearchSpider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        author_csv = kwargs["author_csv"]
 
         current_year = datetime.date.today().year
         self.organization = WOS_ORGANIZATION
@@ -54,11 +52,6 @@ class WoSSpider(AuthorSearchSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
-        self.author_matcher = AuthorMatcher(author_csv, "wos")
-
-    def _get_author_name(self, record: AuthorRecord) -> str:
-        """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
-        return record.wos_name
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
@@ -81,6 +74,7 @@ class WoSSpider(AuthorSearchSpider):
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse WoS publication results and yield ArticleItems, handling pagination."""
         raw_text = response.text or ""
+
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError:
@@ -180,7 +174,6 @@ class WoSSpider(AuthorSearchSpider):
 
         names = self._as_list(summary.get("names", {}).get("name"))
         authors = self._extract_authors(names)
-        matched_names, matched_emails = self.author_matcher.collect_matches(authors)
 
         pub_info = summary.get("pub_info", {})
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
@@ -199,8 +192,6 @@ class WoSSpider(AuthorSearchSpider):
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "matched_author": self._join_authors(matched_names),
-                "matched_email": self._join_authors(matched_emails),
                 "publication_type": summary.get("doctypes", {}).get("doctype"),
                 "publication_year": self._parse_year(
                     pub_info.get("pubyear") or pub_info.get("coverdate")
