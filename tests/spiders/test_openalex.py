@@ -133,7 +133,8 @@ class TestOpenAlexSpider:
         assert request.url.startswith(spider.base_url + "/authors")
         parsed_url = urlparse(request.url)
         query_params = parse_qs(parsed_url.query)
-        assert "display_name.search:Kemi Adeyemi" in query_params["filter"][0]
+        assert query_params["search"] == ["Kemi Adeyemi"]
+        assert "affiliations.institution.id:" in query_params["filter"][0]
 
     @pytest.mark.asyncio
     async def test_start(self, spider) -> None:

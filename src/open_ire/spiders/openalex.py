@@ -39,7 +39,8 @@ class OpenAlexSpider(AuthorSearchSpider):
     def build_search_request(self, term: str) -> Request:
         """Build the initial search request for a given author name."""
         params = {
-            "filter": f"display_name.search:{term},last_known_institutions.id:{self.institution_id}",
+            "search": term,
+            "filter": f"affiliations.institution.id:{self.institution_id}",
             "per_page": str(self.page_size),
         }
         url = f"{self.base_url}/authors?{urlencode(params)}"
