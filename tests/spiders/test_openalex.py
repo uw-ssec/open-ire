@@ -24,6 +24,11 @@ def spider(tmp_path: Path, five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
 
 
 @pytest.fixture
+def spider_with_author_name(five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
+    return OpenAlexSpider(author_name=five_authors[1].full_name)
+
+
+@pytest.fixture
 def five_authors() -> list[ParsedAuthor]:
     return [
         ParsedAuthor("Luis Manuel Garcia-Mispireta"),
@@ -138,7 +143,11 @@ class TestOpenAlexSpider:
                 },
                 "invalid publication",
             ],
-            "meta": {"next_cursor": "cursor123"},
+            "meta": {
+                "cursor": "*",
+                "next_cursor": "cursor123",
+                "count": 2,
+            },
         }
         request = Request(
             url="http://dummy.url", meta={"matched_author": five_authors[0].normalized_name}
@@ -221,3 +230,52 @@ class TestOpenAlexSpider:
 
     def test_normalize_type_unknown(self) -> None:
         assert OpenAlexSpider._normalize_type("unknown-type") is None
+
+    @pytest.mark.asyncio
+    async def test_start_with_author_name(self, spider_with_author_name) -> None:
+        requests = []
+        async for req in spider_with_author_name.start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        assert "John+Doe" in requests[0].url
+
+    def test_author_name_parameter(self) -> None:
+        spider = OpenAlexSpider(author_name="Jane Smith")
+        assert spider.search_terms == ["Jane Smith"]
+
+    def test_both_parameters_allowed(self, tmp_path: Path) -> None:
+        csv_content = """Full Name,FirstName,LastName,Email
+Test User,Test,User,test@example.com
+"""
+        csv_path = tmp_path / "test.csv"
+        csv_path.write_text(csv_content)
+
+        spider = OpenAlexSpider(author_csv=str(csv_path), author_name="John Doe")
+        assert len(spider.search_terms) == 2
+        assert "Test User" in spider.search_terms
+        assert "John Doe" in spider.search_terms
+
+    @pytest.mark.asyncio
+    async def test_start_with_both_parameters(self, tmp_path: Path) -> None:
+        csv_content = """Full Name,FirstName,LastName,Email
+Alice Johnson,Alice,Johnson,alice@example.com
+"""
+        csv_path = tmp_path / "test.csv"
+        csv_path.write_text(csv_content)
+
+        spider = OpenAlexSpider(author_csv=str(csv_path), author_name="Bob Smith")
+        requests = []
+        async for req in spider.start():
+            requests.append(req)
+
+        assert len(requests) == 2
+        assert all(isinstance(req, Request) for req in requests)
+        # Check that both authors are searched
+        urls = [req.url for req in requests]
+        assert any("Alice+Johnson" in url for url in urls)
+        assert any("Bob+Smith" in url for url in urls)
+
+    def test_no_parameters_error(self) -> None:
+        with pytest.raises(ValueError, match="requires either"):
+            OpenAlexSpider()
