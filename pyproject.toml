@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "msgraph-sdk",
+    "nameparser",
     "pandas",
     "playwright",
     "python-dateutil",
@@ -41,6 +42,7 @@ dev = [
     "pytest-xdist",
     "pytest",
     "types-python-dateutil",
+    "types-nameparser",
 ]
 docs = [
     "jupyter-book",
@@ -99,6 +101,10 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "msgraph_core.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "nameparser"
 ignore_missing_imports = true
 
 [tool.ruff]

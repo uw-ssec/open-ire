@@ -1,18 +1,81 @@
 import csv
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from nameparser import HumanName
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(slots=True)
 class AuthorRecord:
     """
-    Represents an author with email and name information.
+    Represents an author with email and parsed name information.
+
+    The name is parsed using the nameparser library, which handles complex names
+    including titles, middle names, and suffixes. Spiders can access individual
+    name components to format names as required by their target APIs.
     """
 
+    name: str | HumanName
     email: str
-    first_name: str
-    last_name: str
+    _parsed_name: HumanName = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Parse the name if it's a string."""
+        if isinstance(self.name, str):
+            object.__setattr__(self, "_parsed_name", HumanName(self.name))
+        else:
+            object.__setattr__(self, "_parsed_name", self.name)
+
+    def __repr__(self) -> str:
+        return f"AuthorRecord(name='{self._parsed_name}', email='{self.email}')"
+
+    @property
+    def first_name(self) -> str:
+        return str(self._parsed_name.first)
+
+    @property
+    def last_name(self) -> str:
+        return str(self._parsed_name.last)
+
+    @property
+    def middle_name(self) -> str:
+        return str(self._parsed_name.middle)
+
+    @property
+    def middle_names(self) -> str:
+        """Alias for middle_name(), kept for consistency with middle_initials()."""
+        return str(self._parsed_name.middle)
+
+    @property
+    def first_initial(self) -> str:
+        """First initial (uppercase)."""
+        first = str(self._parsed_name.first)
+        return first[0].upper() if first else ""
+
+    @property
+    def middle_initial(self) -> str:
+        """Middle initial (uppercase)."""
+        middle = str(self._parsed_name.middle)
+        return middle[0].upper() if middle else ""
+
+    @property
+    def middle_initials(self) -> str:
+        """Middle initials (uppercase) joined together."""
+        middle = str(self._parsed_name.middle)
+        if not middle:
+            return ""
+        return "".join(initial[0].upper() for initial in middle.split(" ") if initial)
+
+    @property
+    def title(self) -> str:
+        """Title component (e.g., Dr., Prof.)."""
+        return str(self._parsed_name.title)
+
+    @property
+    def suffix(self) -> str:
+        """Suffix component (e.g., Jr., III)."""
+        return str(self._parsed_name.suffix)
 
 
 class AuthorIndex:
@@ -63,21 +126,18 @@ class AuthorIndex:
         email: str | None,
     ) -> AuthorRecord | None:
         """Build an AuthorRecord from CSV row data, returning None if invalid."""
-        clean_email = self._stip_value(email)
-        clean_first = self._stip_value(first_name)
-        clean_last = self._stip_value(last_name)
+        email = (email or "").strip()
+        first_name = (first_name or "").strip()
+        last_name = (last_name or "").strip()
 
-        if not any((clean_email, clean_first, clean_last)):
+        if not any((email, first_name, last_name)):
             return None
 
-        return AuthorRecord(first_name=clean_first, last_name=clean_last, email=clean_email)
+        # Construct full name from components and parse it
+        full_name = f"{first_name} {last_name}"
+        return AuthorRecord(email=email, name=HumanName(full_name))
 
     # === TEXT PROCESSING UTILITIES ===
-
-    @staticmethod
-    def _stip_value(value: str | None) -> str:
-        """Strip whitespace from a string value, handling None."""
-        return (value or "").strip()
 
     @staticmethod
     def _normalize_text(value: str) -> str:
