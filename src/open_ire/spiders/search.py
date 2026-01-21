@@ -6,7 +6,7 @@ from typing import Any
 from scrapy import Spider
 from scrapy.http import Request
 
-from open_ire.faculty import FacultyIndex, FacultyRecord
+from open_ire.author import AuthorIndex, AuthorRecord
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 
@@ -51,27 +51,27 @@ class TermSearchSpider(SearchSpider):
         self.search_terms = [term.strip() for term in (terms or "").split(",")]
 
 
-class FacultySearchSpider(SearchSpider):
+class AuthorSearchSpider(SearchSpider):
     """
-    A specialized base spider that only searches using a faculty CSV file.
+    A specialized base spider that only searches using an author CSV file.
 
-    This spider requires the `faculty_csv` argument. Subclasses can override
+    This spider requires the `author_csv` argument. Subclasses can override
     `_get_author_name` to specify the required name format for the target API.
     """
 
-    def __init__(self, faculty_csv: str | None = None, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, author_csv: str | None = None, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        if not faculty_csv:
-            msg = f"The '{self.name}' spider requires the 'faculty_csv' argument."
+        if not author_csv:
+            msg = f"The '{self.name}' spider requires the 'author_csv' argument."
             raise ValueError(msg)
 
-        self.search_terms = self._get_search_terms(faculty_csv)
+        self.search_terms = self._get_search_terms(author_csv)
 
-    def _get_author_name(self, record: FacultyRecord) -> str:
+    def _get_author_name(self, record: AuthorRecord) -> str:
         """Return the author name in the default 'Firstname Lastname' format."""
         return f"{record.first_name} {record.last_name}"
 
-    def _get_search_terms(self, faculty_csv: str) -> list[str]:
-        faculty_path = Path(faculty_csv).resolve()
-        faculty_index = FacultyIndex(faculty_path)
-        return [self._get_author_name(record) for record in faculty_index.records]
+    def _get_search_terms(self, author_csv: str) -> list[str]:
+        author_path = Path(author_csv).resolve()
+        author_index = AuthorIndex(author_path)
+        return [self._get_author_name(record) for record in author_index.records]

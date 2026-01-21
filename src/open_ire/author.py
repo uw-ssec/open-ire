@@ -7,7 +7,11 @@ from rapidfuzz import fuzz
 
 
 @dataclass(frozen=True, slots=True)
-class FacultyRecord:
+class AuthorRecord:
+    """
+    Represents an author with email and name information.
+    """
+
     email: str
     first_name: str
     last_name: str
@@ -21,7 +25,14 @@ class FacultyRecord:
         return f"{self.last_name.strip().upper()} {self.first_name.strip().upper()}".strip()
 
 
-class FacultyIndex:
+class AuthorIndex:
+    """
+    Loads and indexes author data from CSV files.
+
+    Creates lookup tables for different repository formats and provides
+    normalized text matching capabilities for author name resolution.
+    """
+
     _required_fields = frozenset({"FirstName", "LastName", "Email"})
 
     def __init__(self, csv_path: Path) -> None:
@@ -45,7 +56,7 @@ class FacultyIndex:
         first_name: str | None,
         last_name: str | None,
         email: str | None,
-    ) -> FacultyRecord | None:
+    ) -> AuthorRecord | None:
         clean_email = self._stip_value(email)
         clean_first = self._stip_value(first_name)
         clean_last = self._stip_value(last_name)
@@ -53,19 +64,19 @@ class FacultyIndex:
         if not any((clean_email, clean_first, clean_last)):
             return None
 
-        return FacultyRecord(first_name=clean_first, last_name=clean_last, email=clean_email)
+        return AuthorRecord(first_name=clean_first, last_name=clean_last, email=clean_email)
 
-    def _load_records(self) -> list[FacultyRecord]:
+    def _load_records(self) -> list[AuthorRecord]:
         if not self.path.exists():
-            msg = f"Faculty file not found: {self.path}"
+            msg = f"Author file not found: {self.path}"
             raise FileNotFoundError(msg)
 
-        records: list[FacultyRecord] = []
+        records: list[AuthorRecord] = []
         with self.path.open(encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
             if not reader.fieldnames or not self._required_fields.issubset(reader.fieldnames):
                 msg = (
-                    f"Faculty file must include columns: {', '.join(sorted(self._required_fields))}"
+                    f"Author file must include columns: {', '.join(sorted(self._required_fields))}"
                 )
                 raise ValueError(msg)
 
@@ -77,7 +88,7 @@ class FacultyIndex:
                     records.append(record)
 
         if not records:
-            msg = f"No valid faculty records found in {self.path}"
+            msg = f"No valid author records found in {self.path}"
             raise ValueError(msg)
 
         return records
@@ -108,17 +119,24 @@ class FacultyIndex:
 
     def get_lookup(self, repository: str) -> dict[str, dict[str, str]]:
         if repository not in self.lookups:
-            msg = f"Unsupported faculty lookup repository: {repository}"
+            msg = f"Unsupported author lookup repository: {repository}"
             raise ValueError(msg)
 
         return self.lookups[repository]
 
 
 class AuthorMatcher:
-    def __init__(self, faculty_csv_path: str, repository: str, similarity_threshold: float = 0.9):
+    """
+    Matches author names against an author index using fuzzy string matching.
+
+    Provides exact and similarity-based matching for author name resolution,
+    supporting different repository name formats and configurable similarity thresholds.
+    """
+
+    def __init__(self, author_csv_path: str, repository: str, similarity_threshold: float = 0.9):
         self.similarity_threshold = similarity_threshold
-        faculty_index = FacultyIndex(Path(faculty_csv_path).resolve())
-        self.faculty_lookup = faculty_index.get_lookup(repository)
+        author_index = AuthorIndex(Path(author_csv_path).resolve())
+        self.author_lookup = author_index.get_lookup(repository)
 
     @staticmethod
     def _normalize_text(value: str) -> str:
@@ -159,7 +177,7 @@ class AuthorMatcher:
 
     def match_author(self, candidate: str) -> tuple[str | None, str | None]:
         return self._match_from_lookup(
-            candidate, self.faculty_lookup["raw"], self.faculty_lookup["normalized"]
+            candidate, self.author_lookup["raw"], self.author_lookup["normalized"]
         )
 
     def collect_matches(self, names: list[str]) -> tuple[list[str], list[str]]:

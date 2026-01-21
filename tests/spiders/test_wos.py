@@ -66,7 +66,7 @@ def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
 @pytest.fixture
 def spider(dummy_csv: Path, monkeypatch) -> WoSSpider:
     monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
-    return WoSSpider(faculty_csv=str(dummy_csv), start_year="2020", end_year="2021")
+    return WoSSpider(author_csv=str(dummy_csv), start_year="2020", end_year="2021")
 
 
 class TestWoSSpider:

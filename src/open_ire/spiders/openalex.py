@@ -7,13 +7,17 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.faculty import AuthorMatcher
+from open_ire.author import AuthorMatcher
 from open_ire.items import ArticleItem
 from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
-from open_ire.spiders.search import FacultySearchSpider
+from open_ire.spiders.search import AuthorSearchSpider
 
 
-class OpenAlexSpider(FacultySearchSpider):
+class OpenAlexSpider(AuthorSearchSpider):
+    """
+    OpenAlex API spider for collecting academic publications by author.
+    """
+
     name = "openalex"
     base_url = "https://api.openalex.org"
     page_size = 25
@@ -26,17 +30,10 @@ class OpenAlexSpider(FacultySearchSpider):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        # The 'faculty_csv' argument is passed to the parent class,
-        # but we need it to initialize the AuthorMatcher.
-        faculty_csv = kwargs.get("faculty_csv")
-        if not faculty_csv:
-            msg = "The 'faculty_csv' argument is required for the OpenAlex spider."
-            raise ValueError(msg)
-
         self.start_date = start_date
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
-        self.author_matcher = AuthorMatcher(faculty_csv, "openalex")
+        self.author_matcher = AuthorMatcher(author_csv, "openalex")
 
     @staticmethod
     def _join_or_none(values: list[str]) -> str | None:

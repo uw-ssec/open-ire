@@ -17,7 +17,7 @@ Kemi Adeyemi,Kemi,Adeyemi,kadeyemi@uw.edu
     csv_path = tmp_path / "adeyemi.csv"
     csv_path.write_text(csv_content)
 
-    return OpenAlexSpider(faculty_csv=str(csv_path))
+    return OpenAlexSpider(author_csv=str(csv_path))
 
 
 @pytest.fixture

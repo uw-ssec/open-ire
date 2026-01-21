@@ -10,13 +10,17 @@ from urllib.parse import urlencode
 from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.faculty import AuthorMatcher, FacultyRecord
+from open_ire.author import AuthorMatcher, AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
-from open_ire.spiders.search import FacultySearchSpider
+from open_ire.spiders.search import AuthorSearchSpider
 
 
-class WoSSpider(FacultySearchSpider):
+class WoSSpider(AuthorSearchSpider):
+    """
+    Web of Science API spider for collecting academic publications by author.
+    """
+
     name = "wos"
     base_url = "https://api.clarivate.com/api/wos/"
     page_size = 25
@@ -29,7 +33,7 @@ class WoSSpider(FacultySearchSpider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        faculty_csv = kwargs["faculty_csv"]
+        author_csv = kwargs["author_csv"]
 
         current_year = datetime.date.today().year
         self.organization = WOS_ORGANIZATION
@@ -50,9 +54,9 @@ class WoSSpider(FacultySearchSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
-        self.author_matcher = AuthorMatcher(faculty_csv, "wos")
+        self.author_matcher = AuthorMatcher(author_csv, "wos")
 
-    def _get_author_name(self, record: FacultyRecord) -> str:
+    def _get_author_name(self, record: AuthorRecord) -> str:
         """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
         return record.wos_name
 
