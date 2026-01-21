@@ -60,89 +60,8 @@ class WoSSpider(AuthorSearchSpider):
         """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
         return record.wos_name
 
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        return ", ".join(values) if values else None
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        if not value:
-            return None
-        try:
-            return parse(str(value)).date()
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            pass
-        match = re.search(r"(19|20)\d{2}", str(value))
-        if match:
-            return int(match.group())
-        return None
-
-    @staticmethod
-    def _validate_year(raw_year: str, field_name: str) -> int:
-        try:
-            value = int(raw_year)
-        except (TypeError, ValueError) as exc:
-            msg = f"Invalid value for '{field_name}': {raw_year!r}"
-            raise ValueError(msg) from exc
-
-        return value
-
-    @staticmethod
-    def _extract_authors(names: list[Any]) -> list[str]:
-        authors: list[str] = []
-        for author in names:
-            if not isinstance(author, dict):
-                continue
-
-            full_name = author.get("wos_standard") or author.get("display_name")
-            if full_name:
-                authors.append(str(full_name))
-
-        return authors
-
-    @staticmethod
-    def _extract_journal_name(titles: list[Any]) -> str | None:
-        for title in titles:
-            if not isinstance(title, dict):
-                continue
-            if title.get("type") == "source" and title.get("content"):
-                return str(title["content"])
-
-        return None
-
-    @staticmethod
-    def _as_list(value: Any) -> list[Any]:
-        if isinstance(value, list):
-            return value
-
-        if value is None:
-            return []
-
-        return [value]
-
-    def _build_query(self, term: str) -> str:
-        return (
-            f'AU=("{term}") AND OG=("{self.organization}") '
-            f"AND PY=({self.start_year}-{self.end_year})"
-        )
-
-    def _build_params(self, query: str, page: int) -> dict[str, Any]:
-        return {
-            "count": self.page_size,
-            "databaseId": "WOS",
-            "page": page,
-            "sortField": "PY+D",
-            "usrQuery": query,
-        }
+    # === HIGH-LEVEL WORKFLOW METHODS ===
+    # These methods define the main crawling workflow
 
     def build_search_request(self, term: str) -> Request:
         """Build a search request for a single author term."""
@@ -160,6 +79,7 @@ class WoSSpider(AuthorSearchSpider):
     def parse_publications(
         self, response: Response, query: str, page: int
     ) -> Generator[Request | ArticleItem, None, None]:
+        """Parse WoS publication results and yield ArticleItems, handling pagination."""
         raw_text = response.text or ""
         try:
             data = json.loads(raw_text)
@@ -222,7 +142,28 @@ class WoSSpider(AuthorSearchSpider):
                 cb_kwargs={"query": query, "page": next_page},
             )
 
+    # === SUPPORTING WORKFLOW METHODS ===
+    # These methods support the main workflow
+
+    def _build_query(self, term: str) -> str:
+        """Build WoS query string with author, organization, and date filters."""
+        return (
+            f'AU=("{term}") AND OG=("{self.organization}") '
+            f"AND PY=({self.start_year}-{self.end_year})"
+        )
+
+    def _build_params(self, query: str, page: int) -> dict[str, Any]:
+        """Build API request parameters for WoS search."""
+        return {
+            "count": self.page_size,
+            "databaseId": "WOS",
+            "page": page,
+            "sortField": "PY+D",
+            "usrQuery": query,
+        }
+
     def _build_item(self, publication: Any) -> ArticleItem | None:
+        """Build an ArticleItem from WoS publication data."""
         if not isinstance(publication, dict):
             return None
 
@@ -275,3 +216,85 @@ class WoSSpider(AuthorSearchSpider):
             if doi
             else f"https://www.webofscience.com/wos/woscc/full-record/{external_id}",
         )
+
+    # === DATA EXTRACTION UTILITIES ===
+    # These methods extract specific data from WoS API responses
+
+    @staticmethod
+    def _extract_authors(names: list[Any]) -> list[str]:
+        """Extract author names from WoS names data structure."""
+        authors: list[str] = []
+        for author in names:
+            if not isinstance(author, dict):
+                continue
+
+            full_name = author.get("wos_standard") or author.get("display_name")
+            if full_name:
+                authors.append(str(full_name))
+
+        return authors
+
+    @staticmethod
+    def _extract_journal_name(titles: list[Any]) -> str | None:
+        """Extract journal name from WoS titles data structure."""
+        for title in titles:
+            if not isinstance(title, dict):
+                continue
+            if title.get("type") == "source" and title.get("content"):
+                return str(title["content"])
+
+        return None
+
+    # === LOW-LEVEL UTILITY FUNCTIONS ===
+    # These are generic utility functions for data processing
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        """Convert a value to a list, handling WoS API's inconsistent list/single item responses."""
+        if isinstance(value, list):
+            return value
+
+        if value is None:
+            return []
+
+        return [value]
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        """Join a list of strings with commas, or return None if empty."""
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        """Parse a date value into a date object, returning None on failure."""
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        """Parse a year value into an integer, with regex fallback for complex formats."""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+        match = re.search(r"(19|20)\d{2}", str(value))
+        if match:
+            return int(match.group())
+        return None
+
+    @staticmethod
+    def _validate_year(raw_year: str, field_name: str) -> int:
+        """Validate and convert a year string to integer, raising ValueError on failure."""
+        try:
+            value = int(raw_year)
+        except (TypeError, ValueError) as exc:
+            msg = f"Invalid value for '{field_name}': {raw_year!r}"
+            raise ValueError(msg) from exc
+
+        return value

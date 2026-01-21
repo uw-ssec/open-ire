@@ -18,10 +18,12 @@ class AuthorRecord:
 
     @property
     def openalex_name(self) -> str:
+        """Return name in 'Firstname Lastname' format for OpenAlex API."""
         return f"{self.first_name.strip()} {self.last_name.strip()}".strip()
 
     @property
     def wos_name(self) -> str:
+        """Return name in 'LASTNAME FIRSTNAME' format for Web of Science API."""
         return f"{self.last_name.strip().upper()} {self.first_name.strip().upper()}".strip()
 
 
@@ -40,33 +42,20 @@ class AuthorIndex:
         self.records = self._load_records()
         self.lookups = self._build_lookups()
 
-    @staticmethod
-    def _stip_value(value: str | None) -> str:
-        return (value or "").strip()
+    # === PUBLIC INTERFACE ===
 
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", value or "")
-        normalized = "".join(c for c in normalized if c.isalnum() or c.isspace())
+    def get_lookup(self, repository: str) -> dict[str, dict[str, str]]:
+        """Get lookup tables for a specific repository format."""
+        if repository not in self.lookups:
+            msg = f"Unsupported author lookup repository: {repository}"
+            raise ValueError(msg)
 
-        return " ".join(normalized.lower().split())
+        return self.lookups[repository]
 
-    def _build_record(
-        self,
-        first_name: str | None,
-        last_name: str | None,
-        email: str | None,
-    ) -> AuthorRecord | None:
-        clean_email = self._stip_value(email)
-        clean_first = self._stip_value(first_name)
-        clean_last = self._stip_value(last_name)
-
-        if not any((clean_email, clean_first, clean_last)):
-            return None
-
-        return AuthorRecord(first_name=clean_first, last_name=clean_last, email=clean_email)
+    # === DATA LOADING AND PROCESSING ===
 
     def _load_records(self) -> list[AuthorRecord]:
+        """Load and validate author records from CSV file."""
         if not self.path.exists():
             msg = f"Author file not found: {self.path}"
             raise FileNotFoundError(msg)
@@ -93,16 +82,26 @@ class AuthorIndex:
 
         return records
 
-    def _build_lookup(self, attr: str) -> dict[str, str]:
-        lookup: dict[str, str] = {}
-        for record in self.records:
-            key = getattr(record, attr)
-            if key and key not in lookup:
-                lookup[key] = record.email
+    def _build_record(
+        self,
+        first_name: str | None,
+        last_name: str | None,
+        email: str | None,
+    ) -> AuthorRecord | None:
+        """Build an AuthorRecord from CSV row data, returning None if invalid."""
+        clean_email = self._stip_value(email)
+        clean_first = self._stip_value(first_name)
+        clean_last = self._stip_value(last_name)
 
-        return lookup
+        if not any((clean_email, clean_first, clean_last)):
+            return None
+
+        return AuthorRecord(first_name=clean_first, last_name=clean_last, email=clean_email)
+
+    # === LOOKUP TABLE CONSTRUCTION ===
 
     def _build_lookups(self) -> dict[str, dict[str, dict[str, str]]]:
+        """Build lookup tables for all supported repository formats."""
         lookups: dict[str, dict[str, dict[str, str]]] = {}
         repository_attrs = {"openalex": "openalex_name", "wos": "wos_name"}
 
@@ -117,12 +116,30 @@ class AuthorIndex:
 
         return lookups
 
-    def get_lookup(self, repository: str) -> dict[str, dict[str, str]]:
-        if repository not in self.lookups:
-            msg = f"Unsupported author lookup repository: {repository}"
-            raise ValueError(msg)
+    def _build_lookup(self, attr: str) -> dict[str, str]:
+        """Build a lookup table mapping names to emails for a specific name format."""
+        lookup: dict[str, str] = {}
+        for record in self.records:
+            key = getattr(record, attr)
+            if key and key not in lookup:
+                lookup[key] = record.email
 
-        return self.lookups[repository]
+        return lookup
+
+    # === TEXT PROCESSING UTILITIES ===
+
+    @staticmethod
+    def _stip_value(value: str | None) -> str:
+        """Strip whitespace from a string value, handling None."""
+        return (value or "").strip()
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        """Normalize text for consistent matching by removing accents and standardizing case."""
+        normalized = unicodedata.normalize("NFKD", value or "")
+        normalized = "".join(c for c in normalized if c.isalnum() or c.isspace())
+
+        return " ".join(normalized.lower().split())
 
 
 class AuthorMatcher:
@@ -138,27 +155,42 @@ class AuthorMatcher:
         author_index = AuthorIndex(Path(author_csv_path).resolve())
         self.author_lookup = author_index.get_lookup(repository)
 
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", value or "")
-        normalized = "".join(ch for ch in normalized if ch.isalnum() or ch.isspace())
-        return " ".join(normalized.lower().split())
+    # === PUBLIC MATCHING INTERFACE ===
 
-    @staticmethod
-    def _similarity(left: str, right: str) -> float:
-        if not left or not right:
-            return 0.0
-        return fuzz.token_set_ratio(left, right) / 100
+    def match_author(self, candidate: str) -> tuple[str | None, str | None]:
+        """Match a single author name, returning (matched_name, email) or (None, None)."""
+        return self._match_from_lookup(
+            candidate, self.author_lookup["raw"], self.author_lookup["normalized"]
+        )
+
+    def collect_matches(self, names: list[str]) -> tuple[list[str], list[str]]:
+        """Match multiple author names, returning sorted lists of unique matches."""
+        matched_names: set[str] = set()
+        matched_emails: set[str] = set()
+
+        for name in names:
+            matched_name, matched_email = self.match_author(name)
+            if matched_name:
+                matched_names.add(matched_name)
+            if matched_email:
+                matched_emails.add(matched_email)
+
+        return sorted(matched_names), sorted(matched_emails)
+
+    # === MATCHING IMPLEMENTATION ===
 
     def _match_from_lookup(
         self, candidate: str, lookup: dict[str, str], normalized_lookup: dict[str, str]
     ) -> tuple[str | None, str | None]:
+        """Match a candidate name against lookup tables using exact and fuzzy matching."""
         normalized_candidate = self._normalize_text(candidate)
 
+        # Try exact match first
         if normalized_candidate in normalized_lookup:
             original = normalized_lookup[normalized_candidate]
             return original, lookup[original]
 
+        # Fall back to fuzzy matching
         best_match: str | None = None
         best_score = 0.0
 
@@ -175,20 +207,18 @@ class AuthorMatcher:
 
         return None, None
 
-    def match_author(self, candidate: str) -> tuple[str | None, str | None]:
-        return self._match_from_lookup(
-            candidate, self.author_lookup["raw"], self.author_lookup["normalized"]
-        )
+    # === TEXT PROCESSING UTILITIES ===
 
-    def collect_matches(self, names: list[str]) -> tuple[list[str], list[str]]:
-        matched_names: set[str] = set()
-        matched_emails: set[str] = set()
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        """Normalize text for consistent matching by removing accents and standardizing case."""
+        normalized = unicodedata.normalize("NFKD", value or "")
+        normalized = "".join(ch for ch in normalized if ch.isalnum() or ch.isspace())
+        return " ".join(normalized.lower().split())
 
-        for name in names:
-            matched_name, matched_email = self.match_author(name)
-            if matched_name:
-                matched_names.add(matched_name)
-            if matched_email:
-                matched_emails.add(matched_email)
-
-        return sorted(matched_names), sorted(matched_emails)
+    @staticmethod
+    def _similarity(left: str, right: str) -> float:
+        """Calculate similarity score between two strings using token set ratio."""
+        if not left or not right:
+            return 0.0
+        return fuzz.token_set_ratio(left, right) / 100

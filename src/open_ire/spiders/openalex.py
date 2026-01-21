@@ -35,77 +35,8 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPENALEX_CONTACT_EMAIL}"}
         self.author_matcher = AuthorMatcher(author_csv, "openalex")
 
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        return ", ".join(values) if values else None
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        if not value:
-            return None
-        try:
-            return parse(str(value)).date()
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
-        return None
-
-    @staticmethod
-    def _extract_journal_name(publication: dict[str, Any]) -> str | None:
-        primary_location = publication.get("primary_location") or {}
-        if isinstance(primary_location, dict):
-            source = primary_location.get("source") or {}
-            if isinstance(source, dict) and source.get("display_name"):
-                return str(source["display_name"])
-
-        for location in publication.get("locations", []) or []:
-            if not isinstance(location, dict):
-                continue
-
-            source = location.get("source") or {}
-            display_name = source.get("display_name")
-            if display_name and isinstance(display_name, str):
-                return str(display_name)
-
-        return None
-
-    @staticmethod
-    def _extract_authors(publication: dict[str, Any]) -> list[str]:
-        author_names: list[str] = []
-        authorships = publication.get("authorships", [])
-        for authorship in authorships:
-            if not isinstance(authorship, dict):
-                continue
-
-            display_name = authorship.get("author", {}).get("display_name")
-            if display_name and isinstance(display_name, str):
-                author_names.append(display_name)
-
-        return author_names
-
-    def _request_publications(
-        self, author_id: str, cursor: str = "*"
-    ) -> Generator[Request, None, None]:
-        params = {
-            "filter": f"author.id:{author_id},from_publication_date:{self.start_date}",
-            "per_page": str(self.page_size),
-            "cursor": cursor,
-            "sort": "publication_date:desc",
-        }
-        url = f"{self.base_url}/works?{urlencode(params)}"
-
-        yield Request(
-            url,
-            headers=self.request_headers,
-            callback=self.parse_publications,
-            cb_kwargs={"author_id": author_id},
-        )
+    # === HIGH-LEVEL WORKFLOW METHODS ===
+    # These methods define the main crawling workflow
 
     def build_search_request(self, term: str) -> Request:
         """Build the initial search request for a given author name."""
@@ -134,9 +65,32 @@ class OpenAlexSpider(AuthorSearchSpider):
 
             yield from self._request_publications(author_id)
 
+    # === SUPPORTING WORKFLOW METHODS ===
+    # These methods support the main workflow
+
+    def _request_publications(
+        self, author_id: str, cursor: str = "*"
+    ) -> Generator[Request, None, None]:
+        """Generate a request for an author's publications with pagination support."""
+        params = {
+            "filter": f"author.id:{author_id},from_publication_date:{self.start_date}",
+            "per_page": str(self.page_size),
+            "cursor": cursor,
+            "sort": "publication_date:desc",
+        }
+        url = f"{self.base_url}/works?{urlencode(params)}"
+
+        yield Request(
+            url,
+            headers=self.request_headers,
+            callback=self.parse_publications,
+            cb_kwargs={"author_id": author_id},
+        )
+
     def parse_publications(
         self, response: Response, author_id: str
     ) -> Generator[Request | ArticleItem, None, None]:
+        """Parse publication results and yield ArticleItems, handling pagination."""
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
 
@@ -152,12 +106,12 @@ class OpenAlexSpider(AuthorSearchSpider):
             yield from self._request_publications(author_id, cursor=next_cursor)
 
     def _build_item(self, publication: dict[str, Any]) -> ArticleItem | None:
+        """Build an ArticleItem from OpenAlex publication data."""
         external_id = publication.get("id")
         if not external_id:
             return None
 
         author_names = self._extract_authors(publication)
-
         matched_names, matched_emails = self.author_matcher.collect_matches(author_names)
 
         oa_status = publication.get("open_access", {}).get("oa_status")
@@ -181,3 +135,68 @@ class OpenAlexSpider(AuthorSearchSpider):
             title=publication.get("title"),
             url=publication.get("doi"),
         )
+
+    # === DATA EXTRACTION UTILITIES ===
+    # These methods extract specific data from OpenAlex API responses
+
+    @staticmethod
+    def _extract_authors(publication: dict[str, Any]) -> list[str]:
+        """Extract author names from publication authorship data."""
+        author_names: list[str] = []
+        authorships = publication.get("authorships", [])
+        for authorship in authorships:
+            if not isinstance(authorship, dict):
+                continue
+
+            display_name = authorship.get("author", {}).get("display_name")
+            if display_name and isinstance(display_name, str):
+                author_names.append(display_name)
+
+        return author_names
+
+    @staticmethod
+    def _extract_journal_name(publication: dict[str, Any]) -> str | None:
+        """Extract journal name from publication location data."""
+        primary_location = publication.get("primary_location") or {}
+        if isinstance(primary_location, dict):
+            source = primary_location.get("source") or {}
+            if isinstance(source, dict) and source.get("display_name"):
+                return str(source["display_name"])
+
+        for location in publication.get("locations", []) or []:
+            if not isinstance(location, dict):
+                continue
+
+            source = location.get("source") or {}
+            display_name = source.get("display_name")
+            if display_name and isinstance(display_name, str):
+                return str(display_name)
+
+        return None
+
+    # === LOW-LEVEL UTILITY FUNCTIONS ===
+    # These are generic utility functions for data processing
+
+    @staticmethod
+    def _join_or_none(values: list[str]) -> str | None:
+        """Join a list of strings with commas, or return None if empty."""
+        return ", ".join(values) if values else None
+
+    @staticmethod
+    def _parse_date(value: Any) -> date | None:
+        """Parse a date value into a date object, returning None on failure."""
+        if not value:
+            return None
+        try:
+            return parse(str(value)).date()
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_year(value: Any) -> int | None:
+        """Parse a year value into an integer, returning None on failure."""
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return None
