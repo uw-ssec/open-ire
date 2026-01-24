@@ -132,6 +132,11 @@ class AuthorRecord:
         parts = [name.strip() for name in author_string.split(";") if name.strip()]
         return [cls(name=name, email="") for name in parts]
 
+    @classmethod
+    def encode_author_string(cls, authors: list["AuthorRecord"]) -> str:
+        """Encode a list of AuthorRecord objects back into a semicolon-separated string."""
+        return "; ".join(str(author.normalized_name) for author in authors)
+
 
 class AuthorIndex:
     """

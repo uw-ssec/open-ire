@@ -118,12 +118,12 @@ class OpenAlexSpider(AuthorSearchSpider):
         if not external_id:
             return None
 
-        author_names = self._extract_authors(publication)
+        authors = self._extract_authors(publication)
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
         return ArticleItem(
-            authors=self._join_authors(author_names),
+            authors=AuthorRecord.encode_author_string(authors),
             doi=publication.get("doi"),
             extra={
                 "is_open_access": is_oa,
@@ -144,9 +144,9 @@ class OpenAlexSpider(AuthorSearchSpider):
     # These methods extract specific data from OpenAlex API responses
 
     @staticmethod
-    def _extract_authors(publication: dict[str, Any]) -> list[str]:
+    def _extract_authors(publication: dict[str, Any]) -> list[AuthorRecord]:
         """Extract author names from publication authorship data."""
-        author_names: list[str] = []
+        authors: list[AuthorRecord] = []
         authorships = publication.get("authorships", [])
         for authorship in authorships:
             if not isinstance(authorship, dict):
@@ -154,9 +154,9 @@ class OpenAlexSpider(AuthorSearchSpider):
 
             display_name = authorship.get("author", {}).get("display_name")
             if display_name and isinstance(display_name, str):
-                author_names.append(display_name)
+                authors.append(AuthorRecord(display_name))
 
-        return author_names
+        return authors
 
     @staticmethod
     def _extract_journal_name(publication: dict[str, Any]) -> str | None:

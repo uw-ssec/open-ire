@@ -55,7 +55,7 @@ class WoSSpider(AuthorSearchSpider):
         self.headers = {"X-ApiKey": self.api_key}
 
     def _get_author_name(self, record: AuthorRecord) -> str:
-        return f"{record.last_name} {record.first_name}"
+        return f"{record.last_name}, {record.first_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
@@ -195,7 +195,7 @@ class WoSSpider(AuthorSearchSpider):
         )
 
         return ArticleItem(
-            authors=self._join_authors(authors),
+            authors=AuthorRecord.encode_author_string(authors),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
@@ -220,18 +220,18 @@ class WoSSpider(AuthorSearchSpider):
     # These methods extract specific data from WoS API responses
 
     @staticmethod
-    def _extract_authors(names: list[Any]) -> list[str]:
+    def _extract_authors(names: list[Any]) -> list[AuthorRecord]:
         """Extract author names from WoS names data structure."""
-        authors: list[str] = []
+        authors: list[AuthorRecord] = []
         for author in names:
             if not isinstance(author, dict):
                 continue
 
-            full_name = (
+            author_name = (
                 author.get("full_name") or author.get("display_name") or author.get("wos_standard")
             )
-            if full_name:
-                authors.append(str(full_name))
+            if author_name:
+                authors.append(AuthorRecord(author_name))
 
         return authors
 
