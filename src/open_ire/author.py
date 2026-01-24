@@ -15,8 +15,7 @@ class AuthorRecord:
     name components to format names as required by their target APIs.
     """
 
-    name: str | HumanName
-    email: str | None
+    _email: str | None
     _parsed_name: HumanName = field(init=False, repr=False)
 
     def __init__(self, name: str | HumanName, email: str | None = None) -> None:
@@ -24,11 +23,22 @@ class AuthorRecord:
             self._parsed_name = HumanName(name)
         else:
             self._parsed_name = name
-            self.name = str(name)
-        self.email = email
+        self._email = email
 
     def __repr__(self) -> str:
-        return f"AuthorRecord(name='{self._parsed_name}', email='{self.email}')"
+        return f"AuthorRecord(name='{self._parsed_name}', email='{self._email}')"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AuthorRecord):
+            return NotImplemented
+        return self.normalized_name == other.normalized_name and self.email == other.email
+
+    def __hash__(self) -> int:
+        return hash((self.normalized_name, self.email))
+
+    @property
+    def email(self) -> str | None:
+        return self._email
 
     @property
     def first_name(self) -> str:
@@ -76,6 +86,51 @@ class AuthorRecord:
     def suffix(self) -> str:
         """Suffix component (e.g., Jr., III)."""
         return str(self._parsed_name.suffix)
+
+    @property
+    def full_name(self) -> str:
+        """Return the full name as parsed by nameparser."""
+        return str(self._parsed_name)
+
+    @property
+    def normalized_name(self) -> str:
+        """Return normalized name in 'Last, First Middle' format for consistent storage."""
+        last = self.last_name.strip()
+        first = self.first_name.strip()
+        middle = self.middle_name.strip()
+
+        # Build given name (first + middle)
+        given_parts = [p for p in [first, middle] if p]
+        given_name = " ".join(given_parts) if given_parts else ""
+
+        # Return in "Last, First Middle" format
+        if last and given_name:
+            return f"{last}, {given_name}"
+        if last:
+            return last
+        if given_name:
+            return given_name
+        return str(self._parsed_name).strip() or "Unknown"
+
+    @classmethod
+    def parse_author_string(cls, author_string: str) -> list["AuthorRecord"]:
+        """Parse a semicolon-separated author string into AuthorRecord objects.
+
+        Authors are separated by semicolons. Each author name is parsed by nameparser
+        which handles both "Last, First" and "First Last" formats.
+
+        Args:
+            author_string: Semicolon-separated string of author names
+
+        Returns:
+            List of AuthorRecord objects (with empty email fields)
+        """
+        if not author_string or not author_string.strip():
+            return []
+
+        # Split by semicolon and parse each name
+        parts = [name.strip() for name in author_string.split(";") if name.strip()]
+        return [cls(name=name, email="") for name in parts]
 
 
 class AuthorIndex:
