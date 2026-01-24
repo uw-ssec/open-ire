@@ -1,12 +1,11 @@
 import csv
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 
 from nameparser import HumanName
 
 
-@dataclass(slots=True)
 class AuthorRecord:
     """
     Represents an author with email and parsed name information.
@@ -17,15 +16,16 @@ class AuthorRecord:
     """
 
     name: str | HumanName
-    email: str
+    email: str | None
     _parsed_name: HumanName = field(init=False, repr=False)
 
-    def __post_init__(self) -> None:
-        """Parse the name if it's a string."""
-        if isinstance(self.name, str):
-            object.__setattr__(self, "_parsed_name", HumanName(self.name))
+    def __init__(self, name: str | HumanName, email: str | None = None) -> None:
+        if isinstance(name, str):
+            self._parsed_name = HumanName(name)
         else:
-            object.__setattr__(self, "_parsed_name", self.name)
+            self._parsed_name = name
+            self.name = str(name)
+        self.email = email
 
     def __repr__(self) -> str:
         return f"AuthorRecord(name='{self._parsed_name}', email='{self.email}')"
