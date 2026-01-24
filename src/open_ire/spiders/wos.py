@@ -70,6 +70,7 @@ class WoSSpider(AuthorSearchSpider):
             url,
             headers=self.headers,
             callback=self.parse_publications,
+            meta={"matched_author": term},
             cb_kwargs={"query": query, "page": 1},
         )
 
@@ -77,6 +78,7 @@ class WoSSpider(AuthorSearchSpider):
         self, response: Response, query: str, page: int
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse WoS publication results and yield ArticleItems, handling pagination."""
+        matched_author = response.meta["matched_author"]
         raw_text = response.text or ""
 
         try:
@@ -124,7 +126,7 @@ class WoSSpider(AuthorSearchSpider):
 
         emitted = 0
         for record in records:
-            if item := self._build_item(record):
+            if item := self._build_item(record, matched_author):
                 emitted += 1
                 yield item
 
@@ -137,6 +139,7 @@ class WoSSpider(AuthorSearchSpider):
                 next_url,
                 headers=self.headers,
                 callback=self.parse_publications,
+                meta={"matched_author": matched_author},
                 cb_kwargs={"query": query, "page": next_page},
             )
 
@@ -160,7 +163,7 @@ class WoSSpider(AuthorSearchSpider):
             "usrQuery": query,
         }
 
-    def _build_item(self, publication: Any) -> ArticleItem | None:
+    def _build_item(self, publication: Any, matched_author: str) -> ArticleItem | None:
         """Build an ArticleItem from WoS publication data."""
         if not isinstance(publication, dict):
             return None
@@ -200,6 +203,7 @@ class WoSSpider(AuthorSearchSpider):
                 "publication_year": self._parse_year(
                     pub_info.get("pubyear") or pub_info.get("coverdate")
                 ),
+                "matched_author": matched_author,
             },
             publication_date=self._parse_date(
                 pub_info.get("coverdate") or pub_info.get("sortdate")

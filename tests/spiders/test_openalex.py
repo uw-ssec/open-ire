@@ -80,10 +80,11 @@ class TestOpenAlexSpider:
         ],
     )
     def test_request_publications(self, spider, author_id, cursor) -> None:
-        requests = list(spider._request_publications(author_id, cursor))
+        requests = list(spider._request_publications(author_id, "Kemi Adeyemi", cursor))
         assert len(requests) == 1
         assert requests[0].url.startswith(spider.base_url + "/works")
         assert requests[0].cb_kwargs["author_id"] == author_id
+        assert requests[0].meta['matched_author'] == "Kemi Adeyemi"
 
         parsed_url = urlparse(requests[0].url)
         query_params = parse_qs(parsed_url.query)
@@ -91,8 +92,9 @@ class TestOpenAlexSpider:
 
     def test_author_publication_requests(self, spider) -> None:
         response_data = {"results": [{"id": "A1"}, {"id": "A2"}]}
+        request = Request(url="http://dummy.url", meta={'matched_author': "Kemi Adeyemi"})
         response = HtmlResponse(
-            url="http://dummy.url", body=json.dumps(response_data), encoding="utf-8"
+            url="http://dummy.url", body=json.dumps(response_data), encoding="utf-8", request=request
         )
 
         requests = list(spider.author_publication_requests(response))
@@ -111,8 +113,9 @@ class TestOpenAlexSpider:
             ],
             "meta": {"next_cursor": "cursor123"},
         }
+        request = Request(url="http://dummy.url", meta={'matched_author': "Kemi Adeyemi"})
         response = HtmlResponse(
-            url="http://dummy.url", body=json.dumps(publication_data), encoding="utf-8"
+            url="http://dummy.url", body=json.dumps(publication_data), encoding="utf-8", request=request
         )
 
         emitted = list(spider.parse_publications(response, author_id="A1"))
@@ -120,11 +123,12 @@ class TestOpenAlexSpider:
         assert isinstance(emitted[1], Request)
 
     def test_build_item(self, spider, dummy_publication) -> None:
-        item = spider._build_item(dummy_publication)
+        item = spider._build_item(dummy_publication, "Kemi Adeyemi")
         assert isinstance(item, ArticleItem)
         assert item.doi == "https://doi.org/10.1234/test.doi"  # Spider returns original DOI, pipeline normalizes it
         assert item.title == "A Study on Testing"
         assert item.extra["journal_name"] == "Journal of Testing"
+        assert item.extra["matched_author"] == "Kemi Adeyemi"
         assert item.authors == "Alice Smith; Bob Jones"
 
     def test_build_search_request(self, spider) -> None:

@@ -71,11 +71,12 @@ def spider(dummy_csv: Path, monkeypatch) -> WoSSpider:
 
 class TestWoSSpider:
     def test_build_item(self, spider: WoSSpider, dummy_record: dict[str, Any]) -> None:
-        item = spider._build_item(dummy_record)
+        item = spider._build_item(dummy_record, "ElSayed Amina")
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
         assert item.extra["publication_year"] == 2020
+        assert item.extra["matched_author"] == "ElSayed Amina"
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == "ElSayed, Amina; Doe, John"
         assert item.url == "https://doi.org/10.1000/sampledoi"
@@ -85,7 +86,7 @@ class TestWoSSpider:
         record_without_doi = copy.deepcopy(dummy_record)
         record_without_doi["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
 
-        item = spider._build_item(record_without_doi)
+        item = spider._build_item(record_without_doi, "ElSayed Amina")
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
@@ -96,7 +97,7 @@ class TestWoSSpider:
         record_no_identifiers = copy.deepcopy(dummy_record)
         record_no_identifiers["dynamic_data"]["cluster_related"] = {}
 
-        item = spider._build_item(record_no_identifiers)
+        item = spider._build_item(record_no_identifiers, "ElSayed Amina")
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
@@ -104,6 +105,10 @@ class TestWoSSpider:
 
     def test_parse_publications(self, spider: WoSSpider, dummy_response: HtmlResponse) -> None:
         query = spider._build_query("Kemi Adeyemi")
+        # Create a request with meta to tie to the response
+        request = Request(url="http://example.com/api", meta={'matched_author': "Kemi Adeyemi"})
+        dummy_response = dummy_response.replace(request=request)
+
         results = list(spider.parse_publications(dummy_response, query, page=1))
         items = [res for res in results if isinstance(res, ArticleItem)]
         requests = [res for res in results if isinstance(res, Request)]
@@ -115,6 +120,7 @@ class TestWoSSpider:
         assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
         assert item.extra["publication_year"] == 2020
+        assert item.extra["matched_author"] == "Kemi Adeyemi"
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == "ElSayed, Amina; Doe, John"
 
@@ -137,7 +143,8 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         body_str = json.dumps(json_body)
-        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+        request = Request(url="http://example.com/api", meta={'matched_author': "Nobody Matches"})
+        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8", request=request)
 
         query = spider._build_query("Nobody Matches")
         results = list(spider.parse_publications(response, query, page=1))
@@ -157,7 +164,8 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         body_str = json.dumps(json_body)
-        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+        request = Request(url="http://example.com/api", meta={'matched_author': "Also Nobody"})
+        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8", request=request)
 
         query = spider._build_query("Also Nobody")
         results = list(spider.parse_publications(response, query, page=1))

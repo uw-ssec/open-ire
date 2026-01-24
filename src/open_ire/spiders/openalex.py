@@ -53,10 +53,12 @@ class OpenAlexSpider(AuthorSearchSpider):
             url,
             headers=self.request_headers,
             callback=self.author_publication_requests,
+            meta={"matched_author": term},
         )
 
     def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:
         """Parse author search results and generate publication requests."""
+        matched_author = response.meta["matched_author"]
         data = json.loads(response.text or "{}")
 
         for author in data.get("results", []):
@@ -66,13 +68,13 @@ class OpenAlexSpider(AuthorSearchSpider):
 
             # TODO: OpenAlex returns a relevance score; we could use it for early filtering.
 
-            yield from self._request_publications(author_id)
+            yield from self._request_publications(author_id, matched_author)
 
     # === SUPPORTING WORKFLOW METHODS ===
     # These methods support the main workflow
 
     def _request_publications(
-        self, author_id: str, cursor: str = "*"
+        self, author_id: str, matched_author: str, cursor: str = "*"
     ) -> Generator[Request, None, None]:
         """Generate a request for an author's publications with pagination support."""
         params = {
@@ -87,6 +89,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             url,
             headers=self.request_headers,
             callback=self.parse_publications,
+            meta={"matched_author": matched_author},
             cb_kwargs={"author_id": author_id},
         )
 
@@ -94,6 +97,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         self, response: Response, author_id: str
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse publication results and yield ArticleItems, handling pagination."""
+        matched_author = response.meta["matched_author"]
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
 
@@ -101,14 +105,14 @@ class OpenAlexSpider(AuthorSearchSpider):
             if not isinstance(publication, dict):
                 continue
 
-            if item := self._build_item(publication):
+            if item := self._build_item(publication, matched_author):
                 yield item
 
         meta = data.get("meta", {})
         if next_cursor := meta.get("next_cursor"):
-            yield from self._request_publications(author_id, cursor=next_cursor)
+            yield from self._request_publications(author_id, matched_author, cursor=next_cursor)
 
-    def _build_item(self, publication: dict[str, Any]) -> ArticleItem | None:
+    def _build_item(self, publication: dict[str, Any], matched_author: str) -> ArticleItem | None:
         """Build an ArticleItem from OpenAlex publication data."""
         external_id = publication.get("id")
         if not external_id:
@@ -127,6 +131,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "oa_status": oa_status,
                 "publication_type": publication.get("type"),
                 "publication_year": self._parse_year(publication.get("publication_year")),
+                "matched_author": matched_author,
             },
             publication_date=self._parse_date(publication.get("publication_date")),
             reference=str(external_id),
