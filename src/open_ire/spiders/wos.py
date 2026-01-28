@@ -1,19 +1,17 @@
 import datetime
 import json
 import os
-import re
 from collections.abc import Generator
-from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
-from dateutil.parser import parse
 from scrapy.http import Request, Response
 
 from open_ire.author import AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
 from open_ire.spiders.search import AuthorSearchSpider
+from open_ire.utils import as_list, parse_date, validate_year
 
 
 class WoSSpider(AuthorSearchSpider):
@@ -36,12 +34,12 @@ class WoSSpider(AuthorSearchSpider):
 
         current_year = datetime.date.today().year
         self.organization = WOS_ORGANIZATION
-        self.start_year = self._validate_year(start_year, "start_year")
+        self.start_year = validate_year(start_year, "start_year")
 
         if end_year is None:
             self.end_year = current_year
         else:
-            self.end_year = self._validate_year(end_year, "end_year")
+            self.end_year = validate_year(end_year, "end_year")
 
         if self.end_year < self.start_year:
             msg = "The 'end_year' must be greater than or equal to 'start_year'."
@@ -117,7 +115,7 @@ class WoSSpider(AuthorSearchSpider):
             )
             return
 
-        records = self._as_list(records_container.get("REC"))
+        records = as_list(records_container.get("REC"))
 
         try:
             total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
@@ -173,18 +171,18 @@ class WoSSpider(AuthorSearchSpider):
             return None
 
         summary = publication.get("static_data", {}).get("summary", {})
-        titles = self._as_list(summary.get("titles", {}).get("title"))
+        titles = as_list(summary.get("titles", {}).get("title"))
         title = next(
             (t.get("content") for t in titles if isinstance(t, dict) and t.get("type") == "item"),
             None,
         )
 
-        names = self._as_list(summary.get("names", {}).get("name"))
+        names = as_list(summary.get("names", {}).get("name"))
         authors = self._extract_authors(names)
 
         pub_info = summary.get("pub_info", {})
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
-        identifiers = self._as_list(cluster_related.get("identifiers", {}).get("identifier"))
+        identifiers = as_list(cluster_related.get("identifiers", {}).get("identifier"))
         doi = next(
             (
                 identifier.get("value")
@@ -200,14 +198,9 @@ class WoSSpider(AuthorSearchSpider):
             extra={
                 "journal_name": self._extract_journal_name(titles),
                 "publication_type": summary.get("doctypes", {}).get("doctype"),
-                "publication_year": self._parse_year(
-                    pub_info.get("pubyear") or pub_info.get("coverdate")
-                ),
                 "matched_author": matched_author,
             },
-            publication_date=self._parse_date(
-                pub_info.get("coverdate") or pub_info.get("sortdate")
-            ),
+            publication_date=parse_date(pub_info.get("coverdate") or pub_info.get("sortdate")),
             reference=str(external_id),
             repository=self.name,
             title=title,
@@ -245,52 +238,3 @@ class WoSSpider(AuthorSearchSpider):
                 return str(title["content"])
 
         return None
-
-    # === LOW-LEVEL UTILITY FUNCTIONS ===
-    # These are generic utility functions for data processing
-
-    @staticmethod
-    def _as_list(value: Any) -> list[Any]:
-        """Convert a value to a list, handling WoS API's inconsistent list/single item responses."""
-        if isinstance(value, list):
-            return value
-
-        if value is None:
-            return []
-
-        return [value]
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        """Parse a date value into a date object, returning None on failure."""
-        if not value:
-            return None
-        try:
-            return parse(str(value)).date()
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        """Parse a year value into an integer, with regex fallback for complex formats."""
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            pass
-        match = re.search(r"(19|20)\d{2}", str(value))
-        if match:
-            return int(match.group())
-        return None
-
-    @staticmethod
-    def _validate_year(raw_year: str, field_name: str) -> int:
-        """Validate and convert a year string to integer, raising ValueError on failure."""
-        try:
-            value = int(raw_year)
-        except (TypeError, ValueError) as exc:
-            msg = f"Invalid value for '{field_name}': {raw_year!r}"
-            raise ValueError(msg) from exc
-
-        return value

@@ -87,7 +87,6 @@ class TestWoSSpider:
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
-        assert item.extra["publication_year"] == 2020
         assert item.extra["matched_author"] == five_authors[4].normalized_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
@@ -131,15 +130,9 @@ class TestWoSSpider:
         item = items[0]
         assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
-        assert item.extra["publication_year"] == 2020
         assert item.extra["matched_author"] == five_authors[4].normalized_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
-
-    def test_validate_year(self, spider: WoSSpider) -> None:
-        assert spider._validate_year("2020", "Some Field") == 2020
-        with pytest.raises(ValueError):
-            spider._validate_year("NotAYear", "Some Field")
 
     def test_build_search_request(self, spider: WoSSpider, five_authors: list[AuthorRecord]) -> None:
         request = spider.build_search_request(five_authors[4].normalized_name)

@@ -1,16 +1,15 @@
 import json
 from collections.abc import Generator
-from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
-from dateutil.parser import parse
 from scrapy.http import Request, Response
 
 from open_ire.author import AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import OPENALEX_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
+from open_ire.utils import parse_date
 
 
 class OpenAlexSpider(AuthorSearchSpider):
@@ -130,10 +129,9 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "journal_name": self._extract_journal_name(publication),
                 "oa_status": oa_status,
                 "publication_type": publication.get("type"),
-                "publication_year": self._parse_year(publication.get("publication_year")),
                 "matched_author": matched_author,
             },
-            publication_date=self._parse_date(publication.get("publication_date")),
+            publication_date=parse_date(publication.get("publication_date")),
             reference=str(external_id),
             repository=self.name,
             title=publication.get("title"),
@@ -176,26 +174,4 @@ class OpenAlexSpider(AuthorSearchSpider):
             if display_name and isinstance(display_name, str):
                 return str(display_name)
 
-        return None
-
-    # === LOW-LEVEL UTILITY FUNCTIONS ===
-    # These are generic utility functions for data processing
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        """Parse a date value into a date object, returning None on failure."""
-        if not value:
-            return None
-        try:
-            return parse(str(value)).date()
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        """Parse a year value into an integer, returning None on failure."""
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
         return None
