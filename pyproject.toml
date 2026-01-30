@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "msgraph-sdk",
+    "nameparser",
     "pandas",
     "playwright",
     "python-dateutil",
@@ -41,6 +42,7 @@ dev = [
     "pytest-xdist",
     "pytest",
     "types-python-dateutil",
+    "types-nameparser",
 ]
 docs = [
     "jupyter-book",
@@ -99,6 +101,10 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "msgraph_core.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "nameparser"
 ignore_missing_imports = true
 
 [tool.ruff]
@@ -166,9 +172,9 @@ docs = { features = ["docs"], solve-group = "default" }
 [tool.pixi.tasks.dotenv]
 cmd = "mkdir output && cp .env.example .env"
 
-[tool.pixi.tasks.faculty-search]
-args = ["spider", "faculty_csv"]
-cmd = "scrapy crawl {{ spider }} -a faculty_csv={{ faculty_csv }}"
+[tool.pixi.tasks.author-search]
+args = ["spider", "author_csv"]
+cmd = "scrapy crawl {{ spider }} -a author_csv={{ author_csv }}"
 
 [tool.pixi.tasks.spider]
 args = ["spider"]
