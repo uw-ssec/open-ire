@@ -36,12 +36,12 @@ class OAEvidenceKind(StrEnum):
 class DepositTransitionReason(StrEnum):
     """Standardized reasons for article deposit status transitions.
 
-    These values correspond logically to DepositEvidenceKind:
-    - LICENSE_OA: Transition based on open access license evidence (DepositEvidenceKind.LICENSE)
-    - EXTERNAL_OA: Transition based on external OA availability (DepositEvidenceKind.EXTERNAL_OA)
-    - VERSION_AVAILABLE: Transition based on version evidence (DepositEvidenceKind.VERSION)
-    - MANUAL_REVIEW: Transition based on manual review (DepositEvidenceKind.MANUAL)
-    - FACULTY_AUTHOR: Transition based on faculty authorship (DepositEvidenceKind.FACULTY_AUTHOR)
+    These values correspond logically to OAEvidenceKind:
+    - LICENSE_OA: Transition based on open access license evidence (OAEvidenceKind.LICENSE)
+    - EXTERNAL_OA: Transition based on external OA availability (OAEvidenceKind.EXTERNAL_OA)
+    - VERSION_AVAILABLE: Transition based on version evidence (OAEvidenceKind.VERSION)
+    - MANUAL_REVIEW: Transition based on manual review (OAEvidenceKind.MANUAL)
+    - FACULTY_AUTHOR: Transition based on faculty authorship (OAEvidenceKind.FACULTY_AUTHOR)
     """
 
     LICENSE_OA = "license_oa"
