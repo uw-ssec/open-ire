@@ -1,22 +1,24 @@
 import datetime
 import json
 import os
-import re
 from collections.abc import Generator
-from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
-from dateutil.parser import parse
 from scrapy.http import Request, Response
 
-from open_ire.faculty import AuthorMatcher, FacultyRecord
+from open_ire.author import AuthorRecord
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
-from open_ire.spiders.search import FacultySearchSpider
+from open_ire.spiders.search import AuthorSearchSpider
+from open_ire.utils import as_list, parse_date, validate_year
 
 
-class WoSSpider(FacultySearchSpider):
+class WoSSpider(AuthorSearchSpider):
+    """
+    Web of Science API spider for collecting academic publications by author.
+    """
+
     name = "wos"
     base_url = "https://api.clarivate.com/api/wos/"
     page_size = 25
@@ -29,16 +31,15 @@ class WoSSpider(FacultySearchSpider):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        faculty_csv = kwargs["faculty_csv"]
 
         current_year = datetime.date.today().year
         self.organization = WOS_ORGANIZATION
-        self.start_year = self._validate_year(start_year, "start_year")
+        self.start_year = validate_year(start_year, "start_year")
 
         if end_year is None:
             self.end_year = current_year
         else:
-            self.end_year = self._validate_year(end_year, "end_year")
+            self.end_year = validate_year(end_year, "end_year")
 
         if self.end_year < self.start_year:
             msg = "The 'end_year' must be greater than or equal to 'start_year'."
@@ -50,95 +51,12 @@ class WoSSpider(FacultySearchSpider):
             raise ValueError(msg)
 
         self.headers = {"X-ApiKey": self.api_key}
-        self.author_matcher = AuthorMatcher(faculty_csv, "wos")
 
-    def _get_author_name(self, record: FacultyRecord) -> str:
-        """Override to provide names in 'LASTNAME FIRSTNAME' format for WoS."""
-        return record.wos_name
+    def _get_author_name(self, record: AuthorRecord) -> str:
+        return f"{record.last_name}, {record.first_name}"
 
-    @staticmethod
-    def _join_or_none(values: list[str]) -> str | None:
-        return ", ".join(values) if values else None
-
-    @staticmethod
-    def _parse_date(value: Any) -> date | None:
-        if not value:
-            return None
-        try:
-            return parse(str(value)).date()
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
-    def _parse_year(value: Any) -> int | None:
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            pass
-        match = re.search(r"(19|20)\d{2}", str(value))
-        if match:
-            return int(match.group())
-        return None
-
-    @staticmethod
-    def _validate_year(raw_year: str, field_name: str) -> int:
-        try:
-            value = int(raw_year)
-        except (TypeError, ValueError) as exc:
-            msg = f"Invalid value for '{field_name}': {raw_year!r}"
-            raise ValueError(msg) from exc
-
-        return value
-
-    @staticmethod
-    def _extract_authors(names: list[Any]) -> list[str]:
-        authors: list[str] = []
-        for author in names:
-            if not isinstance(author, dict):
-                continue
-
-            full_name = author.get("wos_standard") or author.get("display_name")
-            if full_name:
-                authors.append(str(full_name))
-
-        return authors
-
-    @staticmethod
-    def _extract_journal_name(titles: list[Any]) -> str | None:
-        for title in titles:
-            if not isinstance(title, dict):
-                continue
-            if title.get("type") == "source" and title.get("content"):
-                return str(title["content"])
-
-        return None
-
-    @staticmethod
-    def _as_list(value: Any) -> list[Any]:
-        if isinstance(value, list):
-            return value
-
-        if value is None:
-            return []
-
-        return [value]
-
-    def _build_query(self, term: str) -> str:
-        return (
-            f'AU=("{term}") AND OG=("{self.organization}") '
-            f"AND PY=({self.start_year}-{self.end_year})"
-        )
-
-    def _build_params(self, query: str, page: int) -> dict[str, Any]:
-        return {
-            "count": self.page_size,
-            "databaseId": "WOS",
-            "page": page,
-            "sortField": "PY+D",
-            "usrQuery": query,
-        }
+    # === HIGH-LEVEL WORKFLOW METHODS ===
+    # These methods define the main crawling workflow
 
     def build_search_request(self, term: str) -> Request:
         """Build a search request for a single author term."""
@@ -150,13 +68,17 @@ class WoSSpider(FacultySearchSpider):
             url,
             headers=self.headers,
             callback=self.parse_publications,
+            meta={"matched_author": term},
             cb_kwargs={"query": query, "page": 1},
         )
 
     def parse_publications(
         self, response: Response, query: str, page: int
     ) -> Generator[Request | ArticleItem, None, None]:
+        """Parse WoS publication results and yield ArticleItems, handling pagination."""
+        matched_author = response.meta["matched_author"]
         raw_text = response.text or ""
+
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError:
@@ -193,7 +115,7 @@ class WoSSpider(FacultySearchSpider):
             )
             return
 
-        records = self._as_list(records_container.get("REC"))
+        records = as_list(records_container.get("REC"))
 
         try:
             total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
@@ -202,7 +124,7 @@ class WoSSpider(FacultySearchSpider):
 
         emitted = 0
         for record in records:
-            if item := self._build_item(record):
+            if item := self._build_item(record, matched_author):
                 emitted += 1
                 yield item
 
@@ -215,10 +137,32 @@ class WoSSpider(FacultySearchSpider):
                 next_url,
                 headers=self.headers,
                 callback=self.parse_publications,
+                meta={"matched_author": matched_author},
                 cb_kwargs={"query": query, "page": next_page},
             )
 
-    def _build_item(self, publication: Any) -> ArticleItem | None:
+    # === SUPPORTING WORKFLOW METHODS ===
+    # These methods support the main workflow
+
+    def _build_query(self, term: str) -> str:
+        """Build WoS query string with author, organization, and date filters."""
+        return (
+            f'AU=("{term}") AND OG=("{self.organization}") '
+            f"AND PY=({self.start_year}-{self.end_year})"
+        )
+
+    def _build_params(self, query: str, page: int) -> dict[str, Any]:
+        """Build API request parameters for WoS search."""
+        return {
+            "count": self.page_size,
+            "databaseId": "WOS",
+            "page": page,
+            "sortField": "PY+D",
+            "usrQuery": query,
+        }
+
+    def _build_item(self, publication: Any, matched_author: str) -> ArticleItem | None:
+        """Build an ArticleItem from WoS publication data."""
         if not isinstance(publication, dict):
             return None
 
@@ -227,19 +171,18 @@ class WoSSpider(FacultySearchSpider):
             return None
 
         summary = publication.get("static_data", {}).get("summary", {})
-        titles = self._as_list(summary.get("titles", {}).get("title"))
+        titles = as_list(summary.get("titles", {}).get("title"))
         title = next(
             (t.get("content") for t in titles if isinstance(t, dict) and t.get("type") == "item"),
             None,
         )
 
-        names = self._as_list(summary.get("names", {}).get("name"))
+        names = as_list(summary.get("names", {}).get("name"))
         authors = self._extract_authors(names)
-        matched_names, matched_emails = self.author_matcher.collect_matches(authors)
 
         pub_info = summary.get("pub_info", {})
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
-        identifiers = self._as_list(cluster_related.get("identifiers", {}).get("identifier"))
+        identifiers = as_list(cluster_related.get("identifiers", {}).get("identifier"))
         doi = next(
             (
                 identifier.get("value")
@@ -250,20 +193,14 @@ class WoSSpider(FacultySearchSpider):
         )
 
         return ArticleItem(
-            authors=self._join_or_none(authors),
+            authors=AuthorRecord.encode_author_string(authors),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "matched_author": self._join_or_none(matched_names),
-                "matched_email": self._join_or_none(matched_emails),
                 "publication_type": summary.get("doctypes", {}).get("doctype"),
-                "publication_year": self._parse_year(
-                    pub_info.get("pubyear") or pub_info.get("coverdate")
-                ),
+                "matched_author": matched_author,
             },
-            publication_date=self._parse_date(
-                pub_info.get("coverdate") or pub_info.get("sortdate")
-            ),
+            publication_date=parse_date(pub_info.get("coverdate") or pub_info.get("sortdate")),
             reference=str(external_id),
             repository=self.name,
             title=title,
@@ -271,3 +208,33 @@ class WoSSpider(FacultySearchSpider):
             if doi
             else f"https://www.webofscience.com/wos/woscc/full-record/{external_id}",
         )
+
+    # === DATA EXTRACTION UTILITIES ===
+    # These methods extract specific data from WoS API responses
+
+    @staticmethod
+    def _extract_authors(names: list[Any]) -> list[AuthorRecord]:
+        """Extract author names from WoS names data structure."""
+        authors: list[AuthorRecord] = []
+        for author in names:
+            if not isinstance(author, dict):
+                continue
+
+            author_name = (
+                author.get("full_name") or author.get("display_name") or author.get("wos_standard")
+            )
+            if author_name:
+                authors.append(AuthorRecord(author_name))
+
+        return authors
+
+    @staticmethod
+    def _extract_journal_name(titles: list[Any]) -> str | None:
+        """Extract journal name from WoS titles data structure."""
+        for title in titles:
+            if not isinstance(title, dict):
+                continue
+            if title.get("type") == "source" and title.get("content"):
+                return str(title["content"])
+
+        return None

@@ -92,7 +92,7 @@ For detailed development setup, including pre-commit hooks, please see
 ## Running
 
 This project includes spiders for crawling repositories using two main methods:
-a list of keywords or a CSV file of faculty names.
+a list of keywords or a CSV file of author names.
 
 ### Search by Keyword
 
@@ -109,20 +109,20 @@ For example, to search the `eric` repository:
 pixi run terms-search eric "ocean acidification,coral bleaching"
 ```
 
-### Search by Faculty
+### Search by Author
 
-To run a spider that supports searching by author against a list of faculty, use
-the `faculty-search` command. This requires a CSV file with `FirstName`,
+To run a spider that supports searching by author against a list of authors, use
+the `author-search` command. This requires a CSV file with `FirstName`,
 `LastName`, and `Email` columns.
 
 ```bash
-pixi run faculty-search <spider_name> <path_to_csv>
+pixi run author-search <spider_name> <path_to_csv>
 ```
 
-For example, to search `openalex` using a faculty file:
+For example, to search `openalex` using an author file:
 
 ```bash
-pixi run faculty-search openalex data/faculty.csv
+pixi run author-search openalex data/authors.csv
 ```
 
 ## Contributing
