@@ -12,7 +12,7 @@
 </div>
 
 <div align="center">
-A configurable crawler for collecting articles from open-access research repositories.
+Open Institutional Repository Expansion (IRE) is a configurable crawler for collecting articles from open-access research repositories.
 </div>
 
 ## Installation

@@ -15,6 +15,7 @@ BOT_NAME = "open_ire"
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 USER_AGENT = requests_utils.default_user_agent()
+ROBOTSTXT_USER_AGENT = USER_AGENT
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -78,7 +79,7 @@ SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
+OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
 OPENALEX_INSTITUTION_ID = "i201448701"
-OPENALEX_CONTACT_EMAIL = "uwtextmine@uw.edu"
 WOS_ORGANIZATION = "University of Washington"

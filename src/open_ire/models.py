@@ -3,7 +3,10 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, Column, UniqueConstraint
-from sqlmodel import Field, Relationship, SQLModel
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlmodel import Field, Relationship, SQLModel, select
+
+from open_ire.enums import DepositStatus, OAEvidenceKind
 
 
 class ArticleBase(SQLModel):
@@ -45,11 +48,17 @@ class ArticleBase(SQLModel):
 class Article(ArticleBase, table=True):
     """SQLModel to store article metadata."""
 
+    model_config = {"ignored_types": (hybrid_property,)}
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
     file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
+    oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
+    deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
+        back_populates="article"
+    )
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),
@@ -64,6 +73,25 @@ class Article(ArticleBase, table=True):
     def file_references_size(self) -> int:
         """Total file references size."""
         return sum(f.size for f in self.file_references if f.size)
+
+    @hybrid_property
+    def deposit_status(self) -> DepositStatus | None:
+        if not self.deposit_status_transitions:
+            return None
+
+        latest = max(self.deposit_status_transitions, key=lambda t: t.changed_at)
+
+        return latest.to_status
+
+    @deposit_status.expression  # type: ignore[no-redef]
+    def deposit_status(cls):
+        return (
+            select(ArticleDepositStatusTransition.to_status)
+            .where(ArticleDepositStatusTransition.article_id == cls.id)
+            .order_by(ArticleDepositStatusTransition.changed_at.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
 
 
 class ArticleFileBase(SQLModel):
@@ -122,3 +150,57 @@ class ArticleFileReference(ArticleFileBase, table=True):
     source_url: str | None = None
 
     article: Article | None = Relationship(back_populates="file_references")
+
+
+class ArticleOAEvidence(SQLModel, table=True):
+    """SQLModel to store evidence used to determine OA status.
+
+    Attributes
+    ----------
+    id: Primary key for the database.
+    article_id: Foreign key to the Article table.
+    created_at: Datetime when the evidence was recorded.
+    kind: Evidence category (license, external_oa, version, manual, faculty_author).
+    supports_oa: Whether this evidence supports OA status.
+    source: Origin of the evidence (e.g., "crossref", "openalex", "manual").
+    data: Source-specific payload for evidence details.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.now, index=True)
+
+    kind: OAEvidenceKind = Field(index=True)
+    supports_oa: bool
+    source: str | None = None
+    data: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
+
+    article: Article | None = Relationship(back_populates="oa_evidence")
+
+
+class ArticleDepositStatusTransition(SQLModel, table=True):
+    """SQLModel to store deposit status transitions for articles.
+
+    Deposit status represents the readiness of the article to be deposited in ResearchWorks.
+    This readiness may depend on licensing information that supports Open Access (OA) compliance.
+
+    Attributes
+    ----------
+    id: Primary key for the database.
+    article_id: Foreign key to the Article table.
+    from_status: Previous deposit status (published, ready, partial, or None).
+    to_status: New deposit status (published, ready, partial, or None).
+    changed_at: Datetime when the status transition was recorded.
+    reasons: Rule or factor identifiers applied in the decision.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
+
+    from_status: DepositStatus | None = Field(default=None, index=True)
+    to_status: DepositStatus | None = Field(default=None, index=True)
+    changed_at: datetime = Field(default_factory=datetime.now, index=True)
+
+    reasons: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+
+    article: Article | None = Relationship(back_populates="deposit_status_transitions")
