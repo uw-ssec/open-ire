@@ -15,6 +15,7 @@ BOT_NAME = "open_ire"
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 USER_AGENT = requests_utils.default_user_agent()
+ROBOTSTXT_USER_AGENT = USER_AGENT
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True

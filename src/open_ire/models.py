@@ -6,7 +6,7 @@ from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from open_ire.enums import OAEvidenceKind, OAStatus
+from open_ire.enums import DepositStatus, OAEvidenceKind
 
 
 class ArticleBase(SQLModel):
@@ -56,7 +56,7 @@ class Article(ArticleBase, table=True):
     files: list["ArticleFile"] = Relationship(back_populates="article")
     file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
     oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
-    oa_status_transitions: list["ArticleOAStatusTransition"] = Relationship(
+    deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
         back_populates="article"
     )
 
@@ -75,20 +75,20 @@ class Article(ArticleBase, table=True):
         return sum(f.size for f in self.file_references if f.size)
 
     @hybrid_property
-    def oa_status(self) -> OAStatus | None:
-        if not self.oa_status_transitions:
+    def deposit_status(self) -> DepositStatus | None:
+        if not self.deposit_status_transitions:
             return None
 
-        latest = max(self.oa_status_transitions, key=lambda t: t.changed_at)
+        latest = max(self.deposit_status_transitions, key=lambda t: t.changed_at)
 
         return latest.to_status
 
-    @oa_status.expression  # type: ignore[no-redef]
-    def oa_status(cls):
+    @deposit_status.expression  # type: ignore[no-redef]
+    def deposit_status(cls):
         return (
-            select(ArticleOAStatusTransition.to_status)
-            .where(ArticleOAStatusTransition.article_id == cls.id)
-            .order_by(ArticleOAStatusTransition.changed_at.desc())
+            select(ArticleDepositStatusTransition.to_status)
+            .where(ArticleDepositStatusTransition.article_id == cls.id)
+            .order_by(ArticleDepositStatusTransition.changed_at.desc())
             .limit(1)
             .scalar_subquery()
         )
@@ -178,15 +178,18 @@ class ArticleOAEvidence(SQLModel, table=True):
     article: Article | None = Relationship(back_populates="oa_evidence")
 
 
-class ArticleOAStatusTransition(SQLModel, table=True):
-    """SQLModel to store OA status transitions for articles.
+class ArticleDepositStatusTransition(SQLModel, table=True):
+    """SQLModel to store deposit status transitions for articles.
+
+    Deposit status represents the readiness of the article to be deposited in ResearchWorks.
+    This readiness may depend on licensing information that supports Open Access (OA) compliance.
 
     Attributes
     ----------
     id: Primary key for the database.
     article_id: Foreign key to the Article table.
-    from_status: Previous OA status (published, ready, partial, or None).
-    to_status: New OA status (published, ready, partial, or None).
+    from_status: Previous deposit status (published, ready, partial, or None).
+    to_status: New deposit status (published, ready, partial, or None).
     changed_at: Datetime when the status transition was recorded.
     reasons: Rule or factor identifiers applied in the decision.
     """
@@ -194,10 +197,10 @@ class ArticleOAStatusTransition(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
 
-    from_status: OAStatus | None = Field(default=None, index=True)
-    to_status: OAStatus | None = Field(default=None, index=True)
+    from_status: DepositStatus | None = Field(default=None, index=True)
+    to_status: DepositStatus | None = Field(default=None, index=True)
     changed_at: datetime = Field(default_factory=datetime.now, index=True)
 
     reasons: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
-    article: Article | None = Relationship(back_populates="oa_status_transitions")
+    article: Article | None = Relationship(back_populates="deposit_status_transitions")

@@ -9,8 +9,8 @@ import pytest
 from scrapy.http import HtmlResponse, Request
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from open_ire.enums import OAEvidenceKind, OAStatus, OATransitionReason
-from open_ire.models import Article, ArticleOAEvidence, ArticleOAStatusTransition
+from open_ire.enums import OAEvidenceKind, DepositStatus, DepositTransitionReason
+from open_ire.models import Article, ArticleOAEvidence, ArticleDepositStatusTransition
 from open_ire.spiders.oa_license import OALicenseSpider
 
 
@@ -280,13 +280,13 @@ class TestSaveLicenseEvidence:
 
             # Check transition was created
             transition = session.exec(
-                select(ArticleOAStatusTransition).where(
-                    ArticleOAStatusTransition.article_id == sample_article.id
+                select(ArticleDepositStatusTransition).where(
+                    ArticleDepositStatusTransition.article_id == sample_article.id
                 )
             ).first()
             assert transition is not None
-            assert transition.to_status == OAStatus.READY
-            assert OATransitionReason.LICENSE_OA in transition.reasons
+            assert transition.to_status == DepositStatus.READY
+            assert DepositTransitionReason.LICENSE_OA in transition.reasons
 
     def test_save_non_oa_license_no_transition(
         self, spider_with_db: OALicenseSpider, sample_article: Article
@@ -315,8 +315,8 @@ class TestSaveLicenseEvidence:
 
             # Check NO transition was created
             transition = session.exec(
-                select(ArticleOAStatusTransition).where(
-                    ArticleOAStatusTransition.article_id == sample_article.id
+                select(ArticleDepositStatusTransition).where(
+                    ArticleDepositStatusTransition.article_id == sample_article.id
                 )
             ).first()
             assert transition is None

@@ -9,8 +9,8 @@ from scrapy.http import Request, Response
 from sqlalchemy import Engine
 from sqlmodel import Session, create_engine, select
 
-from open_ire.enums import OAEvidenceKind, OAStatus, OATransitionReason
-from open_ire.models import Article, ArticleOAEvidence, ArticleOAStatusTransition
+from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
+from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
 from open_ire.pipelines import DOINormalizationPipeline
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL
 
@@ -44,9 +44,10 @@ class OALicenseSpider(Spider):
     datacite_base_url = "https://api.datacite.org/dois"
 
     custom_settings = {  # noqa: RUF012
-        "ITEM_PIPELINES": {},
-        "DOWNLOAD_DELAY": 1,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 2.0,
+        "DOWNLOAD_DELAY": 1,
+        "ITEM_PIPELINES": {},
+        "ROBOTSTXT_OBEY": False,
     }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -317,7 +318,7 @@ class OALicenseSpider(Spider):
                 self.logger.warning(LogMessages.ARTICLE_NOT_FOUND, article_id)
                 return
 
-            current_status = article.oa_status
+            current_status = article.deposit_status
             evidence = ArticleOAEvidence(
                 article_id=article_id,
                 kind=OAEvidenceKind.LICENSE,
@@ -331,12 +332,12 @@ class OALicenseSpider(Spider):
             )
             session.add(evidence)
 
-            if supports_oa and current_status not in (OAStatus.READY, OAStatus.PUBLISHED):
-                transition = ArticleOAStatusTransition(
+            if supports_oa and current_status not in (DepositStatus.READY, DepositStatus.PUBLISHED):
+                transition = ArticleDepositStatusTransition(
                     article_id=article_id,
                     from_status=current_status,
-                    to_status=OAStatus.READY,
-                    reasons=[OATransitionReason.LICENSE_OA],
+                    to_status=DepositStatus.READY,
+                    reasons=[DepositTransitionReason.LICENSE_OA],
                 )
                 session.add(transition)
 
