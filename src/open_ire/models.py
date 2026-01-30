@@ -6,7 +6,7 @@ from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from open_ire.enums import DepositStatus, OAEvidenceKind
+from open_ire.enums import ArticleType, DepositStatus, OAEvidenceKind
 
 
 class ArticleBase(SQLModel):
@@ -15,6 +15,7 @@ class ArticleBase(SQLModel):
     Attributes
     ----------
     abstract: Summary or abstract of the resource, if available.
+    type: Normalized publication type (scholarly-article or other).
     authors: Names of the authors or creators of the resource.
     created_at: Datetime when the article was added to this database.
     updated_at: Datetime when the article was last updated in this database.
@@ -30,6 +31,7 @@ class ArticleBase(SQLModel):
     """
 
     abstract: str | None = None
+    type: ArticleType | None = None
     authors: str | None = None
     created_at: datetime = Field(default_factory=datetime.now, index=True)
     updated_at: datetime = Field(default_factory=datetime.now, index=True)

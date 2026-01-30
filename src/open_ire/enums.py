@@ -49,3 +49,21 @@ class DepositTransitionReason(StrEnum):
     VERSION_AVAILABLE = "version_available"
     MANUAL_REVIEW = "manual_review"
     FACULTY_AUTHOR = "faculty_author"
+
+
+class ArticleType(StrEnum):
+    """Normalized classification for publication types.
+
+    Used to determine if a publication falls under the faculty Open Access Policy.
+    Per the library guide, peer-reviewed journal articles and conference papers
+    created without expectation of payment are considered scholarly articles subject
+    to the OA Policy. Books, book chapters, data sets, and creative works do not
+    fall under the policy (though deposit is still encouraged).
+
+    Values:
+    - SCHOLARLY_ARTICLE: Peer-reviewed journal articles and conference papers
+    - OTHER: Books, book chapters, editorials, reviews, and other non-scholarly works
+    """
+
+    SCHOLARLY_ARTICLE = "scholarly-article"
+    OTHER = "other"
