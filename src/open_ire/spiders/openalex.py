@@ -1,11 +1,12 @@
 import json
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
 from open_ire.author import AuthorRecord
+from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
@@ -20,6 +21,31 @@ class OpenAlexSpider(AuthorSearchSpider):
     name = "openalex"
     base_url = "https://api.openalex.org"
     page_size = 25
+
+    # OpenAlex publication type mappings
+    # See https://docs.openalex.org/api-entities/works/work-object#type
+    TYPE_MAP: ClassVar[dict[str, ArticleType]] = {
+        "article": ArticleType.SCHOLARLY_ARTICLE,
+        "preprint": ArticleType.SCHOLARLY_ARTICLE,
+        "proceedings-article": ArticleType.SCHOLARLY_ARTICLE,
+        "posted-content": ArticleType.SCHOLARLY_ARTICLE,
+        "review": ArticleType.SCHOLARLY_ARTICLE,
+        "book": ArticleType.OTHER,
+        "book-chapter": ArticleType.OTHER,
+        "editorial": ArticleType.OTHER,
+        "erratum": ArticleType.OTHER,
+        "letter": ArticleType.OTHER,
+        "libguides": ArticleType.OTHER,
+        "paratext": ArticleType.OTHER,
+        "supplementary-materials": ArticleType.OTHER,
+    }
+
+    @classmethod
+    def _normalize_type(cls, raw_type: str | None) -> ArticleType | None:
+        """Normalize OpenAlex publication type to ArticleType."""
+        if raw_type is None:
+            return None
+        return cls.TYPE_MAP.get(raw_type.lower())
 
     def __init__(
         self,
@@ -121,6 +147,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
 
+        raw_type = publication.get("type")
         return ArticleItem(
             authors=AuthorRecord.encode_author_string(authors),
             doi=publication.get("doi"),
@@ -128,13 +155,16 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "is_open_access": is_oa,
                 "journal_name": self._extract_journal_name(publication),
                 "oa_status": oa_status,
-                "publication_type": publication.get("type"),
                 "matched_author": matched_author,
+                "openalex": {
+                    "type": raw_type,
+                },
             },
             publication_date=parse_date(publication.get("publication_date")),
             reference=str(external_id),
             repository=self.name,
             title=publication.get("title"),
+            type=self._normalize_type(raw_type),
             url=publication.get("doi"),
         )
 

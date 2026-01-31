@@ -2,12 +2,13 @@ import datetime
 import json
 import os
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
 from open_ire.author import AuthorRecord
+from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
 from open_ire.spiders.search import AuthorSearchSpider
@@ -22,6 +23,23 @@ class WoSSpider(AuthorSearchSpider):
     name = "wos"
     base_url = "https://api.clarivate.com/api/wos/"
     page_size = 25
+
+    # WOS document type mappings
+    TYPE_MAP: ClassVar[dict[str, ArticleType]] = {
+        "article": ArticleType.SCHOLARLY_ARTICLE,
+        "proceedings paper": ArticleType.SCHOLARLY_ARTICLE,
+        "review": ArticleType.SCHOLARLY_ARTICLE,
+        "book review": ArticleType.SCHOLARLY_ARTICLE,
+        "editorial material": ArticleType.OTHER,
+        "letter": ArticleType.OTHER,
+    }
+
+    @classmethod
+    def _normalize_type(cls, raw_type: str | None) -> ArticleType | None:
+        """Normalize WOS document type to ArticleType."""
+        if raw_type is None:
+            return None
+        return cls.TYPE_MAP.get(raw_type.lower())
 
     def __init__(
         self,
@@ -192,18 +210,22 @@ class WoSSpider(AuthorSearchSpider):
             None,
         )
 
+        raw_type = summary.get("doctypes", {}).get("doctype")
         return ArticleItem(
             authors=AuthorRecord.encode_author_string(authors),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "publication_type": summary.get("doctypes", {}).get("doctype"),
                 "matched_author": matched_author,
+                "wos": {
+                    "type": raw_type,
+                },
             },
             publication_date=parse_date(pub_info.get("coverdate") or pub_info.get("sortdate")),
             reference=str(external_id),
             repository=self.name,
             title=title,
+            type=self._normalize_type(raw_type),
             url=f"https://doi.org/{doi}"
             if doi
             else f"https://www.webofscience.com/wos/woscc/full-record/{external_id}",
