@@ -69,9 +69,6 @@ class OpenAlexSpider(AuthorSearchSpider):
             part for part in [record.first_name, record.middle_names, record.last_name] if part
         )
 
-    # === HIGH-LEVEL WORKFLOW METHODS ===
-    # These methods define the main crawling workflow
-
     def build_search_request(self, record: ParsedAuthor) -> Request:
         """Build the initial search request for a given author record."""
         term = self.author_name_for_query(record)
@@ -254,7 +251,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         title = publication.get("title")
         if not title:
-            self.logger.debug("Skipping publication without title (ID: %s)", external_id)
+            self.logger.warning("Skipping publication without title (ID: %s)", external_id)
             return None
 
         authors = self._extract_authors(publication)
@@ -262,6 +259,11 @@ class OpenAlexSpider(AuthorSearchSpider):
         is_oa = publication.get("open_access", {}).get("is_oa")
 
         raw_type = publication.get("type")
+        url = (
+            publication.get("doi")
+            or publication.get("primary_location", {}).get("landing_page_url")
+            or external_id
+        )
         return ArticleItem(
             authors=ParsedAuthor.encode_author_string(authors),
             doi=publication.get("doi"),
@@ -279,7 +281,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             repository=self.name,
             title=title,
             type=self._normalize_type(raw_type),
-            url=publication.get("doi"),
+            url=url,
         )
 
     # === HELPER METHODS ===
