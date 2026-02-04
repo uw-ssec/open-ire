@@ -176,6 +176,7 @@ class TestNOAAMetaSpider:
         assert item.abstract == "Unittest abstract"
         assert item.doi == "10.1000/unittest"
         assert item.authors == "Unittest Author"
+        assert item.publication_date is not None
         assert item.publication_date.year == 2025
         assert item.issn == "1234-5678"
         assert item.repository == "noaa_meta"

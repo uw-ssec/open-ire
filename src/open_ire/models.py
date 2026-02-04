@@ -40,7 +40,7 @@ class ArticleBase(SQLModel):
     extra: dict[str, Any] = Field(default_factory=dict)
     isbn: str | None = None
     issn: str | None = None
-    publication_date: date = Field(index=True)
+    publication_date: date | None = Field(default=None, index=True)
     reference: str = Field(index=True)
     repository: str = Field(index=True)
     title: str
