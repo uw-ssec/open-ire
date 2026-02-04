@@ -3,12 +3,12 @@ from datetime import date
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
-from dateutil.parser import parse
 from scrapy import Spider
 from scrapy.http import Request, Response
 
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+from open_ire.utils import parse_date
 
 
 class GSearchSpider(Spider):
@@ -71,12 +71,7 @@ class GSearchSpider(Spider):
 
     def _extract_publication_date(self, response: Response) -> date | None:
         date_text = self._extract_from_meta(response, "citation_publication_date") or ""
-        try:
-            return parse(date_text).date()
-        except (ValueError, TypeError):
-            pass
-
-        return None
+        return parse_date(date_text)
 
     def _extract_extra_details(self, response: Response) -> dict[str, Any]:
         extra: dict[str, Any] = {}

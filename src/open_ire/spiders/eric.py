@@ -2,12 +2,12 @@ from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlencode
 
-from dateutil.parser import parse
 from scrapy import Spider
 from scrapy.http import Request, Response
 
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+from open_ire.utils import parse_date
 
 
 class EricSpider(Spider):
@@ -54,7 +54,7 @@ class EricSpider(Spider):
             file_urls.append(response.urljoin(file_href))
 
         eric_number = self.extract_article_attribute("ERIC Number", response)
-        publication_date = self.extract_article_attribute("Publication Date", response) or ""
+        publication_date_text = self.extract_article_attribute("Publication Date", response)
         eissn = self.extract_article_attribute("EISSN", response)
 
         item = ArticleItem(
@@ -62,7 +62,7 @@ class EricSpider(Spider):
             authors=response.css(".r_a>div>div::text").get(),
             eissn=eissn,
             file_urls=file_urls,
-            publication_date=parse(publication_date).date(),
+            publication_date=parse_date(publication_date_text),
             reference=eric_number,
             repository=self.name,
             title=response.css(".title::text").get(),
