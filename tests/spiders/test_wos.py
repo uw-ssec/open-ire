@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from open_ire.author import AuthorRecord
+from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.spiders.wos import WoSSpider
 
@@ -180,3 +181,28 @@ class TestWoSSpider:
 
         assert items == []
         assert requests == []
+
+    @pytest.mark.parametrize(
+        "raw_type,expected",
+        [
+            ("article", ArticleType.SCHOLARLY_ARTICLE),
+            ("Article", ArticleType.SCHOLARLY_ARTICLE),
+            ("proceedings paper", ArticleType.SCHOLARLY_ARTICLE),
+            ("Proceedings Paper", ArticleType.SCHOLARLY_ARTICLE),
+            ("review", ArticleType.SCHOLARLY_ARTICLE),
+            ("book review", ArticleType.SCHOLARLY_ARTICLE),
+            ("Book Review", ArticleType.SCHOLARLY_ARTICLE),
+            ("editorial material", ArticleType.OTHER),
+            ("Editorial Material", ArticleType.OTHER),
+            ("letter", ArticleType.OTHER),
+            ("Letter", ArticleType.OTHER),
+        ],
+    )
+    def test_normalize_type_known_types(self, spider: WoSSpider, raw_type: str, expected: ArticleType) -> None:
+        assert spider._normalize_type(raw_type) == expected
+
+    def test_normalize_type_none(self, spider: WoSSpider) -> None:
+        assert spider._normalize_type(None) is None
+
+    def test_normalize_type_unknown(self, spider: WoSSpider) -> None:
+        assert spider._normalize_type("unknown-type") is None

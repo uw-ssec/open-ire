@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from open_ire.author import AuthorRecord
+from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.spiders.openalex import OpenAlexSpider
 
@@ -165,3 +166,35 @@ class TestOpenAlexSpider:
         assert len(requests) == 1
         assert isinstance(requests[0], Request)
         assert "Kemi+Adeyemi" in requests[0].url
+
+    @pytest.mark.parametrize(
+        "raw_type,expected",
+        [
+            ("article", ArticleType.SCHOLARLY_ARTICLE),
+            ("preprint", ArticleType.SCHOLARLY_ARTICLE),
+            ("proceedings-article", ArticleType.SCHOLARLY_ARTICLE),
+            ("posted-content", ArticleType.SCHOLARLY_ARTICLE),
+            ("review", ArticleType.SCHOLARLY_ARTICLE),
+            ("book", ArticleType.OTHER),
+            ("book-chapter", ArticleType.OTHER),
+            ("editorial", ArticleType.OTHER),
+            ("erratum", ArticleType.OTHER),
+            ("letter", ArticleType.OTHER),
+            ("libguides", ArticleType.OTHER),
+            ("paratext", ArticleType.OTHER),
+            ("supplementary-materials", ArticleType.OTHER),
+        ],
+    )
+    def test_normalize_type_known_types(self, raw_type: str, expected: ArticleType) -> None:
+        assert OpenAlexSpider._normalize_type(raw_type) == expected
+
+    @pytest.mark.parametrize("raw_type", ["Article", "ARTICLE", "PrePrint", "BOOK"])
+    def test_normalize_type_case_insensitive(self, raw_type: str) -> None:
+        result = OpenAlexSpider._normalize_type(raw_type)
+        assert result is not None
+
+    def test_normalize_type_none(self) -> None:
+        assert OpenAlexSpider._normalize_type(None) is None
+
+    def test_normalize_type_unknown(self) -> None:
+        assert OpenAlexSpider._normalize_type("unknown-type") is None
