@@ -26,8 +26,8 @@ def five_authors() -> list[ParsedAuthor]:
 @pytest.fixture
 def spider(tmp_path: Path, five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
     author = five_authors[4]
-    csv_content = f"""Full Name,FirstName,LastName,Email
-{author.full_name},{author.first_name},{author.last_name},{author.email}
+    csv_content = f"""Full Name,FirstName,MiddleNames,LastName,Email
+{author.full_name},{author.first_name},{author.middle_names},{author.last_name},{author.email}
 """
     csv_path = tmp_path / "authors.csv"
     csv_path.write_text(csv_content)
@@ -255,8 +255,8 @@ class TestOpenAlexSpider:
     ) -> None:
         csv_author = five_authors[0]
         csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(f"""Full Name,FirstName,LastName,Email
-{csv_author.full_name},{csv_author.first_name},{csv_author.last_name},{csv_author.email}
+        csv_path.write_text(f"""Full Name,FirstName,MiddleNames,LastName,Email
+{csv_author.full_name},{csv_author.first_name},{csv_author.middle_names},{csv_author.last_name},{csv_author.email}
 """)
 
         name_author = five_authors[3]
@@ -266,13 +266,33 @@ class TestOpenAlexSpider:
         assert name_author.full_name in spider.search_terms
 
     @pytest.mark.asyncio
+    async def test_old_csv_format_still_supported(
+        self, tmp_path: Path, five_authors: list[ParsedAuthor]
+    ) -> None:
+        """CSVs with only FirstName and LastName columns are still supported."""
+        csv_author = five_authors[0]
+        csv_path = tmp_path / "authors.csv"
+        csv_path.write_text(
+            f"Full Name,FirstName,LastName,Email\n"
+            f"{csv_author.full_name},{csv_author.first_name},{csv_author.last_name},{csv_author.email}\n"
+        )
+        spider = OpenAlexSpider(author_csv=str(csv_path))
+        requests = []
+        async for req in spider.start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        query_params = parse_qs(urlparse(requests[0].url).query)
+        assert query_params["search"] == [f"{csv_author.first_name} {csv_author.last_name}"]
+
+    @pytest.mark.asyncio
     async def test_start_with_both_parameters(
         self, tmp_path: Path, five_authors: list[ParsedAuthor]
     ) -> None:
         csv_author = five_authors[0]
         csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(f"""Full Name,FirstName,LastName,Email
-{csv_author.full_name},{csv_author.first_name} {csv_author.middle_names},{csv_author.last_name},{csv_author.email}
+        csv_path.write_text(f"""Full Name,FirstName,MiddleNames,LastName,Email
+{csv_author.full_name},{csv_author.first_name},{csv_author.middle_names},{csv_author.last_name},{csv_author.email}
 """)
 
         name_author = five_authors[1]

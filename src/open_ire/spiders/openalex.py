@@ -60,6 +60,8 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
 
     def _get_author_name(self, record: ParsedAuthor) -> str:
+        if record.middle_names:
+            return f"{record.first_name} {record.middle_names} {record.last_name}"
         return f"{record.first_name} {record.last_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
