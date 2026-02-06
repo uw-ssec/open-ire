@@ -92,13 +92,18 @@ warn_unreachable = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
+# msgraph is huge and auto-generated; slows mypy significantly
 [[tool.mypy.overrides]]
-module = "msgraph_core.*"
+module = ["msgraph_core.*", "msgraph.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "nameparser"
-ignore_missing_imports = true
+module = "tests.*"
+check_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_defs = false
+warn_return_any = false
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -142,7 +147,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["T20"]
+"tests/**" = ["ARG001", "ARG002", "ARG003", "T20"]
 "noxfile.py" = ["T20"]
 
 # ===
