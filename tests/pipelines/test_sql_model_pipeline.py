@@ -1,5 +1,4 @@
 from collections.abc import Generator
-from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +15,7 @@ class TestSQLModelPipeline:
     """Tests the processing and validation logic of the SQLModelPipeline."""
 
     @pytest.fixture
-    def pipeline(self, spider) -> Generator[SQLModelPipeline]:
+    def pipeline(self, spider: Spider) -> Generator[SQLModelPipeline, None, None]:
         """
         Create a pipeline instance with an in-memory SQLite DB for each test.
         """
@@ -26,7 +25,9 @@ class TestSQLModelPipeline:
         yield instance
         instance.engine.dispose()
 
-    def test_process_valid_item(self, pipeline: SQLModelPipeline, spider: Spider, item):
+    def test_process_valid_item(
+        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """A valid item is processed successfully."""
         result = pipeline.process_item(item, spider)
         assert result is item
@@ -39,9 +40,9 @@ class TestSQLModelPipeline:
         self,
         pipeline: SQLModelPipeline,
         spider: Spider,
-        item,
-        item_with_file_references,
-    ):
+        item: ArticleItem,
+        item_with_file_references: ArticleItem,
+    ) -> None:
         """Test updating an existing article."""
 
         pipeline.process_item(item, spider)
@@ -90,8 +91,8 @@ class TestSQLModelPipeline:
             assert len(file_refs) == 1
 
     def test_update_existing_article_with_new_files(
-        self, pipeline: SQLModelPipeline, spider: Spider, item
-    ):
+        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test updating an existing article with new files."""
 
         pipeline.process_item(item, spider)
@@ -125,7 +126,9 @@ class TestSQLModelPipeline:
             checksums = {f.checksum for f in files}
             assert checksums == {"abcde12345", "xyz789"}
 
-    def test_file_deduplication(self, pipeline: SQLModelPipeline, spider: Spider, item):
+    def test_file_deduplication(
+        self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that files with the same URL and same checksum are not duplicated."""
         pipeline.process_item(item, spider)
 
@@ -153,8 +156,8 @@ class TestSQLModelPipeline:
         self,
         pipeline: SQLModelPipeline,
         spider: Spider,
-        item_with_file_references,
-    ):
+        item_with_file_references: ArticleItem,
+    ) -> None:
         """Test that file references with the same URL are not duplicated."""
 
         pipeline.process_item(item_with_file_references, spider)
@@ -184,7 +187,7 @@ class TestSQLModelPipeline:
             file_refs = session.exec(select(ArticleFileReference)).all()
             assert len(file_refs) == 1
 
-    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path):
+    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path) -> None:
         missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
         crawler = SimpleNamespace(
             settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
