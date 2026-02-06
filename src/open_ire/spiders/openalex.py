@@ -8,7 +8,7 @@ from scrapy.http import Request, Response
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.errors import AmbiguousAuthorError
-from open_ire.items import ArticleItem
+from open_ire.items import ArticleItem, AuthorItem
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
 from open_ire.utils import parse_date
@@ -86,7 +86,9 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
-    def _search_for_authors(self, response: Response) -> Generator[Request, None, None]:
+    def _search_for_authors(
+        self, response: Response
+    ) -> Generator[Request | AuthorItem, None, None]:
         """Parse author search results and generate publication requests."""
         matched_author = response.meta["matched_author"]
         data = json.loads(response.text or "{}")
@@ -119,7 +121,13 @@ class OpenAlexSpider(AuthorSearchSpider):
                 self.logger.warning("%s", e)
                 return
 
-        yield from self._request_author_publications(authors[0].get("id"), matched_author)
+        # Yield author identifiers for storage
+        author_data = authors[0]
+        yield self._build_author_item(matched_author, author_data)
+
+        yield from self._request_author_publications(
+            author_data.get("id", "unknown"), matched_author
+        )
 
     def _request_author_publications(
         self, author_id: str, matched_author: str, cursor: str = "*"
@@ -147,6 +155,33 @@ class OpenAlexSpider(AuthorSearchSpider):
             callback=self._parse_publications,
             meta={"matched_author": matched_author, "cursor": cursor},
             cb_kwargs={"author_id": author_id},
+        )
+
+    def _build_author_item(self, matched_author: str, author_data: dict[str, Any]) -> AuthorItem:
+        """Build an AuthorItem from our data and OpenAlex author data."""
+        identifiers = []
+
+        if openalex_id := author_data.get("id"):
+            identifiers.append(
+                {
+                    "authority": "openalex",
+                    "identifier": self._bare_openalex_id(openalex_id),
+                }
+            )
+
+        if orcid_url := author_data.get("orcid"):
+            identifiers.append({"authority": "orcid", "identifier": self._bare_orcid(orcid_url)})
+
+        # OpenAlex sometimes provides "parsed_longest_name", but that can
+        # introduce surprises, so rely on "our" name.
+        parsed_name = ParsedAuthor(matched_author)
+
+        return AuthorItem(
+            full_name=parsed_name.full_name,
+            first_name=parsed_name.first_name,
+            middle_names=parsed_name.middle_names,
+            last_name=parsed_name.last_name,
+            identifiers=identifiers,
         )
 
     def _parse_publications(
@@ -326,6 +361,14 @@ class OpenAlexSpider(AuthorSearchSpider):
             return ""
         # https://openalex.org/A5077779935 => A5077779935
         return openalex_id.split("/")[-1]
+
+    @staticmethod
+    def _bare_orcid(orcid_url: str) -> str:
+        """Extract just the ID part from a full ORCID URL."""
+        if not orcid_url:
+            return ""
+        # https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
+        return orcid_url.split("/")[-1]
 
     @staticmethod
     def _normalize_type(raw_type: str | None) -> ArticleType | None:
