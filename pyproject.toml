@@ -1,3 +1,6 @@
+# ===
+# Build and packaging
+# ===
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
@@ -32,8 +35,19 @@ dependencies = [
     "sqlmodel",
 ]
 
+[project.license]
+file = "LICENSE"
+
+[project.urls]
+Homepage = "https://github.com/uw-ssec/open-ire"
+Documentation = "https://github.com/uw-ssec/open-ire/blob/main/README.md"
+Repository = "https://github.com/uw-ssec/open-ire.git"
+Issues = "https://github.com/uw-ssec/open-ire/issues"
+
 [project.optional-dependencies]
 dev = [
+    "mypy",
+    "ipython",
     "nox",
     "pre-commit",
     "pytest-asyncio",
@@ -41,8 +55,10 @@ dev = [
     "pytest-mock",
     "pytest-xdist",
     "pytest",
+    "ruff",
     "types-python-dateutil",
     "types-nameparser",
+    "types-requests",
 ]
 docs = [
     "jupyter-book",
@@ -52,52 +68,29 @@ docs = [
     "sphinx_rtd_theme",
     "sphinxcontrib-mermaid",
 ]
-all = ["open_ire[dev,docs]"]
-
-[project.license]
-file = "LICENSE"
-
-[project.urls]
-Homepage = "https://github.com/uw-ssec/python-project-template"
-Documentation = "https://ssec-python-project-template.readthedocs.io"
-Repository = "https://github.com/uw-ssec/python-project-template.git"
-Issues = "https://github.com/uw-ssec/python-project-template/issues"
 
 [tool.hatch.version]
 source = "vcs"
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/open_ire/version.py"
-
 [tool.hatch.version.raw-options]
 local_scheme = "no-local-version"
 
-[tool.hatch.build.targets.sdist]
-exclude = ["/tests"]
+[tool.hatch.build.hooks.vcs]
+version-file = "src/open_ire/version.py"
 
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = ["-vvv", "-ra", "--showlocals", "--strict-markers", "--strict-config"]
-xfail_strict = false
-filterwarnings = ["error"]
-log_cli_level = "INFO"
-testpaths = ["tests"]
-
+# ===
+# Developer tooling
+# ===
 [tool.mypy]
 files = ["src", "tests"]
 mypy_path = ["src"]
-python_version = "3.11"
+python_version = "3.12"
 warn_unused_configs = true
 strict = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 warn_unreachable = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-
-[[tool.mypy.overrides]]
-module = "open_ire.*"
-disallow_incomplete_defs = true
 disallow_untyped_defs = true
+disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
 module = "msgraph_core.*"
@@ -107,8 +100,15 @@ ignore_missing_imports = true
 module = "nameparser"
 ignore_missing_imports = true
 
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = ["-vvv", "-ra", "--showlocals", "--strict-markers", "--strict-config"]
+xfail_strict = false
+filterwarnings = ["error"]
+log_cli_level = "INFO"
+testpaths = ["tests"]
+
 [tool.ruff]
-exclude = ["tests/**", "testing.py"]
 line-length = 100
 
 [tool.ruff.lint]
@@ -145,14 +145,20 @@ ignore = [
 "tests/**" = ["T20"]
 "noxfile.py" = ["T20"]
 
-[dependency-groups]
-dev = [
-    "ruff",
-]
-
+# ===
+# Pixi environments, dependencies, and tasks
+# ===
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "win-64"]
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
+
+[tool.pixi.dependencies]
+pixi-pycharm = ">=0.0.10,<0.0.11"
 
 [tool.pixi.pypi-dependencies]
 open_ire = { path = ".", editable = true }
@@ -163,18 +169,24 @@ open_ire = { path = ".", editable = true, extras = ["dev"] }
 [tool.pixi.feature.docs.pypi-dependencies]
 open_ire = { path = ".", editable = true, extras = ["docs"] }
 
-[tool.pixi.environments]
-default = { solve-group = "default" }
-all = { features = ["dev", "docs"], solve-group = "default" }
-dev = { features = ["dev"], solve-group = "default" }
-docs = { features = ["docs"], solve-group = "default" }
+[tool.pixi.feature.dev.tasks]
+pre-commit = "pre-commit run"
+pre-commit-all = "pre-commit run --all-files"
+pre-commit-install = "pre-commit install"
+test = "python -m pytest -ra --cov=open_ire"
+
+# User-facing tasks
 
 [tool.pixi.tasks.dotenv]
-cmd = "mkdir output && cp .env.example .env"
+cmd = "mkdir -p output && cp -n .env.example .env"
 
 [tool.pixi.tasks.author-search]
 args = ["spider", "author_csv"]
 cmd = "scrapy crawl {{ spider }} -a author_csv={{ author_csv }}"
+
+[tool.pixi.tasks.terms-search]
+args = ["spider", "terms", "page"]
+cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
 
 [tool.pixi.tasks.spider]
 args = ["spider"]
@@ -188,20 +200,3 @@ args = [
     { "arg" = "flag", "default" = "" },
 ]
 cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
-
-[tool.pixi.tasks.terms-search]
-args = ["spider", "terms", "page"]
-cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
-
-[tool.pixi.feature.dev.tasks]
-pre-commit = "pre-commit run"
-pre-commit-all = "pre-commit run --all-files"
-pre-commit-install = "pre-commit install"
-test = "python -m pytest -ra --cov=open_ire"
-
-[tool.pixi.dependencies]
-pixi-pycharm = ">=0.0.10,<0.0.11"
-
-[tool.pixi.feature.dev.dependencies]
-pre-commit = ">=4.2.0,<5"
-python = "<=3.13.0"
