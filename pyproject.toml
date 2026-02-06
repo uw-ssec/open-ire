@@ -185,23 +185,17 @@ test = "python -m pytest -ra --cov=open_ire"
 [tool.pixi.tasks.dotenv]
 cmd = "mkdir -p output && cp -n .env.example .env"
 
-[tool.pixi.tasks.author-search]
-args = ["spider", "author_csv"]
-cmd = "scrapy crawl {{ spider }} -a author_csv={{ author_csv }}"
-
-[tool.pixi.tasks.terms-search]
-args = ["spider", "terms", "page"]
-cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
-
-[tool.pixi.tasks.spider]
-args = ["spider"]
-depends-on = [
-    { task = "terms-search", args = ["{{ spider }}", "university of washington", "1"] }
-]
-
-[tool.pixi.tasks.start]
+[tool.pixi.tasks.resume]
 args = [
     "spider",
     { "arg" = "flag", "default" = "" },
 ]
 cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
+
+[tool.pixi.tasks.search-authors]
+args = ["spider", "author_csv"]
+cmd = "scrapy crawl {{ spider }} -a author_csv={{ author_csv }}"
+
+[tool.pixi.tasks.search-terms]
+args = ["spider", "terms", "page"]
+cmd = "scrapy crawl {{ spider }} -a page={{ page }} -a terms=\"{{ terms }}\""
