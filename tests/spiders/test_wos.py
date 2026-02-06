@@ -1,10 +1,10 @@
 import copy
 import json
-import pytest
 from pathlib import Path
-from scrapy.http import HtmlResponse, Request
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+
+import pytest
+from scrapy.http import HtmlResponse, Request
 
 from open_ire.author import AuthorRecord
 from open_ire.enums import ArticleType
@@ -51,8 +51,14 @@ def dummy_record(five_authors: list[AuthorRecord]) -> dict[str, Any]:
                 },
                 "names": {
                     "name": [
-                        {"display_name": five_authors[4].normalized_name, "wos_standard": f"{five_authors[4].last_name}, {five_authors[4].first_initial}"},
-                        {"display_name": five_authors[0].normalized_name, "wos_standard": f"{five_authors[0].last_name}, {five_authors[0].first_initial}"},
+                        {
+                            "display_name": five_authors[4].normalized_name,
+                            "wos_standard": f"{five_authors[4].last_name}, {five_authors[4].first_initial}",
+                        },
+                        {
+                            "display_name": five_authors[0].normalized_name,
+                            "wos_standard": f"{five_authors[0].last_name}, {five_authors[0].first_initial}",
+                        },
                     ]
                 },
                 "doctypes": {"doctype": "Article"},
@@ -77,13 +83,15 @@ def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
 
 
 @pytest.fixture
-def spider(dummy_csv: Path, monkeypatch) -> WoSSpider:
+def spider(dummy_csv: Path, monkeypatch: pytest.MonkeyPatch) -> WoSSpider:
     monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
     return WoSSpider(author_csv=str(dummy_csv), start_year="2020", end_year="2021")
 
 
 class TestWoSSpider:
-    def test_build_item(self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]) -> None:
+    def test_build_item(
+        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+    ) -> None:
         item = spider._build_item(dummy_record, five_authors[4].normalized_name)
 
         assert isinstance(item, ArticleItem)
@@ -93,7 +101,9 @@ class TestWoSSpider:
         assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
         assert item.url == "https://doi.org/10.1000/sampledoi"
 
-    def test_build_item_without_doi(self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]) -> None:
+    def test_build_item_without_doi(
+        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+    ) -> None:
         # Remove DOI from the record
         record_without_doi = copy.deepcopy(dummy_record)
         record_without_doi["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
@@ -104,7 +114,9 @@ class TestWoSSpider:
         assert item.doi is None
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
-    def test_build_item_missing_identifiers_section(self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]) -> None:
+    def test_build_item_missing_identifiers_section(
+        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+    ) -> None:
         # Remove entire identifiers section
         record_no_identifiers = copy.deepcopy(dummy_record)
         record_no_identifiers["dynamic_data"]["cluster_related"] = {}
@@ -115,10 +127,14 @@ class TestWoSSpider:
         assert item.doi is None
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
-    def test_parse_publications(self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_response: HtmlResponse) -> None:
+    def test_parse_publications(
+        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_response: HtmlResponse
+    ) -> None:
         query = spider._build_query(five_authors[4].normalized_name)
         # Create a request with meta to tie to the response
-        request = Request(url="http://example.com/api", meta={'matched_author': five_authors[4].normalized_name})
+        request = Request(
+            url="http://example.com/api", meta={"matched_author": five_authors[4].normalized_name}
+        )
         dummy_response = dummy_response.replace(request=request)
 
         results = list(spider.parse_publications(dummy_response, query, page=1))
@@ -135,7 +151,9 @@ class TestWoSSpider:
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
 
-    def test_build_search_request(self, spider: WoSSpider, five_authors: list[AuthorRecord]) -> None:
+    def test_build_search_request(
+        self, spider: WoSSpider, five_authors: list[AuthorRecord]
+    ) -> None:
         request = spider.build_search_request(five_authors[4].normalized_name)
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
@@ -149,8 +167,12 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         body_str = json.dumps(json_body)
-        request = Request(url="http://example.com/api", meta={'matched_author': five_authors[1].normalized_name})
-        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8", request=request)
+        request = Request(
+            url="http://example.com/api", meta={"matched_author": five_authors[1].normalized_name}
+        )
+        response = HtmlResponse(
+            url="http://example.com/api", body=body_str, encoding="utf-8", request=request
+        )
 
         query = spider._build_query(five_authors[1].normalized_name)
         results = list(spider.parse_publications(response, query, page=1))
@@ -170,8 +192,12 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         body_str = json.dumps(json_body)
-        request = Request(url="http://example.com/api", meta={'matched_author': five_authors[2].normalized_name})
-        response = HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8", request=request)
+        request = Request(
+            url="http://example.com/api", meta={"matched_author": five_authors[2].normalized_name}
+        )
+        response = HtmlResponse(
+            url="http://example.com/api", body=body_str, encoding="utf-8", request=request
+        )
 
         query = spider._build_query(five_authors[2].normalized_name)
         results = list(spider.parse_publications(response, query, page=1))
@@ -183,7 +209,7 @@ class TestWoSSpider:
         assert requests == []
 
     @pytest.mark.parametrize(
-        "raw_type,expected",
+        ("raw_type", "expected"),
         [
             ("article", ArticleType.SCHOLARLY_ARTICLE),
             ("Article", ArticleType.SCHOLARLY_ARTICLE),
@@ -198,7 +224,9 @@ class TestWoSSpider:
             ("Letter", ArticleType.OTHER),
         ],
     )
-    def test_normalize_type_known_types(self, spider: WoSSpider, raw_type: str, expected: ArticleType) -> None:
+    def test_normalize_type_known_types(
+        self, spider: WoSSpider, raw_type: str, expected: ArticleType
+    ) -> None:
         assert spider._normalize_type(raw_type) == expected
 
     def test_normalize_type_none(self, spider: WoSSpider) -> None:

@@ -1,7 +1,7 @@
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,14 +51,15 @@ class TestSharePoint:
 
     @staticmethod
     def _mock_client_drive_id(
-        sharepoint_client, drive_id: str = DefaultValues.DRIVE_ID.value
-    ):
-        sharepoint_client._get_drive_id = AsyncMock(return_value=drive_id)
+        sharepoint_client: SharePoint, drive_id: str = DefaultValues.DRIVE_ID.value
+    ) -> None:
+        sharepoint_client.__setattr__("_get_drive_id", AsyncMock(return_value=drive_id))
 
     @staticmethod
-    def _mock_client_drive_item(sharepoint_client) -> Any:
-        return (
-            sharepoint_client._client.drives.by_drive_id.return_value.items.by_drive_item_id.return_value
+    def _mock_client_drive_item(sharepoint_client: SharePoint) -> MagicMock:
+        client = cast(MagicMock, sharepoint_client._client)
+        return cast(
+            MagicMock, client.drives.by_drive_id.return_value.items.by_drive_item_id.return_value
         )
 
     @staticmethod
@@ -72,7 +73,7 @@ class TestSharePoint:
         return test_file
 
     @staticmethod
-    def _assert_client_attributes(client: SharePoint, expected_values: dict[str, str]):
+    def _assert_client_attributes(client: SharePoint, expected_values: dict[str, str]) -> None:
         for attr, expected_value in expected_values.items():
             assert getattr(client, attr) == expected_value
 
@@ -106,13 +107,19 @@ class TestSharePoint:
     @pytest.fixture
     @patch("open_ire.sharepoint.GraphServiceClient")
     @patch("open_ire.sharepoint.ClientSecretCredential")
-    def sharepoint_client(self, mock_credential, mock_graph_client, mock_env_vars):
+    def sharepoint_client(
+        self,
+        _mock_credential: MagicMock,  # needed for @patch decorator
+        mock_graph_client: MagicMock,  # needed for @patch decorator
+        mock_env_vars: dict[str, str],
+    ) -> SharePoint:
         with patch.dict(os.environ, mock_env_vars):
             mock_graph_client.return_value = MagicMock()
-            client = SharePoint(base_path=DefaultValues.BASE_PATH.value)
-            return client
+            return SharePoint(base_path=DefaultValues.BASE_PATH.value)
 
-    def test_init_with_args(self, mock_client_args, expected_client_attributes):
+    def test_init_with_args(
+        self, mock_client_args: dict[str, str], expected_client_attributes: dict[str, str]
+    ) -> None:
         with (
             patch("open_ire.sharepoint.GraphServiceClient"),
             patch("open_ire.sharepoint.ClientSecretCredential"),
@@ -124,7 +131,9 @@ class TestSharePoint:
 
         self._assert_client_attributes(client, expected_client_attributes)
 
-    def test_init_with_env(self, mock_env_vars, expected_client_attributes):
+    def test_init_with_env(
+        self, mock_env_vars: dict[str, str], expected_client_attributes: dict[str, str]
+    ) -> None:
         with (
             patch.dict(os.environ, mock_env_vars),
             patch("open_ire.sharepoint.GraphServiceClient"),
@@ -144,13 +153,15 @@ class TestSharePoint:
             },
         ],
     )
-    def test_init_missing_params(self, env_vars):
-        with patch.dict(os.environ, env_vars, clear=True):
-            with pytest.raises(ValueError):
-                SharePoint(base_path=DefaultValues.BASE_PATH.value)
+    def test_init_missing_params(self, env_vars: dict[str, str]) -> None:
+        with (
+            patch.dict(os.environ, env_vars, clear=True),
+            pytest.raises(ValueError, match="Missing required parameters for SharePoint client"),
+        ):
+            SharePoint(base_path=DefaultValues.BASE_PATH.value)
 
     @pytest.mark.parametrize(
-        "path,expected",
+        ("path", "expected"),
         [
             (
                 "folder/file.txt",
@@ -170,13 +181,20 @@ class TestSharePoint:
             ),
         ],
     )
-    def test_item_id_from_path(self, sharepoint_client, path: str, expected: str):
+    def test_item_id_from_path(
+        self, sharepoint_client: SharePoint, path: str, expected: str
+    ) -> None:
         result = sharepoint_client._item_id_from_path(path)
         assert result == expected
 
     @patch("open_ire.sharepoint.GraphServiceClient")
     @patch("open_ire.sharepoint.ClientSecretCredential")
-    def test_authenticate(self, mock_credential, mock_graph_client, sharepoint_client):
+    def test_authenticate(
+        self,
+        mock_credential: MagicMock,
+        mock_graph_client: MagicMock,
+        sharepoint_client: SharePoint,
+    ) -> None:
         mock_cred_instance = MagicMock()
         mock_credential.return_value = mock_cred_instance
         mock_graph_instance = MagicMock()
@@ -195,45 +213,47 @@ class TestSharePoint:
         assert result == mock_graph_instance
 
     @pytest.mark.asyncio
-    async def test_get_drive_id(self, sharepoint_client):
+    async def test_get_drive_id(self, sharepoint_client: SharePoint) -> None:
         mock_drive = self._mock_drive()
-        sharepoint_client._client.sites.by_site_id.return_value.drive.get = AsyncMock(
-            return_value=mock_drive
-        )
+        client = cast(MagicMock, sharepoint_client._client)
+        client.sites.by_site_id.return_value.drive.get = AsyncMock(return_value=mock_drive)
         result = await sharepoint_client._get_drive_id()
 
         assert result == DefaultValues.DRIVE_ID.value
         assert sharepoint_client._drive_id == DefaultValues.DRIVE_ID.value
 
     @pytest.mark.asyncio
-    async def test_get_drive_id_failure(self, sharepoint_client):
-        sharepoint_client._client.sites.by_site_id.return_value.drive.get = AsyncMock(
-            return_value=None
-        )
+    async def test_get_drive_id_failure(self, sharepoint_client: SharePoint) -> None:
+        client = cast(MagicMock, sharepoint_client._client)
+        client.sites.by_site_id.return_value.drive.get = AsyncMock(return_value=None)
 
         with pytest.raises(RuntimeError):
             await sharepoint_client._get_drive_id()
 
     @pytest.mark.asyncio
-    async def test_get_drive_id_cached(self, sharepoint_client):
+    async def test_get_drive_id_cached(self, sharepoint_client: SharePoint) -> None:
         sharepoint_client._drive_id = DefaultValues.DRIVE_ID.value
         result = await sharepoint_client._get_drive_id()
 
         assert result == DefaultValues.DRIVE_ID.value
-        sharepoint_client._client.sites.by_site_id.assert_not_called()
+        client = cast(MagicMock, sharepoint_client._client)
+        client.sites.by_site_id.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("open_ire.sharepoint.LargeFileUploadTask")
-    async def test_upload_file(self, mock_task_class, sharepoint_client, tmp_path):
+    async def test_upload_file(
+        self,
+        mock_task_class: MagicMock,
+        sharepoint_client: SharePoint,
+        tmp_path: Path,
+    ) -> None:
         test_file = self._create_test_file(tmp_path)
         mock_upload_result = MagicMock(spec=UploadResult)
         mock_upload_session = self._mock_upload_session()
 
         self._mock_client_drive_id(sharepoint_client)
         chain_mock = self._mock_client_drive_item(sharepoint_client)
-        chain_mock.create_upload_session.post = AsyncMock(
-            return_value=mock_upload_session
-        )
+        chain_mock.create_upload_session.post = AsyncMock(return_value=mock_upload_session)
 
         mock_task = MagicMock()
         mock_task.upload = AsyncMock(return_value=mock_upload_result)
@@ -245,14 +265,14 @@ class TestSharePoint:
         mock_task.upload.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_upload_missing_file(self, sharepoint_client):
+    async def test_upload_missing_file(self, sharepoint_client: SharePoint) -> None:
         non_existent_file = Path("/non/existent/file.txt")
 
         with pytest.raises(FileNotFoundError):
             await sharepoint_client.upload_file(non_existent_file, "uploads/test.txt")
 
     @pytest.mark.asyncio
-    async def test_delete_item(self, sharepoint_client):
+    async def test_delete_item(self, sharepoint_client: SharePoint) -> None:
         self._mock_client_drive_id(sharepoint_client)
         chain_mock = self._mock_client_drive_item(sharepoint_client)
         chain_mock.delete = AsyncMock()
@@ -263,7 +283,7 @@ class TestSharePoint:
         chain_mock.delete.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_item(self, sharepoint_client):
+    async def test_get_item(self, sharepoint_client: SharePoint) -> None:
         mock_drive_item = self._mock_drive_item()
 
         self._mock_client_drive_id(sharepoint_client)
@@ -273,11 +293,10 @@ class TestSharePoint:
         result = await sharepoint_client.get_item("folder/test.txt")
 
         assert result == mock_drive_item
-        sharepoint_client._client.drives.by_drive_id.assert_called_once_with(
-            DefaultValues.DRIVE_ID.value
-        )
+        client = cast(MagicMock, sharepoint_client._client)
+        client.drives.by_drive_id.assert_called_once_with(DefaultValues.DRIVE_ID.value)
 
-    def test_base_path_id(self, sharepoint_client):
+    def test_base_path_id(self, sharepoint_client: SharePoint) -> None:
         custom_base_path = "unittest/base/path"
         sharepoint_client.base_path = custom_base_path
 

@@ -5,7 +5,7 @@ from open_ire.spiders.eric import EricSpider
 
 
 class TestEricSpider:
-    def test_default_params(self):
+    def test_default_params(self) -> None:
         """Test spider initialization with default parameters."""
         spider = EricSpider()
         assert spider.name == "eric"
@@ -13,7 +13,7 @@ class TestEricSpider:
         assert "eric.ed.gov" in spider.start_urls[0]
         assert "pg=1" in spider.start_urls[0]
 
-    def test_custom_params(self):
+    def test_custom_params(self) -> None:
         """Test spider initialization with custom parameters."""
         terms = "education,research"
         page = "2"
@@ -24,7 +24,7 @@ class TestEricSpider:
         assert "q=education" in spider.start_urls[0]
         assert "q=research" in spider.start_urls[1]
 
-    def test_extract_article_attribute(self):
+    def test_extract_article_attribute(self) -> None:
         """Test the extract_article_attribute method."""
         html = """
         <div><strong>ERIC Number:</strong> EJ1234567</div>

@@ -5,7 +5,7 @@ from open_ire.spiders.noaa import NOAASpider
 
 
 class TestNOAASpider:
-    def test_default_params(self):
+    def test_default_params(self) -> None:
         """Test spider initialization with default parameters."""
         spider = NOAASpider()
         assert spider.name == "noaa"
@@ -14,7 +14,7 @@ class TestNOAASpider:
         assert "maxResults=100" in spider.start_urls[0]
         assert "start=" not in spider.start_urls[0]
 
-    def test_custom_params(self):
+    def test_custom_params(self) -> None:
         """Test spider initialization with custom parameters."""
         terms = "climate,ocean"
         page = "2"
@@ -27,7 +27,7 @@ class TestNOAASpider:
         assert "maxResults=100" in spider.start_urls[0]
         assert "start=100" in spider.start_urls[0]
 
-    def test_parse(self):
+    def test_parse(self) -> None:
         """Test the parse method extracts article links and next page."""
         html = """
         <html>
@@ -57,11 +57,9 @@ class TestNOAASpider:
         assert requests[0].callback == spider.parse_detail
         assert requests[0].url == "https://repository.library.noaa.gov/view/noaa/123"
         assert requests[1].url == "https://repository.library.noaa.gov/view/noaa/456"
-        assert (
-            requests[2].url == "https://repository.library.noaa.gov/gsearch?start=100"
-        )
+        assert requests[2].url == "https://repository.library.noaa.gov/gsearch?start=100"
 
-    def test_parse_detail(self):
+    def test_parse_detail(self) -> None:
         """Test the parse_detail method extracts article metadata correctly."""
         html = """
         <html>
@@ -101,7 +99,7 @@ class TestNOAASpider:
         assert len(item.file_urls) == 1
         assert hasattr(item, "extra")
 
-    def test_extract_file_urls(self):
+    def test_extract_file_urls(self) -> None:
         """Test the extract_file_urls method."""
         html = """
         <html>
@@ -122,7 +120,7 @@ class TestNOAASpider:
         assert urls[0] == "https://repository.library.noaa.gov/documents/file1.pdf"
         assert urls[1] == "https://repository.library.noaa.gov/documents/file2.pdf"
 
-    def test_extract_extra_details(self):
+    def test_extract_extra_details(self) -> None:
         """Test the extract_extra_details method."""
         html = """
         <html>
@@ -158,7 +156,7 @@ class TestNOAASpider:
         assert "ocean" in extra["keywords"]
         assert len(extra["keywords"]) == 2
 
-    def test_extract_extra_details_empty(self):
+    def test_extract_extra_details_empty(self) -> None:
         """Test the extract_extra_details method with an empty response."""
         html = "<html><head></head><body></body></html>"
         response = HtmlResponse(
