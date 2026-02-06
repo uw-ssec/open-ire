@@ -1,6 +1,8 @@
 from collections.abc import Generator
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,9 +17,9 @@ from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.pipelines import (
     DOINormalizationPipeline,
     DuplicatesPipeline,
-    SQLModelPipeline,
     SharePointPipeline,
     SkipExistingPipeline,
+    SQLModelPipeline,
 )
 
 
@@ -83,11 +85,13 @@ class TestDOINormalizationPipeline:
     """Tests the DOI normalization pipeline."""
 
     @pytest.fixture
-    def pipeline(self):
+    def pipeline(self) -> DOINormalizationPipeline:
         """Create a pipeline instance for testing."""
         return DOINormalizationPipeline()
 
-    def test_normalize_full_doi_url(self, pipeline, spider, item):
+    def test_normalize_full_doi_url(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test normalizing a full DOI URL."""
         item.doi = " https://doi.org/10.1234/test.doi"
 
@@ -95,7 +99,9 @@ class TestDOINormalizationPipeline:
 
         assert result.doi == "10.1234/test.doi"
 
-    def test_normalize_already_normalized_doi(self, pipeline, spider, item):
+    def test_normalize_already_normalized_doi(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that already normalized DOIs are unchanged."""
         item.doi = "10.1234/test.doi "
 
@@ -103,7 +109,9 @@ class TestDOINormalizationPipeline:
 
         assert result.doi == "10.1234/test.doi"
 
-    def test_normalize_none_doi(self, pipeline, spider, item):
+    def test_normalize_none_doi(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that None DOI values are handled correctly."""
         item.doi = None
 
@@ -111,7 +119,9 @@ class TestDOINormalizationPipeline:
 
         assert result.doi is None
 
-    def test_normalize_empty_string_doi(self, pipeline, spider, item):
+    def test_normalize_empty_string_doi(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that empty string DOI values are normalized to None."""
         item.doi = ""
 
@@ -119,7 +129,9 @@ class TestDOINormalizationPipeline:
 
         assert result.doi is None
 
-    def test_normalize_whitespace_only_doi(self, pipeline, spider, item):
+    def test_normalize_whitespace_only_doi(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that whitespace-only DOI values are normalized to None."""
         item.doi = "   "
 
@@ -127,9 +139,11 @@ class TestDOINormalizationPipeline:
 
         assert result.doi is None
 
-    def test_normalize_non_string_doi(self, pipeline, spider, item):
+    def test_normalize_non_string_doi(
+        self, pipeline: DOINormalizationPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test that non-string DOI values are normalized to None."""
-        item.doi = 12345
+        item.doi = cast(Any, 12345)
 
         result = pipeline.process_item(item, spider)
 
@@ -138,18 +152,22 @@ class TestDOINormalizationPipeline:
 
 class TestDuplicatesPipeline:
     @pytest.fixture
-    def pipeline(self):
+    def pipeline(self) -> DuplicatesPipeline:
         """Create a pipeline instance for testing."""
         return DuplicatesPipeline()
 
-    def test_process_unique_item(self, pipeline, spider, item):
+    def test_process_unique_item(
+        self, pipeline: DuplicatesPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test processing a unique item."""
         result = pipeline.process_item(item, spider)
 
         assert result == item
         assert item.reference in pipeline.seen
 
-    def test_process_duplicate_item(self, pipeline, spider, item):
+    def test_process_duplicate_item(
+        self, pipeline: DuplicatesPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Test processing a duplicate item."""
         pipeline.seen.add(item.reference)
         with pytest.raises(DropItem) as e:
@@ -163,7 +181,7 @@ class TestSkipExistingPipeline:
     """Tests the SkipExistingPipeline for skipping existing articles."""
 
     @pytest.fixture
-    def pipeline_enabled(self, spider) -> Generator[SkipExistingPipeline]:
+    def pipeline_enabled(self, spider: Spider) -> Generator[SkipExistingPipeline, None, None]:
         spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
 
         instance = SkipExistingPipeline(":memory:", "output")
@@ -173,31 +191,31 @@ class TestSkipExistingPipeline:
         instance.engine.dispose()
 
     @pytest.fixture
-    def pipeline_disabled(self, spider) -> Generator[SkipExistingPipeline]:
+    def pipeline_disabled(self, spider: Spider) -> SkipExistingPipeline:
         spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
 
         instance = SkipExistingPipeline(":memory:", "output")
         instance.open_spider(spider)
         assert instance.engine is None
-        yield instance
+        return instance
 
     def test_process_item_with_skip_existing_disabled(
-            self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
-    ):
+        self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         result = pipeline_disabled.process_item(item, spider)
 
         assert result is item
 
     def test_process_item_with_new_article(
-            self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
-    ):
+        self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         result = pipeline_enabled.process_item(item, spider)
 
         assert result is item
 
     def test_process_item_with_existing_article(
-            self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
-    ):
+        self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         with Session(pipeline_enabled.engine) as session:
             article = Article(
                 title=item.title,
@@ -214,12 +232,11 @@ class TestSkipExistingPipeline:
             pipeline_enabled.process_item(item, spider)
 
 
-
 class TestSQLModelPipeline:
     """Tests the processing and validation logic of the SQLModelPipeline."""
 
     @pytest.fixture
-    def pipeline(self, spider) -> Generator[SQLModelPipeline]:
+    def pipeline(self, spider: Spider) -> Generator[SQLModelPipeline, None, None]:
         """
         Create a pipeline instance with an in-memory SQLite DB for each test.
         """
@@ -231,7 +248,7 @@ class TestSQLModelPipeline:
 
     def test_process_valid_item(
         self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
+    ) -> None:
         """A valid item is processed successfully."""
         result = pipeline.process_item(item, spider)
         assert result is item
@@ -246,7 +263,7 @@ class TestSQLModelPipeline:
         spider: Spider,
         item: ArticleItem,
         item_with_file_references: ArticleItem,
-    ):
+    ) -> None:
         """Test updating an existing article."""
 
         pipeline.process_item(item, spider)
@@ -296,7 +313,7 @@ class TestSQLModelPipeline:
 
     def test_update_existing_article_with_new_files(
         self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
+    ) -> None:
         """Test updating an existing article with new files."""
 
         pipeline.process_item(item, spider)
@@ -332,7 +349,7 @@ class TestSQLModelPipeline:
 
     def test_file_deduplication(
         self, pipeline: SQLModelPipeline, spider: Spider, item: ArticleItem
-    ):
+    ) -> None:
         """Test that files with the same URL and same checksum are not duplicated."""
         pipeline.process_item(item, spider)
 
@@ -361,7 +378,7 @@ class TestSQLModelPipeline:
         pipeline: SQLModelPipeline,
         spider: Spider,
         item_with_file_references: ArticleItem,
-    ):
+    ) -> None:
         """Test that file references with the same URL are not duplicated."""
 
         pipeline.process_item(item_with_file_references, spider)
@@ -391,9 +408,7 @@ class TestSQLModelPipeline:
             file_refs = session.exec(select(ArticleFileReference)).all()
             assert len(file_refs) == 1
 
-    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path):
-        from types import SimpleNamespace
-
+    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path) -> None:
         missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
         crawler = SimpleNamespace(
             settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
@@ -402,12 +417,11 @@ class TestSQLModelPipeline:
         assert Path(missing_db).parent.exists()
 
 
-
 class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
     @pytest.fixture
-    def pipeline(self, tmp_path):
+    def pipeline(self, tmp_path: Path) -> SharePointPipeline:
         sharepoint_base_path = "test_sharepoint"
         local_base_path = str(tmp_path)
 
@@ -421,7 +435,13 @@ class TestSharePointPipeline:
             return pipeline
 
     @pytest.mark.asyncio
-    async def test_item_with_files(self, pipeline, spider, item, tmp_path):
+    async def test_item_with_files(
+        self,
+        pipeline: SharePointPipeline,
+        spider: Spider,
+        item: ArticleItem,
+        tmp_path: Path,
+    ) -> None:
         """An item with files should trigger a SharePoint upload."""
         file1 = tmp_path / "file1.pdf"
         file2 = tmp_path / "file2.pdf"
@@ -435,11 +455,11 @@ class TestSharePointPipeline:
 
         mock_upload_result = MagicMock()
         mock_upload_result.location = "https://sharepoint.com/uploaded"
-        pipeline.sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
+        cast(Any, pipeline.sharepoint).upload_file = AsyncMock(return_value=mock_upload_result)
 
         mock_drive_item = MagicMock()
         mock_drive_item.web_url = "https://sharepoint.com/web-url"
-        pipeline.sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
+        cast(Any, pipeline.sharepoint).get_item = AsyncMock(return_value=mock_drive_item)
 
         result = await pipeline.process_item(item, spider)
 
@@ -448,10 +468,12 @@ class TestSharePointPipeline:
             "https://sharepoint.com/web-url",
             "https://sharepoint.com/web-url",
         ]
-        assert pipeline.sharepoint.upload_file.call_count == 2
+        assert cast(MagicMock, pipeline.sharepoint.upload_file).call_count == 2
 
     @pytest.mark.asyncio
-    async def test_process_item_no_files(self, pipeline, spider, item):
+    async def test_process_item_no_files(
+        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """An item without files should have an empty store_urls list."""
         item.files = []
 
@@ -459,21 +481,31 @@ class TestSharePointPipeline:
 
         assert result == item
         assert result.store_urls == []
-        spider.logger.warning.assert_called_once()
+        cast(MagicMock, spider.logger.warning).assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_item_upload_error(self, pipeline, spider, item):
+    async def test_item_upload_error(
+        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem
+    ) -> None:
         """Upload errors should be logged."""
-        pipeline.sharepoint.upload_file = AsyncMock(side_effect=Exception("Upload failed"))
+        cast(Any, pipeline.sharepoint).upload_file = AsyncMock(
+            side_effect=Exception("Upload failed")
+        )
 
         result = await pipeline.process_item(item, spider)
 
         assert result == item
         assert result.store_urls == [""]
-        spider.logger.error.assert_called()
+        cast(MagicMock, spider.logger.error).assert_called()
 
     @pytest.mark.asyncio
-    async def test_deletes_local_file(self, pipeline, spider, item, tmp_path):
+    async def test_deletes_local_file(
+        self,
+        pipeline: SharePointPipeline,
+        spider: Spider,
+        item: ArticleItem,
+        tmp_path: Path,
+    ) -> None:
         """Local file should be deleted when remote size matches"""
         local_file = tmp_path / "file.pdf"
         local_file.write_text("A" * 1000)
@@ -483,8 +515,8 @@ class TestSharePointPipeline:
         mock_drive_item = MagicMock()
         mock_drive_item.web_url = "https://sharepoint.com/uploaded"
         mock_drive_item.size = 1000
-        pipeline.sharepoint.upload_file = AsyncMock(return_value=MagicMock())
-        pipeline.sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
+        cast(Any, pipeline.sharepoint).upload_file = AsyncMock(return_value=MagicMock())
+        cast(Any, pipeline.sharepoint).get_item = AsyncMock(return_value=mock_drive_item)
 
         await pipeline.process_item(item, spider)
         assert not local_file.exists()  # delete local copy
@@ -494,4 +526,4 @@ class TestSharePointPipeline:
         mock_drive_item.size = 5000
         await pipeline.process_item(item, spider)
         assert local_file.exists()  # preserve local copy
-        spider.logger.error.assert_called()
+        cast(MagicMock, spider.logger.error).assert_called()
