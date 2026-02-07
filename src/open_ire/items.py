@@ -1,4 +1,4 @@
-from sqlmodel import Field
+from sqlmodel import Field, SQLModel
 
 from open_ire.models import ArticleBase
 
@@ -13,3 +13,18 @@ class ArticleItem(ArticleBase):
     file_urls: list[str] = Field(default_factory=list)
     files: list[dict[str, str | int | None]] | None = None
     store_urls: list[str] = Field(default_factory=list)
+
+
+class UnavailableArticleItem(SQLModel):
+    """
+    Scrapy item for previously collected articles no longer available at source URL.
+    """
+
+    article_id: str
+    repository: str
+    reference: str
+    url: str
+    status_code: int | None = None
+    error: str
+    request_method: str
+    checked_at: str
