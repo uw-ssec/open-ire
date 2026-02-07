@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Column, UniqueConstraint
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
@@ -61,6 +61,9 @@ class Article(ArticleBase, table=True):
     deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
         back_populates="article"
     )
+
+    # New author relationships
+    article_authors: list["ArticleAuthor"] = Relationship(back_populates="article")
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),
@@ -206,3 +209,127 @@ class ArticleDepositStatusTransition(SQLModel, table=True):
     reasons: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
     article: Article | None = Relationship(back_populates="deposit_status_transitions")
+
+
+class AuthorBase(SQLModel):
+    """Base SQLModel to define common author attributes.
+
+    Attributes
+    ----------
+    first_name: Author's first name, if available.
+    middle_names: Author's middle names, if available.
+    last_name: Author's last name, if available.
+    full_name: Complete author name as it appears in publications.
+    uw_academic_unit: The academic unit of the author, if available.
+    explicitly_searched: Boolean indicating if this author was explicitly searched.
+    created_at: Datetime when the author was added to this database.
+    updated_at: Datetime when the author was last updated in this database.
+    """
+
+    first_name: str | None = None
+    middle_names: str | None = None
+    last_name: str | None = None
+    full_name: str = Field(index=True)
+    uw_academic_unit: str | None = Field(default=None, index=True)
+    explicitly_searched: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class Author(AuthorBase, table=True):
+    """SQLModel to store author information."""
+
+    id: int = Field(primary_key=True)
+
+    # Relationships
+    article_authors: list["ArticleAuthor"] = Relationship(back_populates="author")
+    identifiers: list["AuthorIdentifier"] = Relationship(back_populates="author")
+    affiliations: list["AuthorAffiliation"] = Relationship(back_populates="author")
+
+
+class AuthorAffiliationBase(SQLModel):
+    """Base SQLModel for author affiliation attributes.
+
+    Attributes
+    ----------
+    author_id: Foreign key to the Author table.
+    year: Year of the UW affiliation.
+    """
+
+    author_id: int | None = Field(default=None, foreign_key="author.id")
+    year: int = Field(ge=1900)
+
+
+class AuthorAffiliation(AuthorAffiliationBase, table=True):
+    """SQLModel to store author affiliations."""
+
+    id: int = Field(primary_key=True)
+
+    author_id: int = Field(foreign_key="author.id", index=True)
+    year: int = Field(ge=1900, index=True)
+
+    # Relationships
+    author: "Author" = Relationship(back_populates="affiliations")
+
+    __table_args__ = (
+        CheckConstraint("year >= 1900", name="ck_author_affiliation_year_gte_1900"),
+        UniqueConstraint("author_id", "year", name="uq_author_affiliation_author_id_year"),
+    )
+
+
+class ArticleAuthorBase(SQLModel):
+    """Base SQLModel for article-author relationship attributes.
+
+    Attributes
+    ----------
+    article_id: Foreign key to the Article table.
+    author_id: Foreign key to the Author table.
+    author_order: Position of author in the publication's author list.
+    created_at: Datetime when the relationship was created.
+    """
+
+    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
+    author_id: int | None = Field(default=None, foreign_key="author.id")
+    author_order: int | None = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ArticleAuthor(ArticleAuthorBase, table=True):
+    """SQLModel to store many-to-many relationships between articles and authors."""
+
+    article_id: uuid.UUID = Field(foreign_key="article.id", primary_key=True)
+    author_id: int = Field(foreign_key="author.id", primary_key=True)
+
+    # Relationships
+    article: "Article" = Relationship(back_populates="article_authors")
+    author: "Author" = Relationship(back_populates="article_authors")
+
+
+class AuthorIdentifierBase(SQLModel):
+    """Base SQLModel for author identifier attributes.
+
+    Attributes
+    ----------
+    author_id: Foreign key to the Author table.
+    authority: The organization or system that issued the identifier.
+    identifier: The actual identifier value.
+    created_at: Datetime when the identifier was added.
+    """
+
+    author_id: int | None = Field(default=None, foreign_key="author.id")
+    authority: str = Field(index=True)
+    identifier: str = Field(index=True)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class AuthorIdentifier(AuthorIdentifierBase, table=True):
+    """SQLModel to store external identifiers for authors."""
+
+    id: int = Field(primary_key=True)
+
+    author_id: int = Field(foreign_key="author.id", index=True)
+
+    # Relationships
+    author: "Author" = Relationship(back_populates="identifiers")
+
+    __table_args__ = (UniqueConstraint("authority", "identifier", name="uq_author_identifier"),)
