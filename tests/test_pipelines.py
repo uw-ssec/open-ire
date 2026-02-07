@@ -411,7 +411,7 @@ class TestSharePointPipeline:
         sharepoint_base_path = "test_sharepoint"
         local_base_path = str(tmp_path)
 
-        with patch("open_ire.pipelines.SharePoint") as mock_sharepoint_class:
+        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint") as mock_sharepoint_class:
             mock_sharepoint = MagicMock()
             mock_sharepoint_class.return_value = mock_sharepoint
 
