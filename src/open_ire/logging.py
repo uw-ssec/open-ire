@@ -2,7 +2,6 @@ import logging
 from typing import Self
 
 from scrapy.crawler import Crawler
-from scrapy.exceptions import NotConfigured
 
 
 class OpenIRELogger:
@@ -13,9 +12,6 @@ class OpenIRELogger:
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
-        if not crawler.settings.get("OPEN_IRE_LOG_LEVEL"):
-            raise NotConfigured
-
         level_name = crawler.settings.get("OPEN_IRE_LOG_LEVEL", "INFO")
         level = getattr(logging, str(level_name).upper(), logging.INFO)
 
@@ -43,4 +39,4 @@ class OpenIRELogger:
         if crawler.spider:
             attach(crawler.spider.name)
 
-        return cls()
+        return cls(level_name)
