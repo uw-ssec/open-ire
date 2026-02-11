@@ -120,7 +120,10 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             session.rollback()
             raise DatabaseDuplicateItemError() from e
 
-    def process_item(self, item: ArticleItem) -> ArticleItem:
+    def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         article_files = self._get_article_files(item)
         file_references = self._get_article_file_references(item)
         item_data = item.model_dump(

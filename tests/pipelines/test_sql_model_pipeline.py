@@ -1,6 +1,8 @@
 from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from scrapy.crawler import Crawler
@@ -25,6 +27,13 @@ class TestSQLModelPipeline:
         assert instance.engine is not None
         yield instance
         instance.engine.dispose()
+
+    def test_passes_through_non_article_items(self, pipeline: SQLModelPipeline) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+        result = pipeline.process_item(item)
+
+        assert result is item
 
     def test_process_valid_item(self, pipeline: SQLModelPipeline, item: ArticleItem) -> None:
         """A valid item is processed successfully."""

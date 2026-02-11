@@ -1,7 +1,7 @@
 import logging
 import math
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from scrapy.crawler import Crawler
 
@@ -87,7 +87,10 @@ class SharePointPipeline:
 
         return store_url
 
-    async def process_item(self, item: ArticleItem) -> ArticleItem:
+    async def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         if not item.files:
             msg = f"No files found for article '{item.reference}'."
             logger.warning(msg)

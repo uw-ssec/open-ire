@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
@@ -27,7 +28,10 @@ class SkipExistingPipeline(BaseSQLModelPipeline):
 
         super().open_spider()
 
-    def process_item(self, item: ArticleItem) -> ArticleItem:
+    def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         if self.crawler is None or not self._should_skip_existing(self.crawler):
             return item
 
