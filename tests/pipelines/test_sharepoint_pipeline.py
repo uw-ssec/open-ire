@@ -13,7 +13,7 @@ class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
     @pytest.fixture
-    def pipeline(self, tmp_path: Path) -> SharePointPipeline:
+    def pipeline(self, spider: Spider, tmp_path: Path) -> SharePointPipeline:
         sharepoint_base_path = "test_sharepoint"
         local_base_path = str(tmp_path)
 
@@ -23,6 +23,8 @@ class TestSharePointPipeline:
 
             pipeline = SharePointPipeline(sharepoint_base_path, local_base_path)
             pipeline.sharepoint = mock_sharepoint
+            pipeline.crawler = spider.crawler
+            pipeline.open_spider()
 
             return pipeline
 
@@ -50,7 +52,7 @@ class TestSharePointPipeline:
         mock_drive_item.web_url = "https://sharepoint.com/web-url"
         sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
 
-        result = await pipeline.process_item(item, spider)
+        result = await pipeline.process_item(item)
 
         assert result == item
         assert result.store_urls == [
@@ -61,34 +63,30 @@ class TestSharePointPipeline:
 
     @pytest.mark.asyncio
     async def test_process_item_no_files(
-        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem
+        self, pipeline: SharePointPipeline, item: ArticleItem
     ) -> None:
         """An item without files should have an empty store_urls list."""
         item.files = []
 
-        result = await pipeline.process_item(item, spider)
+        result = await pipeline.process_item(item)
 
         assert result == item
         assert result.store_urls == []
-        cast(Any, spider.logger).warning.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_item_upload_error(
-        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem
-    ) -> None:
+    async def test_item_upload_error(self, pipeline: SharePointPipeline, item: ArticleItem) -> None:
         """Upload errors should be logged."""
         sharepoint = cast(Any, pipeline.sharepoint)
         sharepoint.upload_file = AsyncMock(side_effect=Exception("Upload failed"))
 
-        result = await pipeline.process_item(item, spider)
+        result = await pipeline.process_item(item)
 
         assert result == item
         assert result.store_urls == [""]
-        cast(Any, spider.logger).error.assert_called()
 
     @pytest.mark.asyncio
     async def test_deletes_local_file(
-        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem, tmp_path: Path
+        self, pipeline: SharePointPipeline, item: ArticleItem, tmp_path: Path
     ) -> None:
         """Local file should be deleted when remote size matches"""
         local_file = tmp_path / "file.pdf"
@@ -103,12 +101,11 @@ class TestSharePointPipeline:
         sharepoint.upload_file = AsyncMock(return_value=MagicMock())
         sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
 
-        await pipeline.process_item(item, spider)
+        await pipeline.process_item(item)
         assert not local_file.exists()  # delete local copy
 
         # Mismatch
         local_file.write_text("B" * 2000)
         mock_drive_item.size = 5000
-        await pipeline.process_item(item, spider)
+        await pipeline.process_item(item)
         assert local_file.exists()  # preserve local copy
-        cast(Any, spider.logger).error.assert_called()

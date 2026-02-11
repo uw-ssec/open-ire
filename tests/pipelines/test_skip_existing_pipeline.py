@@ -18,7 +18,8 @@ class TestSkipExistingPipeline:
         spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
 
         instance = SkipExistingPipeline(":memory:", "output")
-        instance.open_spider(spider)
+        instance.crawler = spider.crawler
+        instance.open_spider()
         assert instance.engine is not None
         yield instance
         instance.engine.dispose()
@@ -28,21 +29,22 @@ class TestSkipExistingPipeline:
         spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
 
         instance = SkipExistingPipeline(":memory:", "output")
-        instance.open_spider(spider)
+        instance.crawler = spider.crawler
+        instance.open_spider()
         assert instance.engine is None
         return instance
 
     def test_process_item_with_skip_existing_disabled(
         self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
     ) -> None:
-        result = pipeline_disabled.process_item(item, spider)
+        result = pipeline_disabled.process_item(item)
 
         assert result is item
 
     def test_process_item_with_new_article(
         self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
     ) -> None:
-        result = pipeline_enabled.process_item(item, spider)
+        result = pipeline_enabled.process_item(item)
 
         assert result is item
 
@@ -62,4 +64,4 @@ class TestSkipExistingPipeline:
             session.commit()
 
         with pytest.raises(DropItem):
-            pipeline_enabled.process_item(item, spider)
+            pipeline_enabled.process_item(item)

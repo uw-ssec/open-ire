@@ -3,7 +3,6 @@ import math
 from pathlib import Path
 from typing import Self
 
-from scrapy import Spider
 from scrapy.crawler import Crawler
 
 from open_ire.errors import ConfigurationError
@@ -18,9 +17,12 @@ class SharePointPipeline:
     Uploads files to a SharePoint drive, if configured.
     """
 
-    def __init__(self, sharepoint_base_path: str, local_base_path: str) -> None:
+    def __init__(
+        self, sharepoint_base_path: str, local_base_path: str, crawler: Crawler | None = None
+    ) -> None:
         self.sharepoint = SharePoint(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
+        self.crawler = crawler
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
@@ -30,7 +32,7 @@ class SharePointPipeline:
 
         sharepoint_base_path = crawler.settings.get("SHAREPOINT_BASE_PATH", "open_ire")
 
-        return cls(sharepoint_base_path, local_base_path)
+        return cls(sharepoint_base_path, local_base_path, crawler)
 
     @staticmethod
     def _remove_local_file(local_file_path: Path) -> None:
@@ -40,25 +42,25 @@ class SharePointPipeline:
             msg = f"Failed to remove local file {local_file_path}: {e}"
             logger.warning(msg)
 
-    def open_spider(self, spider: Spider) -> None:
+    def open_spider(self) -> None:
         pass
 
-    def close_spider(self, spider: Spider) -> None:
+    def close_spider(self) -> None:
         pass
 
-    async def _save_file(self, file_data: dict[str, str | int | None], spider: Spider) -> str:
+    async def _save_file(self, file_data: dict[str, str | int | None]) -> str:
         sharepoint_path = str(file_data.get("path") or "")
         local_file_path = self.base_path / sharepoint_path
 
         if not local_file_path.exists():
             msg = f"Local file not found: {local_file_path}"
-            spider.logger.error(msg)
+            logger.error(msg)
             return ""
 
         store_url = ""
         try:
             msg = f"Uploading file to SharePoint: {local_file_path} -> {sharepoint_path}"
-            spider.logger.info(msg)
+            logger.info(msg)
 
             upload_result = await self.sharepoint.upload_file(local_file_path, sharepoint_path)
             if upload_result.location:
@@ -77,23 +79,23 @@ class SharePointPipeline:
                     local_file_path.unlink()
                 else:
                     msg = f"Local file size ({local_file_path}) does not match remote ({store_url})"
-                    spider.logger.error(msg)
+                    logger.error(msg)
 
         except Exception as e:
             msg = f"Error uploading file {local_file_path}: {e}"
-            spider.logger.error(msg)
+            logger.error(msg)
 
         return store_url
 
-    async def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
+    async def process_item(self, item: ArticleItem) -> ArticleItem:
         if not item.files:
             msg = f"No files found for article '{item.reference}'."
-            spider.logger.warning(msg)
+            logger.warning(msg)
             return item
 
         store_urls = []
         for file_data in item.files:
-            store_urls.append(await self._save_file(file_data, spider))
+            store_urls.append(await self._save_file(file_data))
 
         item.store_urls = store_urls
 

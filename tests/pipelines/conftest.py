@@ -64,5 +64,6 @@ def spider() -> Spider:
     mock_spider.logger.warning = MagicMock()
     mock_spider.logger.error = MagicMock()
     mock_spider.crawler = mock_crawler
+    mock_crawler.spider = mock_spider
 
     return cast(Spider, mock_spider)

@@ -1,8 +1,8 @@
+import logging
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from scrapy import Spider
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
@@ -11,6 +11,8 @@ from open_ire.items import ArticleItem
 from open_ire.models import Article, ArticleFile, ArticleFileReference
 from open_ire.pipelines.base_sql_model_pipeline import BaseSQLModelPipeline
 
+logger = logging.getLogger(__name__)
+
 
 class SQLModelPipeline(BaseSQLModelPipeline):
     """
@@ -18,9 +20,7 @@ class SQLModelPipeline(BaseSQLModelPipeline):
     """
 
     @staticmethod
-    def _get_article_file_references(
-        item: ArticleItem, spider: Spider
-    ) -> list[ArticleFileReference]:
+    def _get_article_file_references(item: ArticleItem) -> list[ArticleFileReference]:
         article_file_refs = []
         file_references = item.file_references or []
 
@@ -28,13 +28,12 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             try:
                 article_file_refs.append(ArticleFileReference(**file_ref))
             except ValidationError:
-                spider.logger.warning("Skipping file reference due to validation error.")
+                logger.warning("Skipping file reference due to validation error.")
 
         return article_file_refs
 
     @staticmethod
     def _save_article_files(
-        spider: Spider,
         session: Session,
         article_id: Any,
         article_files: list[ArticleFile] | list[ArticleFileReference],
@@ -47,7 +46,7 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             except IntegrityError as e:
                 msg = f"Integrity error while saving file for article '{article_id}: {e}"
                 session.rollback()
-                spider.logger.warning(msg)
+                logger.warning(msg)
 
     def _get_file_size(self, file_path: Path) -> int | None:
         full_path = Path(self.files_base_path or "") / file_path
@@ -59,7 +58,7 @@ class SQLModelPipeline(BaseSQLModelPipeline):
 
         return None
 
-    def _get_article_files(self, item: ArticleItem, spider: Spider) -> list[ArticleFile]:
+    def _get_article_files(self, item: ArticleItem) -> list[ArticleFile]:
         article_files = []
         files = item.files or []
 
@@ -74,19 +73,12 @@ class SQLModelPipeline(BaseSQLModelPipeline):
                 file_row = ArticleFile(**file_data)
                 article_files.append(file_row)
             except ValidationError:
-                spider.logger.warning("Skipping file due to validation error.")
+                logger.warning("Skipping file due to validation error.")
 
         return article_files
 
-    def open_spider(self, spider: Spider) -> None:
-        super().open_spider(spider)
-
-    def close_spider(self, spider: Spider) -> None:
-        super().close_spider(spider)
-
     def _update_existing_article(
         self,
-        spider: Spider,
         session: Session,
         existing_article: Article,
         item_data: dict[str, Any],
@@ -100,14 +92,13 @@ class SQLModelPipeline(BaseSQLModelPipeline):
         session.commit()
         session.refresh(existing_article)
 
-        self._save_article_files(spider, session, existing_article.id, article_files)
-        self._save_article_files(spider, session, existing_article.id, file_references)
+        self._save_article_files(session, existing_article.id, article_files)
+        self._save_article_files(session, existing_article.id, file_references)
 
         session.commit()
 
     def _create_new_article(
         self,
-        spider: Spider,
         session: Session,
         item_data: dict[str, Any],
         article_files: list[ArticleFile],
@@ -120,8 +111,8 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             session.commit()
             session.refresh(article)
 
-            self._save_article_files(spider, session, article.id, article_files)
-            self._save_article_files(spider, session, article.id, file_references)
+            self._save_article_files(session, article.id, article_files)
+            self._save_article_files(session, article.id, file_references)
 
             session.commit()
 
@@ -129,9 +120,9 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             session.rollback()
             raise DatabaseDuplicateItemError() from e
 
-    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:
-        article_files = self._get_article_files(item, spider)
-        file_references = self._get_article_file_references(item, spider)
+    def process_item(self, item: ArticleItem) -> ArticleItem:
+        article_files = self._get_article_files(item)
+        file_references = self._get_article_file_references(item)
         item_data = item.model_dump(
             exclude={
                 "file_reference_urls",
@@ -145,7 +136,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
         with Session(self.engine) as session:
             if existing_article := self.find_existing_article(session, item):
                 self._update_existing_article(
-                    spider,
                     session,
                     existing_article,
                     item_data,
@@ -153,6 +143,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
                     file_references,
                 )
             else:
-                self._create_new_article(spider, session, item_data, article_files, file_references)
+                self._create_new_article(session, item_data, article_files, file_references)
 
         return item
