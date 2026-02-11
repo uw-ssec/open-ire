@@ -1,9 +1,10 @@
 import json
-import pytest
 from pathlib import Path
-from scrapy.http import HtmlResponse, Request
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
+import pytest
+from scrapy.http import HtmlResponse, Request
 
 from open_ire.author import AuthorRecord
 from open_ire.enums import ArticleType
@@ -34,7 +35,7 @@ def five_authors() -> list[AuthorRecord]:
 
 
 @pytest.fixture
-def dummy_publication(five_authors) -> dict[str, Any]:
+def dummy_publication(five_authors: list[AuthorRecord]) -> dict[str, Any]:
     return {
         "id": "W123",
         "title": "A Study on Testing",
@@ -62,14 +63,16 @@ class TestOpenAlexSpider:
         assert journal_name == "Alternate Journal Name"
 
         journal_name = OpenAlexSpider._extract_journal_name({})
-        assert journal_name == None
+        assert journal_name is None
 
         journal_name = OpenAlexSpider._extract_journal_name(
             {"primary_location": "invalid data", "locations": ["invalid location"]}
         )
-        assert journal_name == None
+        assert journal_name is None
 
-    def test_extract_authors(self, five_authors, dummy_publication) -> None:
+    def test_extract_authors(
+        self, five_authors: list[AuthorRecord], dummy_publication: dict[str, Any]
+    ) -> None:
         authors = OpenAlexSpider._extract_authors(dummy_publication)
         assert authors == [five_authors[0], five_authors[1]]
 
@@ -77,13 +80,19 @@ class TestOpenAlexSpider:
         assert authors == []
 
     @pytest.mark.parametrize(
-        "author_id,cursor",
+        ("author_id", "cursor"),
         [
             ("A1", "*"),
             ("A2", "cursor123"),
         ],
     )
-    def test_request_publications(self, spider, five_authors, author_id, cursor) -> None:
+    def test_request_publications(
+        self,
+        spider: OpenAlexSpider,
+        five_authors: list[AuthorRecord],
+        author_id: str,
+        cursor: str,
+    ) -> None:
         requests = list(
             spider._request_publications(author_id, five_authors[0].normalized_name, cursor)
         )
@@ -96,7 +105,9 @@ class TestOpenAlexSpider:
         query_params = parse_qs(parsed_url.query)
         assert query_params["cursor"] == [cursor]
 
-    def test_author_publication_requests(self, spider, five_authors) -> None:
+    def test_author_publication_requests(
+        self, spider: OpenAlexSpider, five_authors: list[AuthorRecord]
+    ) -> None:
         response_data = {"results": [{"id": "A1"}, {"id": "A2"}]}
         request = Request(
             url="http://dummy.url", meta={"matched_author": five_authors[0].normalized_name}
@@ -114,7 +125,12 @@ class TestOpenAlexSpider:
         assert requests[0].url.startswith(spider.base_url + "/works")
         assert requests[1].url.startswith(spider.base_url + "/works")
 
-    def test_parse_publications(self, spider, five_authors, dummy_publication) -> None:
+    def test_parse_publications(
+        self,
+        spider: OpenAlexSpider,
+        five_authors: list[AuthorRecord],
+        dummy_publication: dict[str, Any],
+    ) -> None:
         publication_data = {
             "results": [
                 {
@@ -138,7 +154,12 @@ class TestOpenAlexSpider:
         assert isinstance(emitted[0], ArticleItem)
         assert isinstance(emitted[1], Request)
 
-    def test_build_item(self, spider, five_authors, dummy_publication) -> None:
+    def test_build_item(
+        self,
+        spider: OpenAlexSpider,
+        five_authors: list[AuthorRecord],
+        dummy_publication: dict[str, Any],
+    ) -> None:
         item = spider._build_item(dummy_publication, five_authors[0].normalized_name)
         assert isinstance(item, ArticleItem)
         assert (
@@ -149,7 +170,9 @@ class TestOpenAlexSpider:
         assert item.extra["matched_author"] == five_authors[0].normalized_name
         assert item.authors == AuthorRecord.encode_author_string([five_authors[0], five_authors[1]])
 
-    def test_build_search_request(self, spider, five_authors) -> None:
+    def test_build_search_request(
+        self, spider: OpenAlexSpider, five_authors: list[AuthorRecord]
+    ) -> None:
         request = spider.build_search_request(five_authors[0].normalized_name)
         assert isinstance(request, Request)
         assert request.url.startswith(spider.base_url + "/authors")
@@ -159,7 +182,7 @@ class TestOpenAlexSpider:
         assert "affiliations.institution.id:" in query_params["filter"][0]
 
     @pytest.mark.asyncio
-    async def test_start(self, spider) -> None:
+    async def test_start(self, spider: OpenAlexSpider) -> None:
         requests = []
         async for req in spider.start():
             requests.append(req)
@@ -168,7 +191,7 @@ class TestOpenAlexSpider:
         assert "Kemi+Adeyemi" in requests[0].url
 
     @pytest.mark.parametrize(
-        "raw_type,expected",
+        ("raw_type", "expected"),
         [
             ("article", ArticleType.SCHOLARLY_ARTICLE),
             ("preprint", ArticleType.SCHOLARLY_ARTICLE),

@@ -1,4 +1,5 @@
 from datetime import date
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -64,4 +65,4 @@ def spider() -> Spider:
     mock_spider.logger.error = MagicMock()
     mock_spider.crawler = mock_crawler
 
-    return mock_spider
+    return cast(Spider, mock_spider)

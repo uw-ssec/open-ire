@@ -9,8 +9,8 @@ import pytest
 from scrapy.http import HtmlResponse, Request
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from open_ire.enums import OAEvidenceKind, DepositStatus, DepositTransitionReason
-from open_ire.models import Article, ArticleOAEvidence, ArticleDepositStatusTransition
+from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
+from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
 from open_ire.spiders.oa_license import OALicenseSpider
 
 
@@ -89,7 +89,7 @@ def datacite_oa_response() -> dict[str, Any]:
 
 class TestIsOALicense:
     @pytest.mark.parametrize(
-        "license_url,expected",
+        ("license_url", "expected"),
         [
             ("https://creativecommons.org/licenses/by/4.0/", True),
             ("https://creativecommons.org/publicdomain/zero/1.0/", True),
@@ -146,7 +146,9 @@ class TestExtractDataciteLicense:
         result = OALicenseSpider.extract_datacite_license(rights_list)
 
         assert result["supports_oa"] is True
-        assert result["license_details"][0]["name"] == "Creative Commons Attribution 4.0 International"
+        assert (
+            result["license_details"][0]["name"] == "Creative Commons Attribution 4.0 International"
+        )
         assert result["license_details"][0]["identifier"] == "cc-by-4.0"
 
     def test_extract_non_oa_license(self) -> None:
@@ -269,9 +271,7 @@ class TestSaveLicenseEvidence:
         with Session(spider_with_db.engine) as session:
             # Check evidence was saved
             evidence = session.exec(
-                select(ArticleOAEvidence).where(
-                    ArticleOAEvidence.article_id == sample_article.id
-                )
+                select(ArticleOAEvidence).where(ArticleOAEvidence.article_id == sample_article.id)
             ).first()
             assert evidence is not None
             assert evidence.kind == OAEvidenceKind.LICENSE
@@ -305,9 +305,7 @@ class TestSaveLicenseEvidence:
         with Session(spider_with_db.engine) as session:
             # Check evidence was saved
             evidence = session.exec(
-                select(ArticleOAEvidence).where(
-                    ArticleOAEvidence.article_id == sample_article.id
-                )
+                select(ArticleOAEvidence).where(ArticleOAEvidence.article_id == sample_article.id)
             ).first()
             assert evidence is not None
             assert evidence.supports_oa is False

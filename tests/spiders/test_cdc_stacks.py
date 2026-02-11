@@ -5,7 +5,7 @@ from open_ire.spiders.cdc_stacks import CDCStacksSpider
 
 
 class TestCDCStacksSpider:
-    def test_default_params(self):
+    def test_default_params(self) -> None:
         """Test spider initialization with default parameters."""
         spider = CDCStacksSpider()
         assert spider.name == "cdc_stacks"
@@ -14,7 +14,7 @@ class TestCDCStacksSpider:
         assert "gsearch?terms=" in spider.start_urls[0]
         assert "start=" not in spider.start_urls[0]
 
-    def test_custom_params(self):
+    def test_custom_params(self) -> None:
         """Test spider initialization with custom parameters."""
         terms = "unittest,sample"
         page = "2"
@@ -26,7 +26,7 @@ class TestCDCStacksSpider:
         assert "terms=sample" in spider.start_urls[1]
         assert "start=100" in spider.start_urls[0]
 
-    def test_parse_next(self):
+    def test_parse_next(self) -> None:
         """Test the parse method yields the next requests."""
         html = """
         <html>
@@ -45,9 +45,7 @@ class TestCDCStacksSpider:
             </body>
         </html>
         """
-        response = HtmlResponse(
-            url="https://stacks.cdc.gov/gsearch", body=html.encode("utf-8")
-        )
+        response = HtmlResponse(url="https://stacks.cdc.gov/gsearch", body=html.encode("utf-8"))
         spider = CDCStacksSpider()
 
         requests = list(spider.parse(response))
@@ -58,7 +56,7 @@ class TestCDCStacksSpider:
         assert requests[1].url == "https://stacks.cdc.gov/view/cdc/456"
         assert requests[-1].url == "https://stacks.cdc.gov/gsearch?start=100"
 
-    def test_parse_detail(self):
+    def test_parse_detail(self) -> None:
         """Test the parse_detail method extracts article metadata correctly."""
         html = """
         <html>
@@ -104,7 +102,7 @@ class TestCDCStacksSpider:
         assert item.extra["publisher"] == "CDC Publications"
         assert set(item.extra["keywords"]) == {"health", "public health"}
 
-    def test_extract_reference(self):
+    def test_extract_reference(self) -> None:
         """Test _extract_reference falls back to full URL when CDC ID is not in path."""
         html = "<html><head></head><body></body></html>"
         url = "https://stacks.cdc.gov/some/other/path/123"
