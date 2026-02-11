@@ -6,7 +6,7 @@ from typing import Any
 from scrapy import Spider
 from scrapy.http import Request
 
-from open_ire.author import AuthorIndex, AuthorRecord
+from open_ire.author import AuthorIndex, ParsedAuthor
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 
 
@@ -67,7 +67,7 @@ class AuthorSearchSpider(SearchSpider):
 
         self.search_terms = self._get_search_terms(author_csv)
 
-    def _get_author_name(self, record: AuthorRecord) -> str:
+    def _get_author_name(self, record: ParsedAuthor) -> str:
         """Return the author name in the default 'Firstname Lastname' format."""
         return f"{record.first_name} {record.last_name}"
 

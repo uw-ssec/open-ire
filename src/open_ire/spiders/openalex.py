@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.author import AuthorRecord
+from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
@@ -59,7 +59,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
 
-    def _get_author_name(self, record: AuthorRecord) -> str:
+    def _get_author_name(self, record: ParsedAuthor) -> str:
         return f"{record.first_name} {record.last_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
@@ -149,7 +149,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         raw_type = publication.get("type")
         return ArticleItem(
-            authors=AuthorRecord.encode_author_string(authors),
+            authors=ParsedAuthor.encode_author_string(authors),
             doi=publication.get("doi"),
             extra={
                 "is_open_access": is_oa,
@@ -172,9 +172,9 @@ class OpenAlexSpider(AuthorSearchSpider):
     # These methods extract specific data from OpenAlex API responses
 
     @staticmethod
-    def _extract_authors(publication: dict[str, Any]) -> list[AuthorRecord]:
+    def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:
         """Extract author names from publication authorship data."""
-        authors: list[AuthorRecord] = []
+        authors: list[ParsedAuthor] = []
         authorships = publication.get("authorships", [])
         for authorship in authorships:
             if not isinstance(authorship, dict):
@@ -182,7 +182,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
             display_name = authorship.get("author", {}).get("display_name")
             if display_name and isinstance(display_name, str):
-                authors.append(AuthorRecord(display_name))
+                authors.append(ParsedAuthor(display_name))
 
         return authors
 
