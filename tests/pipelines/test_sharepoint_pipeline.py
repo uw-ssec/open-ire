@@ -3,7 +3,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from scrapy import Spider
+from scrapy.crawler import Crawler
 
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
@@ -13,7 +13,7 @@ class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
     @pytest.fixture
-    def pipeline(self, spider: Spider, tmp_path: Path) -> SharePointPipeline:
+    def pipeline(self, crawler: Crawler, tmp_path: Path) -> SharePointPipeline:
         sharepoint_base_path = "test_sharepoint"
         local_base_path = str(tmp_path)
 
@@ -23,14 +23,16 @@ class TestSharePointPipeline:
 
             pipeline = SharePointPipeline(sharepoint_base_path, local_base_path)
             pipeline.sharepoint = mock_sharepoint
-            pipeline.crawler = spider.crawler
+            pipeline.crawler = crawler
             pipeline.open_spider()
+            assert pipeline.crawler is not None
+            assert pipeline.crawler.spider is not None
 
             return pipeline
 
     @pytest.mark.asyncio
     async def test_item_with_files(
-        self, pipeline: SharePointPipeline, spider: Spider, item: ArticleItem, tmp_path: Path
+        self, pipeline: SharePointPipeline, item: ArticleItem, tmp_path: Path
     ) -> None:
         """An item with files should trigger a SharePoint upload."""
         file1 = tmp_path / "file1.pdf"
