@@ -93,7 +93,6 @@ pixi run pre-commit-all
 - `default`: Basic execution environment.
 - `dev`: Development environment with testing tools.
 - `docs`: Documentation building environment.
-- `all`: All features combined.
 
 To activate one of these environments, run the following command:
 
@@ -130,7 +129,7 @@ Run a specific test function:
 python -m pytest tests/test_sharepoint.py::TestSharePoint::test_init_with_env
 ```
 
-Make sure to activate the `dev` or `all` environment before running tests.
+Make sure to activate the `dev` environment before running tests.
 
 ### Project Architecture
 

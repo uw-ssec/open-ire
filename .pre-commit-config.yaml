@@ -61,11 +61,13 @@ repos:
         args: []
         additional_dependencies:
           - msgraph-sdk
+          - nameparser
           - pytest
           - python-dotenv
           - rapidfuzz
           - scrapy
           - sqlmodel
+          - types-nameparser
           - types-python-dateutil
           - types-requests
 

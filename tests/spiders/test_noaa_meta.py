@@ -8,19 +8,19 @@ from open_ire.spiders.noaa_meta import NOAAMetaSpider
 
 
 class TestNOAAMetaSpider:
-    def test_default_params(self):
+    def test_default_params(self) -> None:
         """Test spider initialization with default parameters."""
         spider = NOAAMetaSpider()
         assert spider.name == "noaa_meta"
         assert spider.terms == OPEN_IRE_DEFAULT_TERMS.lower().split(",")
 
-    def test_custom_params(self):
+    def test_custom_params(self) -> None:
         """Test spider initialization with custom parameters."""
         terms = "unittest,test,sample"
         spider = NOAAMetaSpider(terms=terms)
         assert spider.terms == ["unittest", "test", "sample"]
 
-    def test_page_param_not_supported(self):
+    def test_page_param_not_supported(self) -> None:
         """Test that page parameter raises ValueError."""
         with pytest.raises(SpiderParameterError) as e:
             NOAAMetaSpider(page="2")
@@ -28,14 +28,13 @@ class TestNOAAMetaSpider:
         assert e.value.parameter == "page"
         assert e.value.spider_name == NOAAMetaSpider.name
 
-
-    def test_normalize_terms(self):
+    def test_normalize_terms(self) -> None:
         """Test term normalization."""
         terms = "Unittest, Test , Sample,  "
         normalized = NOAAMetaSpider._normalize_terms(terms)
         assert normalized == ["unittest", "test", "sample"]
 
-    def test_get_field_value(self):
+    def test_get_field_value(self) -> None:
         """Test field value extraction."""
         doc = {
             "field1": "value1",
@@ -44,10 +43,10 @@ class TestNOAAMetaSpider:
         }
 
         assert NOAAMetaSpider._get_field_value(doc, ["missing", "field1"]) == "value1"
-        assert NOAAMetaSpider._get_field_value(doc, ["field2"]) == ['value2a', 'value2b']
+        assert NOAAMetaSpider._get_field_value(doc, ["field2"]) == ["value2a", "value2b"]
         assert NOAAMetaSpider._get_field_value(doc, ["missing"]) is None
 
-    def test_normalize_field_value(self):
+    def test_normalize_field_value(self) -> None:
         """Test field value normalization."""
         assert NOAAMetaSpider._normalize_field_value("unittest") == "unittest"
         assert NOAAMetaSpider._normalize_field_value(["first", "second"]) == "first"
@@ -55,7 +54,7 @@ class TestNOAAMetaSpider:
         assert NOAAMetaSpider._normalize_field_value(None) is None
         assert NOAAMetaSpider._normalize_field_value("  spaced  ") == "spaced"
 
-    def test_extract_authors(self):
+    def test_extract_authors(self) -> None:
         """Test author extraction."""
         spider = NOAAMetaSpider()
 
@@ -71,7 +70,7 @@ class TestNOAAMetaSpider:
         doc = {}
         assert spider._extract_authors(doc) is None
 
-    def test_extract_publication_date(self):
+    def test_extract_publication_date(self) -> None:
         """Test publication date extraction."""
         spider = NOAAMetaSpider()
 
@@ -89,7 +88,7 @@ class TestNOAAMetaSpider:
         doc = {}
         assert spider._extract_publication_date(doc) is None
 
-    def test_extract_keywords(self):
+    def test_extract_keywords(self) -> None:
         """Test keyword extraction."""
 
         keywords = NOAAMetaSpider._extract_keywords(["unittest", "test", "unittest"])
@@ -105,7 +104,7 @@ class TestNOAAMetaSpider:
         keywords = NOAAMetaSpider._extract_keywords("")
         assert keywords == []
 
-    def test_extract_extra_details(self):
+    def test_extract_extra_details(self) -> None:
         """Test extra details extraction."""
         spider = NOAAMetaSpider()
         doc = {
@@ -120,7 +119,7 @@ class TestNOAAMetaSpider:
         assert "unittest" in extra["keywords"]
         assert "test" in extra["keywords"]
 
-    def test_document_matches_terms(self):
+    def test_document_matches_terms(self) -> None:
         """Test document term matching."""
         spider = NOAAMetaSpider(terms="unittest,test")
 
@@ -142,7 +141,7 @@ class TestNOAAMetaSpider:
         spider_no_terms = NOAAMetaSpider(terms="")
         assert spider_no_terms._document_matches_terms(doc)
 
-    def test_build_searchable_text(self):
+    def test_build_searchable_text(self) -> None:
         """Test searchable text building."""
         spider = NOAAMetaSpider()
         doc = {
@@ -156,7 +155,7 @@ class TestNOAAMetaSpider:
         assert "test sample analysis" in searchable
         assert "unittest author" in searchable
 
-    def test_create_article_item(self):
+    def test_create_article_item(self) -> None:
         """Test article item creation."""
         spider = NOAAMetaSpider()
         doc = {

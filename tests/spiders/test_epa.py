@@ -1,7 +1,6 @@
 from datetime import date
 
-from scrapy.http import HtmlResponse
-from scrapy.http import Request
+from scrapy.http import HtmlResponse, Request
 
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_SEARCH_TERMS
@@ -9,7 +8,7 @@ from open_ire.spiders.epa import EPASpider
 
 
 class TestEPASpider:
-    def test_default_params(self):
+    def test_default_params(self) -> None:
         """Test spider initialization with default parameters."""
         spider = EPASpider()
         assert spider.name == "epa"
@@ -18,7 +17,7 @@ class TestEPASpider:
         assert "count=25" in spider.start_urls[0]
         assert "startIndex" not in spider.start_urls[0]
 
-    def test_custom_params(self):
+    def test_custom_params(self) -> None:
         """Test spider initialization with custom parameters."""
         terms = "education,research"
         page = "3"
@@ -31,7 +30,7 @@ class TestEPASpider:
         assert "count=25" in spider.start_urls[0]
         assert "startIndex=51" in spider.start_urls[0]
 
-    def test_extract_file_urls(self):
+    def test_extract_file_urls(self) -> None:
         """Test the extract_file_urls method."""
         html = """
         <div>
@@ -49,7 +48,7 @@ class TestEPASpider:
         assert "https://cfpub.epa.gov/si/si_public_file_download.cfm?p_download_id=1" in urls
         assert "https://cfpub.epa.gov/si/si_public_file_download.cfm?p_download_id=2" in urls
 
-    def test_extract_authors(self):
+    def test_extract_authors(self) -> None:
         """Test the extract_authors method."""
         expected_title = "Sample Title"
         expected_author = "Author, A. B."
@@ -64,7 +63,7 @@ class TestEPASpider:
         author = EPASpider.extract_authors(response, expected_title)
         assert author == expected_author
 
-    def test_parse_datagov_detail(self):
+    def test_parse_datagov_detail(self) -> None:
         """Test parsing dataset file reference URLs from data.gov."""
 
         item = ArticleItem(
@@ -76,11 +75,7 @@ class TestEPASpider:
         )
         request = Request(
             url="https://catalog.data.gov/dataset/sample-dataset",
-            meta={
-                "item": item,
-                "dataset_urls": [],
-                "file_reference_urls": []
-            }
+            meta={"item": item, "dataset_urls": [], "file_reference_urls": []},
         )
 
         html = """
@@ -91,11 +86,7 @@ class TestEPASpider:
             </ul>
         </div>
         """
-        response = HtmlResponse(
-            url=request.url,
-            body=html.encode("utf-8"),
-            request=request
-        )
+        response = HtmlResponse(url=request.url, body=html.encode("utf-8"), request=request)
 
         spider = EPASpider()
         results = list(spider.parse_datagov_detail(response))
@@ -106,9 +97,9 @@ class TestEPASpider:
         assert len(result_item.file_reference_urls) == 2
         assert result_item.file_reference_urls[0] == (
             "https://catalog.data.gov/dataset/sample-dataset",
-            "https://catalog.data.gov/download/file1.csv"
+            "https://catalog.data.gov/download/file1.csv",
         )
         assert result_item.file_reference_urls[1] == (
             "https://catalog.data.gov/dataset/sample-dataset",
-            "https://catalog.data.gov/download/file2.json"
+            "https://catalog.data.gov/download/file2.json",
         )
