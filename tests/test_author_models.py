@@ -15,7 +15,11 @@ from open_ire.models import Article, ArticleAuthor, Author, AuthorAffiliation, A
 def engine():
     """Create an in-memory SQLite engine for testing."""
     engine = create_engine("sqlite:///:memory:")
-    event.listen(engine, "connect", lambda dbapi_connection, _: dbapi_connection.execute("PRAGMA foreign_keys=ON"))
+    event.listen(
+        engine,
+        "connect",
+        lambda dbapi_connection, _: dbapi_connection.execute("PRAGMA foreign_keys=ON"),
+    )
     SQLModel.metadata.create_all(engine)
     try:
         yield engine
@@ -197,7 +201,9 @@ class TestAuthorModelRelationships:
 
         session.add_all(
             [
-                AuthorIdentifier(author_id=author.id, authority="ORCID", identifier="0000-0000-0000-0002"),
+                AuthorIdentifier(
+                    author_id=author.id, authority="ORCID", identifier="0000-0000-0000-0002"
+                ),
                 AuthorIdentifier(author_id=author.id, authority="UW", identifier="uw654321"),
             ]
         )

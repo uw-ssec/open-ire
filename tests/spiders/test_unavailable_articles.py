@@ -4,15 +4,16 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from scrapy.http import HtmlResponse, Request
+from sqlmodel import Session, SQLModel, create_engine
+from twisted.internet.error import DNSLookupError
+from twisted.python.failure import Failure
+
 from open_ire.models import Article
 from open_ire.spiders.unavailable_articles import (
     CollectedArticleRecord,
     UnavailableArticlesSpider,
 )
-from scrapy.http import HtmlResponse, Request
-from sqlmodel import Session, SQLModel, create_engine
-from twisted.internet.error import DNSLookupError
-from twisted.python.failure import Failure
 
 
 @pytest.fixture
@@ -56,7 +57,9 @@ def _insert_article(
 
 class TestUnavailableArticlesSpider:
     @pytest.mark.asyncio
-    async def test_start_yields_requests_from_database(self, spider: UnavailableArticlesSpider) -> None:
+    async def test_start_yields_requests_from_database(
+        self, spider: UnavailableArticlesSpider
+    ) -> None:
         _insert_article(spider, reference="A1", url="https://example.org/a1")
         _insert_article(spider, reference="A2", url="https://example.org/a2")
 
@@ -112,9 +115,7 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_success"].http_errors == 0
         assert spider.repository_stats["repo_success"].request_errors == 0
 
-    def test_parse_article_availability_fallback(
-        self, spider: UnavailableArticlesSpider
-    ) -> None:
+    def test_parse_article_availability_fallback(self, spider: UnavailableArticlesSpider) -> None:
         article = CollectedArticleRecord(
             article_id="id-2",
             repository="repo_b",
