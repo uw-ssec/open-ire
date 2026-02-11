@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, Column, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Column, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
@@ -63,7 +63,9 @@ class Article(ArticleBase, table=True):
     )
 
     # New author relationships
-    article_authors: list["ArticleAuthor"] = Relationship(back_populates="article")
+    article_authors: list["ArticleAuthor"] = Relationship(
+        back_populates="article", sa_relationship_kwargs={"passive_deletes": True}
+    )
 
     __table_args__ = (
         UniqueConstraint("repository", "reference", name="uq_article_repository_reference"),
@@ -242,9 +244,15 @@ class Author(AuthorBase, table=True):
     id: int = Field(primary_key=True)
 
     # Relationships
-    article_authors: list["ArticleAuthor"] = Relationship(back_populates="author")
-    identifiers: list["AuthorIdentifier"] = Relationship(back_populates="author")
-    affiliations: list["AuthorAffiliation"] = Relationship(back_populates="author")
+    article_authors: list["ArticleAuthor"] = Relationship(
+        back_populates="author", sa_relationship_kwargs={"passive_deletes": True}
+    )
+    identifiers: list["AuthorIdentifier"] = Relationship(
+        back_populates="author", sa_relationship_kwargs={"passive_deletes": True}
+    )
+    affiliations: list["AuthorAffiliation"] = Relationship(
+        back_populates="author", sa_relationship_kwargs={"passive_deletes": True}
+    )
 
 
 class AuthorAffiliationBase(SQLModel):
@@ -265,7 +273,11 @@ class AuthorAffiliation(AuthorAffiliationBase, table=True):
 
     id: int = Field(primary_key=True)
 
-    author_id: int = Field(foreign_key="author.id", index=True)
+    author_id: int = Field(
+        sa_column=Column(
+            ForeignKey("author.id", ondelete="CASCADE"),
+        ),
+    )
     year: int = Field(ge=1900, index=True)
 
     # Relationships
@@ -297,8 +309,18 @@ class ArticleAuthorBase(SQLModel):
 class ArticleAuthor(ArticleAuthorBase, table=True):
     """SQLModel to store many-to-many relationships between articles and authors."""
 
-    article_id: uuid.UUID = Field(foreign_key="article.id", primary_key=True)
-    author_id: int = Field(foreign_key="author.id", primary_key=True)
+    article_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("article.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+    author_id: int = Field(
+        sa_column=Column(
+            ForeignKey("author.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
 
     # Relationships
     article: "Article" = Relationship(back_populates="article_authors")
@@ -327,7 +349,11 @@ class AuthorIdentifier(AuthorIdentifierBase, table=True):
 
     id: int = Field(primary_key=True)
 
-    author_id: int = Field(foreign_key="author.id", index=True)
+    author_id: int = Field(
+        sa_column=Column(
+            ForeignKey("author.id", ondelete="CASCADE"),
+        ),
+    )
 
     # Relationships
     author: "Author" = Relationship(back_populates="identifiers")

@@ -4,7 +4,7 @@ from typing import Self
 
 from scrapy import Spider
 from scrapy.crawler import Crawler
-from sqlalchemy import Engine
+from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from open_ire.errors import ConfigurationError
@@ -56,6 +56,14 @@ class BaseSQLModelPipeline:
         self.engine = create_engine(
             f"sqlite:///{self.db_path}", connect_args={"check_same_thread": False}
         )
+
+        # As of v3.6.19, SQLite does not enforce foreign key constraints by default.
+        event.listen(
+            self.engine,
+            "connect",
+            lambda dbapi_connection, _: dbapi_connection.execute("PRAGMA foreign_keys=ON"),
+        )
+
         SQLModel.metadata.create_all(self.engine)
 
     def close_spider(self, spider: Spider) -> None:  # noqa: ARG002

@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -14,6 +15,7 @@ from open_ire.models import Article, ArticleAuthor, Author, AuthorAffiliation, A
 def engine():
     """Create an in-memory SQLite engine for testing."""
     engine = create_engine("sqlite:///:memory:")
+    event.listen(engine, "connect", lambda dbapi_connection, _: dbapi_connection.execute("PRAGMA foreign_keys=ON"))
     SQLModel.metadata.create_all(engine)
     try:
         yield engine
@@ -186,7 +188,28 @@ class TestAuthorModelRelationships:
         expected_pairs = {("ORCID", "0000-0000-0000-0001"), ("UW", "uw123456")}
         assert identifier_pairs == expected_pairs
 
-    def test_cascade_behavior(self, session: Session):
+    def test_delete_author_removes_identifiers(self, session: Session):
+        """Deleting an author should remove related identifier rows."""
+        author = Author(full_name="Identified Author", first_name="Identified", last_name="Author")
+        session.add(author)
+        session.commit()
+        session.refresh(author)
+
+        session.add_all(
+            [
+                AuthorIdentifier(author_id=author.id, authority="ORCID", identifier="0000-0000-0000-0002"),
+                AuthorIdentifier(author_id=author.id, authority="UW", identifier="uw654321"),
+            ]
+        )
+        session.commit()
+        assert len(session.exec(select(AuthorIdentifier)).all()) == 2
+
+        session.delete(author)
+        session.commit()
+
+        assert len(session.exec(select(AuthorIdentifier)).all()) == 0
+
+    def test_delete_junction_keeps_article_and_author(self, session: Session):
         """Test that relationships are maintained when objects are deleted."""
         # Create test data
         article = Article(
@@ -222,6 +245,58 @@ class TestAuthorModelRelationships:
         assert session.get(Article, article.id) is not None
         assert session.get(Author, author.id) is not None
 
+    def test_delete_article_removes_junction_records(self, session: Session):
+        """Deleting an article should remove related article-author junction rows."""
+        article = Article(
+            title="Delete Article Cascade",
+            authors="Cascade Author",
+            publication_date=date(2025, 1, 8),
+            repository="test_repo",
+            reference="test_ref_006",
+            url="https://example.com/test6",
+        )
+        author = Author(full_name="Cascade Author", first_name="Cascade", last_name="Author")
+        session.add_all([article, author])
+        session.commit()
+        session.refresh(article)
+        session.refresh(author)
+
+        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
+        session.commit()
+        assert len(session.exec(select(ArticleAuthor)).all()) == 1
+
+        session.delete(article)
+        session.commit()
+
+        assert len(session.exec(select(ArticleAuthor)).all()) == 0
+        assert session.get(Author, author.id) is not None
+
+    def test_delete_author_removes_junction_records(self, session: Session):
+        """Deleting an author should remove related article-author junction rows."""
+        article = Article(
+            title="Delete Author Cascade",
+            authors="Cascade Author",
+            publication_date=date(2025, 1, 8),
+            repository="test_repo",
+            reference="test_ref_007",
+            url="https://example.com/test7",
+        )
+        author = Author(full_name="Cascade Author", first_name="Cascade", last_name="Author")
+        session.add_all([article, author])
+        session.commit()
+        session.refresh(article)
+        session.refresh(author)
+
+        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
+        session.commit()
+        assert len(session.exec(select(ArticleAuthor)).all()) == 1
+
+        session.delete(author)
+        session.commit()
+
+        assert len(session.exec(select(ArticleAuthor)).all()) == 0
+        assert session.get(Article, article.id) is not None
+
 
 class TestAuthorAffiliations:
     def test_author_affiliation_relationship(self, session: Session):
@@ -240,6 +315,27 @@ class TestAuthorAffiliations:
 
         session.refresh(affiliation1)
         assert affiliation1.author.id == author.id
+
+    def test_delete_author_removes_affiliations(self, session: Session):
+        """Deleting an author should remove related affiliation rows."""
+        author = Author(full_name="Affiliated Author", first_name="Affiliated", last_name="Author")
+        session.add(author)
+        session.commit()
+        session.refresh(author)
+
+        session.add_all(
+            [
+                AuthorAffiliation(author_id=author.id, year=2019),
+                AuthorAffiliation(author_id=author.id, year=2021),
+            ]
+        )
+        session.commit()
+        assert len(session.exec(select(AuthorAffiliation)).all()) == 2
+
+        session.delete(author)
+        session.commit()
+
+        assert len(session.exec(select(AuthorAffiliation)).all()) == 0
 
     def test_author_affiliation_year_validation(self):
         with pytest.raises(ValidationError):
