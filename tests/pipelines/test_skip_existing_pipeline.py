@@ -1,7 +1,7 @@
 from collections.abc import Generator
 
 import pytest
-from scrapy import Spider
+from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
 from sqlmodel import Session
 
@@ -14,41 +14,47 @@ class TestSkipExistingPipeline:
     """Tests the SkipExistingPipeline for skipping existing articles."""
 
     @pytest.fixture
-    def pipeline_enabled(self, spider: Spider) -> Generator[SkipExistingPipeline, None, None]:
-        spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
+    def pipeline_enabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline, None, None]:
+        crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
 
         instance = SkipExistingPipeline(":memory:", "output")
-        instance.open_spider(spider)
+        instance.crawler = crawler
+        instance.open_spider()
         assert instance.engine is not None
         yield instance
         instance.engine.dispose()
 
     @pytest.fixture
-    def pipeline_disabled(self, spider: Spider) -> SkipExistingPipeline:
-        spider.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
+    def pipeline_disabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline, None, None]:
+        crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
 
         instance = SkipExistingPipeline(":memory:", "output")
-        instance.open_spider(spider)
-        assert instance.engine is None
-        return instance
+        instance.crawler = crawler
+        try:
+            instance.open_spider()
+            assert instance.engine is None
+            yield instance
+        finally:
+            instance.close_spider()
 
     def test_process_item_with_skip_existing_disabled(
-        self, pipeline_disabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+        self, pipeline_disabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
-        result = pipeline_disabled.process_item(item, spider)
+        result = pipeline_disabled.process_item(item)
 
         assert result is item
 
     def test_process_item_with_new_article(
-        self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+        self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
-        result = pipeline_enabled.process_item(item, spider)
+        result = pipeline_enabled.process_item(item)
 
         assert result is item
 
     def test_process_item_with_existing_article(
-        self, pipeline_enabled: SkipExistingPipeline, spider: Spider, item: ArticleItem
+        self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
+        assert pipeline_enabled.engine is not None
         with Session(pipeline_enabled.engine) as session:
             article = Article(
                 title=item.title,
@@ -62,4 +68,4 @@ class TestSkipExistingPipeline:
             session.commit()
 
         with pytest.raises(DropItem):
-            pipeline_enabled.process_item(item, spider)
+            pipeline_enabled.process_item(item)

@@ -1,5 +1,5 @@
 import pytest
-from scrapy import Spider
+from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
 
 from open_ire.items import ArticleItem
@@ -8,26 +8,29 @@ from open_ire.pipelines import DuplicatesPipeline
 
 class TestDuplicatesPipeline:
     @pytest.fixture
-    def pipeline(self) -> DuplicatesPipeline:
+    def pipeline(self, crawler: Crawler) -> DuplicatesPipeline:
         """Create a pipeline instance for testing."""
-        return DuplicatesPipeline()
+        pipeline = DuplicatesPipeline()
+        pipeline.crawler = crawler
+        pipeline.open_spider()
+        assert pipeline.crawler is not None
+        assert pipeline.crawler.spider is not None
+        return pipeline
 
-    def test_process_unique_item(
-        self, pipeline: DuplicatesPipeline, spider: Spider, item: ArticleItem
-    ) -> None:
+    def test_process_unique_item(self, pipeline: DuplicatesPipeline, item: ArticleItem) -> None:
         """Test processing a unique item."""
-        result = pipeline.process_item(item, spider)
+        result = pipeline.process_item(item)
 
         assert result == item
         assert item.reference in pipeline.seen
 
-    def test_process_duplicate_item(
-        self, pipeline: DuplicatesPipeline, spider: Spider, item: ArticleItem
-    ) -> None:
+    def test_process_duplicate_item(self, pipeline: DuplicatesPipeline, item: ArticleItem) -> None:
         """Test processing a duplicate item."""
         pipeline.seen.add(item.reference)
         with pytest.raises(DropItem) as e:
-            pipeline.process_item(item, spider)
+            pipeline.process_item(item)
 
         assert item.reference in str(e.value)
-        assert spider.name in str(e.value)
+        assert pipeline.crawler is not None
+        assert pipeline.crawler.spider is not None
+        assert pipeline.crawler.spider.name in str(e.value)

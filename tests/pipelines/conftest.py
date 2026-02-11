@@ -54,10 +54,9 @@ def item_with_file_references() -> ArticleItem:
 
 
 @pytest.fixture
-def spider() -> Spider:
-    """Create a mock spider for testing."""
+def crawler() -> Crawler:
+    """Create a mock crawler for testing."""
     mock_crawler = MagicMock(spec=Crawler)
-    mock_crawler.settings = Settings({"OPEN_IRE_SKIP_EXISTING": True})
 
     mock_spider = MagicMock(spec=Spider)
     mock_spider.name = "test_spider"
@@ -65,4 +64,7 @@ def spider() -> Spider:
     mock_spider.logger.error = MagicMock()
     mock_spider.crawler = mock_crawler
 
-    return cast(Spider, mock_spider)
+    mock_crawler.spider = mock_spider
+    mock_crawler.settings = Settings()
+
+    return cast(Crawler, mock_crawler)

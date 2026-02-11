@@ -1,5 +1,3 @@
-from scrapy import Spider
-
 from open_ire.items import ArticleItem
 
 
@@ -38,6 +36,6 @@ class DOINormalizationPipeline:
 
         return doi
 
-    def process_item(self, item: ArticleItem, spider: Spider) -> ArticleItem:  # noqa: ARG002
+    def process_item(self, item: ArticleItem) -> ArticleItem:
         item.doi = self.normalize(item.doi)
         return item

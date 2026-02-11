@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 from typing import Self
 
-from scrapy import Spider
 from scrapy.crawler import Crawler
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -21,6 +20,7 @@ class BaseSQLModelPipeline:
         self.engine: Engine | None = None
         self.db_path = db_path
         self.files_base_path = files_base_path
+        self.crawler: Crawler | None = None
 
     @staticmethod
     def find_existing_article(session: Session, item: ArticleItem) -> Article | None:
@@ -47,9 +47,11 @@ class BaseSQLModelPipeline:
             conf = "FILES_STORE"
             raise ConfigurationError(conf)
 
-        return cls(db_path, files_base_path)
+        pipeline = cls(db_path, files_base_path)
+        pipeline.crawler = crawler
+        return pipeline
 
-    def open_spider(self, spider: Spider) -> None:  # noqa: ARG002
+    def open_spider(self) -> None:
         if self.engine:
             return
 
@@ -66,6 +68,6 @@ class BaseSQLModelPipeline:
 
         SQLModel.metadata.create_all(self.engine)
 
-    def close_spider(self, spider: Spider) -> None:  # noqa: ARG002
+    def close_spider(self) -> None:
         if self.engine:
             self.engine.dispose()
