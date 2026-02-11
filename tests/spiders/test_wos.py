@@ -6,25 +6,25 @@ from typing import Any
 import pytest
 from scrapy.http import HtmlResponse, Request
 
-from open_ire.author import AuthorRecord
+from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.spiders.wos import WoSSpider
 
 
 @pytest.fixture
-def five_authors() -> list[AuthorRecord]:
+def five_authors() -> list[ParsedAuthor]:
     return [
-        AuthorRecord("Luis Manuel Garcia-Mispireta"),
-        AuthorRecord("E.V.S.S.K. Babu"),
-        AuthorRecord("Ramón H. Rivera-Servera"),
-        AuthorRecord("M. Elena Alvarez-Alvarez"),
-        AuthorRecord("Kemi Adeyemi", email="kadeyemi@uw.edu"),
+        ParsedAuthor("Luis Manuel Garcia-Mispireta"),
+        ParsedAuthor("E.V.S.S.K. Babu"),
+        ParsedAuthor("Ramón H. Rivera-Servera"),
+        ParsedAuthor("M. Elena Alvarez-Alvarez"),
+        ParsedAuthor("Kemi Adeyemi", email="kadeyemi@uw.edu"),
     ]
 
 
 @pytest.fixture
-def dummy_csv(tmp_path: Path, five_authors: list[AuthorRecord]) -> Path:
+def dummy_csv(tmp_path: Path, five_authors: list[ParsedAuthor]) -> Path:
     csv_content = f"""Full Name,FirstName,LastName,Email
 {five_authors[4].full_name},{five_authors[4].first_name},{five_authors[4].last_name},{five_authors[4].email}
 """
@@ -34,7 +34,7 @@ def dummy_csv(tmp_path: Path, five_authors: list[AuthorRecord]) -> Path:
 
 
 @pytest.fixture
-def dummy_record(five_authors: list[AuthorRecord]) -> dict[str, Any]:
+def dummy_record(five_authors: list[ParsedAuthor]) -> dict[str, Any]:
     return {
         "UID": "WOS:000123456789",
         "static_data": {
@@ -90,7 +90,7 @@ def spider(dummy_csv: Path, monkeypatch: pytest.MonkeyPatch) -> WoSSpider:
 
 class TestWoSSpider:
     def test_build_item(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
     ) -> None:
         item = spider._build_item(dummy_record, five_authors[4].normalized_name)
 
@@ -98,11 +98,11 @@ class TestWoSSpider:
         assert item.title == "Sample Publication Title"
         assert item.extra["matched_author"] == five_authors[4].normalized_name
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
+        assert item.authors == ParsedAuthor.encode_author_string([five_authors[4], five_authors[0]])
         assert item.url == "https://doi.org/10.1000/sampledoi"
 
     def test_build_item_without_doi(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
     ) -> None:
         # Remove DOI from the record
         record_without_doi = copy.deepcopy(dummy_record)
@@ -115,7 +115,7 @@ class TestWoSSpider:
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
     def test_build_item_missing_identifiers_section(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_record: dict[str, Any]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
     ) -> None:
         # Remove entire identifiers section
         record_no_identifiers = copy.deepcopy(dummy_record)
@@ -128,7 +128,7 @@ class TestWoSSpider:
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
     def test_parse_publications(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord], dummy_response: HtmlResponse
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_response: HtmlResponse
     ) -> None:
         query = spider._build_query(five_authors[4].normalized_name)
         # Create a request with meta to tie to the response
@@ -149,17 +149,17 @@ class TestWoSSpider:
         assert item.title == "Sample Publication Title"
         assert item.extra["matched_author"] == five_authors[4].normalized_name
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == AuthorRecord.encode_author_string([five_authors[4], five_authors[0]])
+        assert item.authors == ParsedAuthor.encode_author_string([five_authors[4], five_authors[0]])
 
     def test_build_search_request(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
     ) -> None:
         request = spider.build_search_request(five_authors[4].normalized_name)
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
 
     def test_parse_publications_no_results_records_empty_string(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
     ) -> None:
         # WoS empty results schema: records is an empty string
         json_body = {
@@ -184,7 +184,7 @@ class TestWoSSpider:
         assert requests == []
 
     def test_parse_publications_records_container_string_is_ignored(
-        self, spider: WoSSpider, five_authors: list[AuthorRecord]
+        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
     ) -> None:
         # Sometimes WoS returns a string in `records` (e.g., error-ish message).
         json_body = {

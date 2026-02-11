@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.author import AuthorRecord
+from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
 from open_ire.settings import WOS_ORGANIZATION
@@ -70,7 +70,7 @@ class WoSSpider(AuthorSearchSpider):
 
         self.headers = {"X-ApiKey": self.api_key}
 
-    def _get_author_name(self, record: AuthorRecord) -> str:
+    def _get_author_name(self, record: ParsedAuthor) -> str:
         return f"{record.last_name}, {record.first_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
@@ -212,7 +212,7 @@ class WoSSpider(AuthorSearchSpider):
 
         raw_type = summary.get("doctypes", {}).get("doctype")
         return ArticleItem(
-            authors=AuthorRecord.encode_author_string(authors),
+            authors=ParsedAuthor.encode_author_string(authors),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
@@ -235,9 +235,9 @@ class WoSSpider(AuthorSearchSpider):
     # These methods extract specific data from WoS API responses
 
     @staticmethod
-    def _extract_authors(names: list[Any]) -> list[AuthorRecord]:
+    def _extract_authors(names: list[Any]) -> list[ParsedAuthor]:
         """Extract author names from WoS names data structure."""
-        authors: list[AuthorRecord] = []
+        authors: list[ParsedAuthor] = []
         for author in names:
             if not isinstance(author, dict):
                 continue
@@ -246,7 +246,7 @@ class WoSSpider(AuthorSearchSpider):
                 author.get("full_name") or author.get("display_name") or author.get("wos_standard")
             )
             if author_name:
-                authors.append(AuthorRecord(author_name))
+                authors.append(ParsedAuthor(author_name))
 
         return authors
 

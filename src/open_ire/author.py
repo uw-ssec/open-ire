@@ -6,7 +6,7 @@ from pathlib import Path
 from nameparser import HumanName
 
 
-class AuthorRecord:
+class ParsedAuthor:
     """
     Represents an author with email and parsed name information.
 
@@ -23,13 +23,13 @@ class AuthorRecord:
             self._parsed_name = HumanName(name)
         else:
             self._parsed_name = name
-        self._email = email
+        self._email = self._normalize_email(email)
 
     def __repr__(self) -> str:
-        return f"AuthorRecord(name='{self._parsed_name}', email='{self._email}')"
+        return f"ParsedAuthor(name='{self._parsed_name}', email='{self._email}')"
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, AuthorRecord):
+        if not isinstance(other, ParsedAuthor):
             return NotImplemented
         return self.normalized_name == other.normalized_name and self.email == other.email
 
@@ -112,9 +112,96 @@ class AuthorRecord:
             return given_name
         return str(self._parsed_name).strip() or "Unknown"
 
+    @staticmethod
+    def _normalize_name(s: str | None) -> str:
+        """Normalize string for fuzzy matching: lowercase, remove diacritics and punctuation."""
+        if not s:
+            return ""
+        # Decompose unicode characters and filter out combining marks (accents)
+        s = unicodedata.normalize("NFKD", s or "")
+        # Keep only alphanumeric and spaces, then collapse whitespace
+        s = "".join(c for c in s if c.isalnum() or c.isspace())
+        return " ".join(s.lower().split())
+
+    @staticmethod
+    def _normalize_email(email: str | None) -> str | None:
+        """Normalize email address for consistent storage and comparison."""
+        if not email:
+            return None
+        return email.strip().lower()
+
+    def _names_compatible(self, name1: str, name2: str) -> bool:
+        """Check if two names are compatible (exact match, initial match, or prefix match)."""
+        # If either name is empty, they're compatible (one person may not have that name component)
+        if not name1 or not name2:
+            return True
+
+        if name1 == name2:
+            return True
+
+        # Remove periods and spaces for comparison
+        name1_clean = name1.replace(".", "").replace(" ", "").strip()
+        name2_clean = name2.replace(".", "").replace(" ", "").strip()
+
+        if not name1_clean or not name2_clean:
+            return True
+
+        is_name1_initial = len(name1_clean) == 1
+        is_name2_initial = len(name2_clean) == 1
+
+        # If one is an initial, check if it matches the first letter of the other
+        if is_name1_initial and not is_name2_initial:
+            return name1_clean == name2_clean[0]
+        if is_name2_initial and not is_name1_initial:
+            return name2_clean == name1_clean[0]
+
+        # For non-initials, check prefix matching (handles hyphenated names)
+        # e.g., "Su" matches "Su-Ling" or "SuLing"
+        return name1_clean.startswith(name2_clean) or name2_clean.startswith(name1_clean)
+
+    def _emails_compatible(self, email1: str | None, email2: str | None) -> bool:
+        """Check if two emails are compatible (both empty or matching)."""
+        if not email1 or not email2:
+            return True
+        return self._normalize_email(email1) == self._normalize_email(email2)
+
+    def likely_same(self, other: "ParsedAuthor") -> bool:
+        """
+        Determine if two ParsedAuthor instances likely represent the same person.
+
+        This method handles cases where one name is a subset of another:
+        - 'Welland, Sasha' and 'Welland, Sasha Su-Ling' -> True (likely same)
+        - 'Welland, Sasha Su-Ling' and 'Welland, Sasha Mary' -> False (likely different)
+        - 'Welland, S.' and 'Welland, Sasha' -> True (likely same)
+        - 'Su-Ling Welland' and 'S. Welland' -> True (likely same)
+
+        Rules:
+        1. Last names must match exactly (case-insensitive, diacritic-insensitive)
+        2. First names must be compatible:
+           - Match exactly (case-insensitive, diacritic-insensitive), OR
+           - One is an initial that matches the other's first letter, OR
+           - One is a prefix of the other (e.g., "Su" matches "Su-Ling")
+        3. If both have middle names, they must be compatible (same rules as first names)
+        4. If emails are both present and non-empty, they must match
+        """
+        if not self._emails_compatible(self.email, other.email):
+            return False
+
+        if self._normalize_name(self.last_name) != self._normalize_name(other.last_name):
+            return False
+
+        if not self._names_compatible(
+            self._normalize_name(self.first_name), self._normalize_name(other.first_name)
+        ):
+            return False
+
+        return self._names_compatible(
+            self._normalize_name(self.middle_name), self._normalize_name(other.middle_name)
+        )
+
     @classmethod
-    def parse_author_string(cls, author_string: str) -> list["AuthorRecord"]:
-        """Parse a semicolon-separated author string into AuthorRecord objects.
+    def parse_author_string(cls, author_string: str) -> list["ParsedAuthor"]:
+        """Parse a semicolon-separated author string into ParsedAuthor objects.
 
         Authors are separated by semicolons. Each author name is parsed by nameparser
         which handles both "Last, First" and "First Last" formats.
@@ -123,7 +210,7 @@ class AuthorRecord:
             author_string: Semicolon-separated string of author names
 
         Returns:
-            List of AuthorRecord objects (with empty email fields)
+            List of ParsedAuthor objects (with empty email fields)
         """
         if not author_string or not author_string.strip():
             return []
@@ -133,8 +220,8 @@ class AuthorRecord:
         return [cls(name=name, email="") for name in parts]
 
     @classmethod
-    def encode_author_string(cls, authors: list["AuthorRecord"]) -> str:
-        """Encode a list of AuthorRecord objects back into a semicolon-separated string."""
+    def encode_author_string(cls, authors: list["ParsedAuthor"]) -> str:
+        """Encode a list of ParsedAuthor objects back into a semicolon-separated string."""
         return "; ".join(str(author.normalized_name) for author in authors)
 
 
@@ -151,13 +238,13 @@ class AuthorIndex:
 
     # === DATA LOADING AND PROCESSING ===
 
-    def _load_records(self) -> list[AuthorRecord]:
+    def _load_records(self) -> list[ParsedAuthor]:
         """Load and validate author records from CSV file."""
         if not self.path.exists():
             msg = f"Author file not found: {self.path}"
             raise FileNotFoundError(msg)
 
-        records: list[AuthorRecord] = []
+        records: list[ParsedAuthor] = []
         with self.path.open(encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
             if not reader.fieldnames or not self._required_fields.issubset(reader.fieldnames):
@@ -184,8 +271,8 @@ class AuthorIndex:
         first_name: str | None,
         last_name: str | None,
         email: str | None,
-    ) -> AuthorRecord | None:
-        """Build an AuthorRecord from CSV row data, returning None if invalid."""
+    ) -> ParsedAuthor | None:
+        """Build a ParsedAuthor from CSV row data, returning None if invalid."""
         email = (email or "").strip()
         first_name = (first_name or "").strip()
         last_name = (last_name or "").strip()
@@ -195,14 +282,4 @@ class AuthorIndex:
 
         # Construct full name from components and parse it
         full_name = f"{first_name} {last_name}"
-        return AuthorRecord(email=email, name=HumanName(full_name))
-
-    # === TEXT PROCESSING UTILITIES ===
-
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        """Normalize text for consistent matching by removing accents and standardizing case."""
-        normalized = unicodedata.normalize("NFKD", value or "")
-        normalized = "".join(c for c in normalized if c.isalnum() or c.isspace())
-
-        return " ".join(normalized.lower().split())
+        return ParsedAuthor(email=email, name=HumanName(full_name))
