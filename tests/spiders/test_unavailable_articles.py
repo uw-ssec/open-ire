@@ -4,16 +4,15 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from scrapy.http import HtmlResponse, Request
-from sqlmodel import Session, SQLModel, create_engine
-from twisted.internet.error import DNSLookupError
-from twisted.python.failure import Failure
-
 from open_ire.models import Article
 from open_ire.spiders.unavailable_articles import (
     CollectedArticleRecord,
     UnavailableArticlesSpider,
 )
+from scrapy.http import HtmlResponse, Request
+from sqlmodel import Session, SQLModel, create_engine
+from twisted.internet.error import DNSLookupError
+from twisted.python.failure import Failure
 
 
 @pytest.fixture
@@ -90,6 +89,28 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_a"].checked == 1
         assert spider.repository_stats["repo_a"].unavailable == 1
         assert spider.repository_stats["repo_a"].http_errors == 1
+
+    def test_parse_article_availability_marks_available(
+        self,
+        spider: UnavailableArticlesSpider,
+    ) -> None:
+        article = CollectedArticleRecord(
+            article_id="id-success",
+            repository="repo_success",
+            reference="S1",
+            url="https://example.org/s1",
+        )
+        request = Request(url=article.url)
+        response = HtmlResponse(url=article.url, status=200, body=b"", request=request)
+
+        result = spider.parse_article_availability(response, article, "HEAD")
+
+        assert result is None
+        assert spider.repository_stats["repo_success"].checked == 1
+        assert spider.repository_stats["repo_success"].available == 1
+        assert spider.repository_stats["repo_success"].unavailable == 0
+        assert spider.repository_stats["repo_success"].http_errors == 0
+        assert spider.repository_stats["repo_success"].request_errors == 0
 
     def test_parse_article_availability_fallback(
         self, spider: UnavailableArticlesSpider
