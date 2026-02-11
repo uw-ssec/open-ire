@@ -192,9 +192,13 @@ args = [
 ]
 cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
 
+[tool.pixi.tasks.search-author]
+args = ["spider", "author_name"]
+cmd = "scrapy crawl {{ spider }} -a author_name=\"{{ author_name }}\""
+
 [tool.pixi.tasks.search-authors]
 args = ["spider", "author_csv"]
-cmd = "scrapy crawl {{ spider }} -a author_csv={{ author_csv }}"
+cmd = "scrapy crawl {{ spider }} -a author_csv=\"{{ author_csv }}\""
 
 [tool.pixi.tasks.search-terms]
 args = ["spider", "terms", "page"]
