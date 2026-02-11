@@ -94,35 +94,50 @@ For detailed development setup, including pre-commit hooks, please see
 This project includes spiders for crawling repositories using two main methods:
 a list of keywords or a CSV file of author names.
 
+### Crawl and Resume
+
+To run a spider with a persistent crawl state (Scrapy `JOBDIR`) and optionally
+skip already-known files, use the `resume` command:
+
+```bash
+pixi run resume <spider_name> [--skip-existing]
+```
+
+For example:
+
+```bash
+pixi run resume eric --skip-existing
+```
+
 ### Search by Keyword
 
-To run a spider with a custom list of search terms, use the `terms-search`
+To run a spider with a custom list of search terms, use the `search-terms`
 command:
 
 ```bash
-pixi run terms-search <spider_name> "term1,term2,..." [<page>]
+pixi run search-terms <spider_name> "term1,term2,..." [<page>]
 ```
 
 For example, to search the `eric` repository:
 
 ```bash
-pixi run terms-search eric "ocean acidification,coral bleaching"
+pixi run search-terms eric "ocean acidification,coral bleaching"
 ```
 
 ### Search by Author
 
 To run a spider that supports searching by author against a list of authors, use
-the `author-search` command. This requires a CSV file with `FirstName`,
+the `search-authors` command. This requires a CSV file with `FirstName`,
 `LastName`, and `Email` columns.
 
 ```bash
-pixi run author-search <spider_name> <path_to_csv>
+pixi run search-authors <spider_name> <path_to_csv>
 ```
 
 For example, to search `openalex` using an author file:
 
 ```bash
-pixi run author-search openalex data/authors.csv
+pixi run search-authors openalex data/authors.csv
 ```
 
 ## Contributing
