@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 from scrapy import Spider
+from scrapy.exceptions import IgnoreRequest
 from scrapy.exporters import CsvItemExporter
 from scrapy.http import Request, Response
 from sqlalchemy import Engine
@@ -103,6 +104,7 @@ class UnavailableArticlesSpider(Spider):
 
     custom_settings = {  # noqa: RUF012
         "CONCURRENT_REQUESTS": 8,
+        "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_HANDLERS": {
             "http": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
             "https": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
@@ -347,6 +349,14 @@ class UnavailableArticlesSpider(Spider):
 
         if not isinstance(article, CollectedArticleRecord):
             self.logger.warning("Request failed without article metadata: %s", failure.value)
+            return
+
+        if isinstance(failure.value, IgnoreRequest):
+            self.logger.info(
+                "Skipping unavailable article record for filtered request (%s): %s",
+                article.url,
+                failure.value,
+            )
             return
 
         response = getattr(failure.value, "response", None)
