@@ -103,13 +103,13 @@ class UnavailableArticlesSpider(Spider):
     name = "unavailable_articles"
 
     custom_settings = {  # noqa: RUF012
+        "ITEM_PIPELINES": {},
         "CONCURRENT_REQUESTS": 8,
         "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_HANDLERS": {
-            "http": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
-            "https": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
+            "http": "scrapy.core.downloader.handlers.http11.HTTP11DownloadHandler",
+            "https": "scrapy.core.downloader.handlers.http11.HTTP11DownloadHandler",
         },
-        "ITEM_PIPELINES": {},
     }
 
     def __init__(
@@ -121,7 +121,7 @@ class UnavailableArticlesSpider(Spider):
         super().__init__(*args, **kwargs)
 
         self.engine: Engine | None = None
-        self.output_csv = Path(output_csv)
+        self.output_csv = self._dated_output_csv(Path(output_csv))
         self.db_batch_size = 5000
         self.exporter = UnavailableArticleExporter(self.output_csv)
 
@@ -131,6 +131,15 @@ class UnavailableArticlesSpider(Spider):
         self.repository_stats: dict[str, RepositoryAvailabilityStats] = defaultdict(
             RepositoryAvailabilityStats
         )
+
+    @staticmethod
+    def _dated_output_csv(output_csv: Path) -> Path:
+        date_suffix = datetime.now(UTC).date().isoformat()
+        stem = output_csv.stem
+        if stem.endswith(date_suffix):
+            return output_csv
+
+        return output_csv.with_name(f"{stem}_{date_suffix}{output_csv.suffix}")
 
     @classmethod
     def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> "UnavailableArticlesSpider":
