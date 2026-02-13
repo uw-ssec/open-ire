@@ -1,4 +1,5 @@
 from .base_sql_model_pipeline import BaseSQLModelPipeline
+from .cross_source_dedup_pipeline import CrossSourceDeduplicationPipeline
 from .doi_normalization_pipeline import DOINormalizationPipeline
 from .duplicates_pipeline import DuplicatesPipeline
 from .file_reference_pipeline import FileReferencePipeline
@@ -9,6 +10,7 @@ from .sql_model_pipeline import SQLModelPipeline
 
 __all__ = [
     "BaseSQLModelPipeline",
+    "CrossSourceDeduplicationPipeline",
     "DOINormalizationPipeline",
     "DuplicatesPipeline",
     "FileReferencePipeline",
