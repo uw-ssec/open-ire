@@ -86,14 +86,16 @@ class WoSSpider(AuthorSearchSpider):
 
         self.headers = {"X-ApiKey": self.api_key}
 
-    def _get_author_name(self, record: ParsedAuthor) -> str:
+    def author_name_for_query(self, record: ParsedAuthor) -> str:
         return f"{record.last_name}, {record.first_name}"
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
 
-    def build_search_request(self, term: str) -> Request:
-        """Build a search request for a single author term."""
+    def build_search_request(self, record: ParsedAuthor) -> Request:
+        """Build a search request for a single author record."""
+        term = self.author_name_for_query(record)
+        matched_author = self.canonical_author_name(record)
         query = self._build_query(term)
         params = self._build_params(query, page=1)
         url = f"{self.base_url}?{urlencode(params)}"
@@ -102,7 +104,7 @@ class WoSSpider(AuthorSearchSpider):
             url,
             headers=self.headers,
             callback=self.parse_publications,
-            meta={"matched_author": term},
+            meta={"matched_author": matched_author},
             cb_kwargs={"query": query, "page": 1},
         )
 

@@ -59,7 +59,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
 
-    def _get_author_name(self, record: ParsedAuthor) -> str:
+    def author_name_for_query(self, record: ParsedAuthor) -> str:
         return " ".join(
             part for part in [record.first_name, record.middle_names, record.last_name] if part
         )
@@ -67,8 +67,10 @@ class OpenAlexSpider(AuthorSearchSpider):
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow
 
-    def build_search_request(self, term: str) -> Request:
-        """Build the initial search request for a given author name."""
+    def build_search_request(self, record: ParsedAuthor) -> Request:
+        """Build the initial search request for a given author record."""
+        term = self.author_name_for_query(record)
+        matched_author = self.canonical_author_name(record)
         params = {
             "search": term,
             "filter": f"affiliations.institution.id:{self.institution_id}",
@@ -80,7 +82,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             url,
             headers=self.request_headers,
             callback=self.author_publication_requests,
-            meta={"matched_author": term},
+            meta={"matched_author": matched_author},
         )
 
     def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:

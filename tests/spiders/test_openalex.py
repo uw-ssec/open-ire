@@ -26,9 +26,18 @@ def five_authors() -> list[ParsedAuthor]:
 @pytest.fixture
 def spider(tmp_path: Path, five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
     author = five_authors[4]
-    csv_content = f"""Full Name,FirstName,MiddleNames,LastName,Email
-{author.full_name},{author.first_name},{author.middle_names},{author.last_name},{author.email}
-"""
+    csv_header = "Full Name,FirstName,MiddleNames,LastName,Email"
+    author_row = ",".join(
+        [
+            author.full_name,
+            author.first_name,
+            author.middle_names,
+            author.last_name,
+            author.email or "",
+        ]
+    )
+    csv_content = f"{csv_header}\n{author_row}"
+
     csv_path = tmp_path / "authors.csv"
     csv_path.write_text(csv_content)
 
@@ -183,13 +192,15 @@ class TestOpenAlexSpider:
     def test_build_search_request(
         self, spider: OpenAlexSpider, five_authors: list[ParsedAuthor]
     ) -> None:
-        request = spider.build_search_request(five_authors[0].normalized_name)
+        record = five_authors[0]
+        request = spider.build_search_request(record)
         assert isinstance(request, Request)
         assert request.url.startswith(spider.base_url + "/authors")
         parsed_url = urlparse(request.url)
         query_params = parse_qs(parsed_url.query)
-        assert query_params["search"] == [five_authors[0].normalized_name]
+        assert query_params["search"] == [spider.author_name_for_query(record)]
         assert "affiliations.institution.id:" in query_params["filter"][0]
+        assert request.meta["matched_author"] == record.normalized_name
 
     @pytest.mark.asyncio
     async def test_start(self, spider: OpenAlexSpider) -> None:
@@ -243,12 +254,14 @@ class TestOpenAlexSpider:
         assert isinstance(requests[0], Request)
         parsed_url = urlparse(requests[0].url)
         query_params = parse_qs(parsed_url.query)
-        assert query_params["search"] == [five_authors[1].full_name]
+        assert query_params["search"] == [
+            spider_with_author_name.author_name_for_query(five_authors[1])
+        ]
 
     def test_author_name_parameter(self, five_authors: list[ParsedAuthor]) -> None:
         author = five_authors[2]
         spider = OpenAlexSpider(author_name=author.full_name)
-        assert spider.search_terms == [author.full_name]
+        assert spider.search_phrases == [author]
 
     def test_both_parameters_allowed(
         self, tmp_path: Path, five_authors: list[ParsedAuthor]
@@ -261,9 +274,10 @@ class TestOpenAlexSpider:
 
         name_author = five_authors[3]
         spider = OpenAlexSpider(author_csv=str(csv_path), author_name=name_author.full_name)
-        assert len(spider.search_terms) == 2
-        assert csv_author.full_name in spider.search_terms
-        assert name_author.full_name in spider.search_terms
+        assert len(spider.search_phrases) == 2
+        normalized_names = {record.normalized_name for record in spider.search_phrases}
+        assert csv_author.normalized_name in normalized_names
+        assert name_author.normalized_name in normalized_names
 
     @pytest.mark.asyncio
     async def test_old_csv_format_still_supported(
@@ -304,9 +318,9 @@ class TestOpenAlexSpider:
         assert len(requests) == 2
         assert all(isinstance(req, Request) for req in requests)
         query_params0 = parse_qs(urlparse(requests[0].url).query)
-        assert query_params0["search"] == [csv_author.full_name]
+        assert query_params0["search"] == [spider.author_name_for_query(csv_author)]
         query_params1 = parse_qs(urlparse(requests[1].url).query)
-        assert query_params1["search"] == [name_author.full_name]
+        assert query_params1["search"] == [spider.author_name_for_query(name_author)]
 
     def test_no_parameters_error(self) -> None:
         with pytest.raises(ValueError, match="requires either"):
