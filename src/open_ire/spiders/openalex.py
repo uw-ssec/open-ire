@@ -40,12 +40,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         "supplementary-materials": ArticleType.OTHER,
     }
 
-    @classmethod
-    def _normalize_type(cls, raw_type: str | None) -> ArticleType | None:
-        """Normalize OpenAlex publication type to ArticleType."""
-        if raw_type is None:
-            return None
-        return cls.TYPE_MAP.get(raw_type.lower())
+    # === SUPERCLASS OVERRIDES ===
 
     def __init__(
         self,
@@ -84,16 +79,23 @@ class OpenAlexSpider(AuthorSearchSpider):
         return Request(
             url,
             headers=self.request_headers,
-            callback=self.author_publication_requests,
+            callback=self._search_for_authors,
             meta={"matched_author": matched_author},
         )
 
-    def author_publication_requests(self, response: Response) -> Generator[Request, None, None]:
+    # === HIGH-LEVEL WORKFLOW METHODS ===
+
+    def _search_for_authors(self, response: Response) -> Generator[Request, None, None]:
         """Parse author search results and generate publication requests."""
         matched_author = response.meta["matched_author"]
         data = json.loads(response.text or "{}")
         authors = data.get("results", [])
 
+        if not authors:
+            self.logger.info("No authors found matching '%s'", matched_author)
+            return
+
+        self.logger.info("Found %s authors matching '%s':", len(authors), matched_author)
         for i, author in enumerate(authors):
             author_id = author.get("id")
             if not author_id:
@@ -117,12 +119,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             )
             return
 
-        yield from self._request_publications(authors[0].get("id"), matched_author)
+        yield from self._request_author_publications(authors[0].get("id"), matched_author)
 
-    # === SUPPORTING WORKFLOW METHODS ===
-    # These methods support the main workflow
-
-    def _request_publications(
+    def _request_author_publications(
         self, author_id: str, matched_author: str, cursor: str = "*"
     ) -> Generator[Request, None, None]:
         """Generate a request for an author's publications with pagination support."""
@@ -145,12 +144,12 @@ class OpenAlexSpider(AuthorSearchSpider):
         yield Request(
             url,
             headers=self.request_headers,
-            callback=self.parse_publications,
+            callback=self._parse_publications,
             meta={"matched_author": matched_author, "cursor": cursor},
             cb_kwargs={"author_id": author_id},
         )
 
-    def parse_publications(
+    def _parse_publications(
         self, response: Response, author_id: str
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse publication results and yield ArticleItems, handling pagination."""
@@ -183,7 +182,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             if not isinstance(publication, dict):
                 continue
 
-            if item := self._build_item(publication, matched_author):
+            if item := self._build_article_item(publication, matched_author):
                 self.logger.info(
                     "%s: '%s' (%s)",
                     matched_author,
@@ -193,9 +192,13 @@ class OpenAlexSpider(AuthorSearchSpider):
                 yield item
 
         if next_cursor := meta.get("next_cursor"):
-            yield from self._request_publications(author_id, matched_author, cursor=next_cursor)
+            yield from self._request_author_publications(
+                author_id, matched_author, cursor=next_cursor
+            )
 
-    def _build_item(self, publication: dict[str, Any], matched_author: str) -> ArticleItem | None:
+    def _build_article_item(
+        self, publication: dict[str, Any], matched_author: str
+    ) -> ArticleItem | None:
         """Build an ArticleItem from OpenAlex publication data."""
         external_id = publication.get("id")
         if not external_id:
@@ -232,7 +235,6 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
 
     # === DATA EXTRACTION UTILITIES ===
-    # These methods extract specific data from OpenAlex API responses
 
     @staticmethod
     def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:
@@ -276,3 +278,10 @@ class OpenAlexSpider(AuthorSearchSpider):
             return ""
         # https://openalex.org/A5077779935 => A5077779935
         return openalex_id.split("/")[-1]
+
+    @staticmethod
+    def _normalize_type(raw_type: str | None) -> ArticleType | None:
+        """Normalize OpenAlex publication type to ArticleType."""
+        if raw_type is None:
+            return None
+        return OpenAlexSpider.TYPE_MAP.get(raw_type.lower())
