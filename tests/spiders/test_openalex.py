@@ -1,3 +1,4 @@
+import csv
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -438,3 +439,48 @@ class TestAuthorDisambiguation:
     def test_has_recent_affiliation_case_insensitive(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test", self.INSTITUTION_ID.lower(), [2020])
         assert spider._has_recent_affiliation(author, 2018) is True
+
+    def test_add_to_ambiguous_authors_stores_structured_records(
+        self, spider: OpenAlexSpider
+    ) -> None:
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
+        ]
+
+        spider._add_to_ambiguous_authors(
+            matched_author="Eunjung Kim",
+            authors=authors,
+            reason="no authors with recent institutional affiliation (>=2018)",
+        )
+
+        assert len(spider._ambiguous_authors) == 1
+        ambiguous_author = spider._ambiguous_authors[0]
+        assert ambiguous_author["matched_author"] == "Eunjung Kim"
+        assert ambiguous_author["reason"].startswith("no authors with recent")
+        assert ambiguous_author["start_year"] == 2018
+        assert ambiguous_author["candidates"] == authors
+
+    def test_write_ambiguous_authors_file_creates_csv_with_expected_rows(
+        self, spider: OpenAlexSpider, tmp_path: Path
+    ) -> None:
+        spider.ambiguous_authors_file = tmp_path / "ambiguous_authors.csv"
+
+        ambiguous_authors = [
+            self._make_author("https://openalex.org/A1", "Eunjung Kim"),
+            self._make_author("https://openalex.org/A2", "Eunjung Kim"),
+            self._make_author("https://openalex.org/A3", "Eunjung Kim"),
+        ]
+        spider._add_to_ambiguous_authors(
+            matched_author="Eunjung Kim",
+            authors=ambiguous_authors,
+            reason="no authors with recent institutional affiliation (>=2018)",
+        )
+
+        spider._write_ambiguous_authors_file()
+
+        assert spider.ambiguous_authors_file.exists()
+        with spider.ambiguous_authors_file.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == len(ambiguous_authors)
+        assert spider._ambiguous_authors == []

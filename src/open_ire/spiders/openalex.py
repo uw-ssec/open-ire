@@ -1,5 +1,8 @@
+import csv
 import json
 from collections.abc import Generator
+from datetime import datetime
+from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import urlencode
 
@@ -9,7 +12,11 @@ from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem, AuthorItem
-from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
+from open_ire.settings import (
+    OPEN_IRE_CONTACT_EMAIL,
+    OPENALEX_AMBIGUOUS_AUTHORS_FILE,
+    OPENALEX_INSTITUTION_ID,
+)
 from open_ire.spiders.search import AuthorSearchSpider
 from open_ire.utils import parse_date
 
@@ -54,6 +61,8 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.start_date = start_date
         self.institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
+        self.ambiguous_authors_file = Path(OPENALEX_AMBIGUOUS_AUTHORS_FILE)
+        self._ambiguous_authors: list[dict[str, Any]] = []
 
     def author_name_for_query(self, record: ParsedAuthor) -> str:
         return " ".join(
@@ -83,6 +92,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             callback=self._search_for_authors,
             meta={"matched_author": matched_author},
         )
+
+    def closed(self, _reason: str | None = None) -> None:
+        self._write_ambiguous_authors_file()
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
@@ -119,6 +131,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 authors = self._disambiguate_authors(authors, matched_author)
             except AmbiguousAuthorError as e:
                 self.logger.warning("%s", e)
+                self._add_to_ambiguous_authors(matched_author, authors, e.reason)
                 return
 
         # Yield author identifiers for storage
@@ -318,6 +331,151 @@ class OpenAlexSpider(AuthorSearchSpider):
                     return True
 
         return False
+
+    def _add_to_ambiguous_authors(
+        self,
+        matched_author: str,
+        authors: list[dict[str, Any]],
+        reason: str,
+    ) -> None:
+        """Store one structured ambiguous-author record for the matched author."""
+        self._ambiguous_authors.append(
+            {
+                "matched_author": matched_author,
+                "reason": reason,
+                "start_year": int(self.start_date.split("-")[0]),
+                "candidates": authors,
+            }
+        )
+
+    def _write_ambiguous_authors_file(self) -> None:
+        """Write a CSV file of ambiguous author records to disk."""
+        if not self._ambiguous_authors:
+            return
+
+        rows: list[dict[str, str]] = []
+        for ambiguous_author in self._ambiguous_authors:
+            matched_author = str(ambiguous_author.get("matched_author") or "")
+            reason = str(ambiguous_author.get("reason") or "")
+            start_year = int(ambiguous_author.get("start_year") or 0)
+
+            raw_candidates = ambiguous_author.get("candidates") or []
+            candidates = [c for c in raw_candidates if isinstance(c, dict)]
+            candidate_count = len(candidates)
+
+            rows.extend(
+                self._build_ambiguous_authors_file_row(
+                    matched_author=matched_author,
+                    author=author,
+                    rank=rank,
+                    candidate_count=candidate_count,
+                    reason=reason,
+                    start_year=start_year,
+                )
+                for rank, author in enumerate(candidates, start=1)
+            )
+
+        if not rows:
+            self._ambiguous_authors.clear()
+            return
+
+        fieldnames = list(rows[0].keys())
+        self.ambiguous_authors_file.parent.mkdir(parents=True, exist_ok=True)
+        file_exists = self.ambiguous_authors_file.exists()
+
+        with self.ambiguous_authors_file.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerows(rows)
+
+        self.logger.warning(
+            "Wrote %s ambiguous OpenAlex author row(s) to %s",
+            len(rows),
+            self.ambiguous_authors_file,
+        )
+        self._ambiguous_authors.clear()
+
+    def _build_ambiguous_authors_file_row(
+        self,
+        matched_author: str,
+        author: dict[str, Any],
+        rank: int,
+        candidate_count: int,
+        reason: str,
+        start_year: int,
+    ) -> dict[str, str]:
+        """Build a single CSV row for manual disambiguation review."""
+        openalex_id = str(author.get("id") or "")
+        years, institutions = self._extract_affiliation_details(author)
+        last_known_names = self._extract_last_known_affiliations(author)
+
+        return {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "matched_author": matched_author,
+            "candidate_rank": str(rank),
+            "candidate_count": str(candidate_count),
+            "ambiguity_reason": reason,
+            "start_year": str(start_year),
+            "candidate_openalex_id": self._bare_openalex_id(openalex_id),
+            "candidate_openalex_url": openalex_id,
+            "candidate_display_name": str(author.get("display_name") or ""),
+            "candidate_orcid": self._bare_openalex_id(str(author.get("orcid") or "")),
+            "candidate_relevance_score": str(author.get("relevance_score") or ""),
+            "candidate_works_count": str(author.get("works_count") or ""),
+            "candidate_cited_by_count": str(author.get("cited_by_count") or ""),
+            "institution_affiliation_years": ";".join(str(y) for y in sorted(set(years))),
+            "last_known_affiliations": ";".join(sorted(set(last_known_names))),
+        }
+
+    def _extract_affiliation_details(self, author: dict[str, Any]) -> tuple[list[int], list[str]]:
+        """Extract institutional affiliation years and institution names from an author candidate."""
+        years: list[int] = []
+        institutions: list[str] = []
+
+        affiliations = author.get("affiliations") or []
+        for affiliation in affiliations:
+            if not isinstance(affiliation, dict):
+                continue
+
+            institution = affiliation.get("institution") or {}
+            if not isinstance(institution, dict):
+                continue
+
+            institution_id = institution.get("id", "")
+            if not (
+                isinstance(institution_id, str)
+                and institution_id.lower().endswith(self.institution_id.lower())
+            ):
+                continue
+
+            display_name = institution.get("display_name")
+            if isinstance(display_name, str) and display_name:
+                institutions.append(display_name)
+
+            years = affiliation.get("years") or []
+            years.extend(year for year in years if isinstance(year, int))
+
+        return years, institutions
+
+    @staticmethod
+    def _extract_last_known_affiliations(author: dict[str, Any]) -> list[str]:
+        """Extract last-known institution display names from an author candidate.
+
+        These are one or more affiliations that the author listed in their most
+        recent OpenAlex-indexed publication.
+        """
+        institutions = author.get("last_known_institutions") or []
+        institution_names: list[str] = []
+        for institution in institutions:
+            if not isinstance(institution, dict):
+                continue
+
+            display_name = institution.get("display_name")
+            if isinstance(display_name, str) and display_name:
+                institution_names.append(display_name)
+
+        return institution_names
 
     @staticmethod
     def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:
