@@ -12,6 +12,23 @@ from open_ire.pipelines.base_sql_model_pipeline import BaseSQLModelPipeline
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+def find_author_by_name(session: Session, author: ParsedAuthor) -> Author | None:
+    """Return an existing author matched by name, or None.
+
+    Shared by AuthorIdentifierPipeline and AuthorshipPipeline.
+    """
+    candidates = session.exec(select(Author).where(Author.last_name == author.last_name)).all()
+    for candidate in candidates:
+        if ParsedAuthor(candidate.canonical_name).likely_same(author):
+            logger.debug(
+                "Found existing author '%s' (id=%s) by name",
+                candidate.canonical_name,
+                candidate.id,
+            )
+            return candidate
+    return None
+
+
 class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     """Store author identifiers discovered during crawling.
 
@@ -27,7 +44,8 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
 
         with Session(self.engine) as session:
             by_identifier = self._find_author_by_identifier(session, item.identifiers)
-            by_name = self._find_author_by_name(session, item.author)
+            by_name = find_author_by_name(session, item.author)
+
             candidates = [a for a in (by_identifier, by_name) if a is not None]
 
             if not candidates:
@@ -61,20 +79,6 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
                     existing.author.id,
                 )
                 return existing.author
-        return None
-
-    @staticmethod
-    def _find_author_by_name(session: Session, author: ParsedAuthor) -> Author | None:
-        """Find an existing author by compatible name."""
-        candidates = session.exec(select(Author).where(Author.last_name == author.last_name)).all()
-        for candidate in candidates:
-            if ParsedAuthor(candidate.canonical_name).likely_same(author):
-                logger.info(
-                    "Found existing author '%s' (id=%s) by name",
-                    candidate.canonical_name,
-                    candidate.id,
-                )
-                return candidate
         return None
 
     def _update_author(self, session: Session, author: Author, item: AuthorItem) -> None:

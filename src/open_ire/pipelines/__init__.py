@@ -1,4 +1,5 @@
 from .author_identifier_pipeline import AuthorIdentifierPipeline
+from .authorship_pipeline import AuthorshipPipeline
 from .base_sql_model_pipeline import BaseSQLModelPipeline
 from .doi_duplicates_pipeline import DOIDuplicatesPipeline
 from .doi_normalization_pipeline import DOINormalizationPipeline
@@ -11,6 +12,7 @@ from .sql_model_pipeline import SQLModelPipeline
 
 __all__ = [
     "AuthorIdentifierPipeline",
+    "AuthorshipPipeline",
     "BaseSQLModelPipeline",
     "DOIDuplicatesPipeline",
     "DOINormalizationPipeline",
