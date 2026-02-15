@@ -78,6 +78,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         }
         url = f"{self.base_url}/authors?{urlencode(params)}"
 
+        self.logger.info("Searching for author '%s'", term)
+        self.logger.debug("Author search URL: %s", url)
+
         return Request(
             url,
             headers=self.request_headers,
@@ -91,14 +94,20 @@ class OpenAlexSpider(AuthorSearchSpider):
         data = json.loads(response.text or "{}")
         authors = data.get("results", [])
 
-        for author in authors:
+        for i, author in enumerate(authors):
             author_id = author.get("id")
             if not author_id:
                 continue
 
             # TODO: OpenAlex returns a relevance score; we could use it for early filtering.
-
-            yield from self._request_publications(author_id, matched_author)
+            self.logger.info(
+                "%s) '%s' (ID: %s, ORCID: %s, relevance: %s)",
+                f"{i + 1:2d}",
+                author.get("display_name"),
+                self._bare_openalex_id(author_id),
+                author.get("orcid"),
+                author.get("relevance_score"),
+            )
 
         if len(authors) > 1:
             self.logger.warning(
@@ -125,11 +134,19 @@ class OpenAlexSpider(AuthorSearchSpider):
         }
         url = f"{self.base_url}/works?{urlencode(params)}"
 
+        self.logger.info(
+            "Requesting %spublications for %s (ID: %s)",
+            "" if cursor == "*" else "next page of ",
+            matched_author,
+            self._bare_openalex_id(author_id),
+        )
+        self.logger.debug("Publication request URL: %s", url)
+
         yield Request(
             url,
             headers=self.request_headers,
             callback=self.parse_publications,
-            meta={"matched_author": matched_author},
+            meta={"matched_author": matched_author, "cursor": cursor},
             cb_kwargs={"author_id": author_id},
         )
 
@@ -138,17 +155,43 @@ class OpenAlexSpider(AuthorSearchSpider):
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse publication results and yield ArticleItems, handling pagination."""
         matched_author = response.meta["matched_author"]
+        is_first_page = response.meta["cursor"] == "*"
+
         data = json.loads(response.text or "{}")
         results = data.get("results", [])
+        meta = data.get("meta", {})
 
-        for publication in results:
+        # Log total publications only on first page
+        if is_first_page:
+            total_count = meta.get("count", 0)
+
+            if total_count == 0:
+                self.logger.info(
+                    "No publications found for %s (ID: %s)",
+                    matched_author,
+                    self._bare_openalex_id(author_id),
+                )
+            else:
+                self.logger.info(
+                    "Found %s publications for %s (ID: %s):",
+                    total_count,
+                    matched_author,
+                    self._bare_openalex_id(author_id),
+                )
+
+        for _i, publication in enumerate(results):
             if not isinstance(publication, dict):
                 continue
 
             if item := self._build_item(publication, matched_author):
+                self.logger.info(
+                    "%s: '%s' (%s)",
+                    matched_author,
+                    item.title[:50],
+                    item.publication_date,
+                )
                 yield item
 
-        meta = data.get("meta", {})
         if next_cursor := meta.get("next_cursor"):
             yield from self._request_publications(author_id, matched_author, cursor=next_cursor)
 
@@ -225,3 +268,11 @@ class OpenAlexSpider(AuthorSearchSpider):
                 return str(display_name)
 
         return None
+
+    @staticmethod
+    def _bare_openalex_id(openalex_id: str) -> str:
+        """Extract just the ID part from a full OpenAlex identifier."""
+        if not openalex_id:
+            return ""
+        # https://openalex.org/A5077779935 => A5077779935
+        return openalex_id.split("/")[-1]
