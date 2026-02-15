@@ -98,7 +98,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
 
         canonical_name = ParsedAuthor(
             " ".join(part for part in [first_name, middle_names, last_name] if part)
-        ).normalized_name
+        ).canonical_name
 
         author = Author(
             canonical_name=canonical_name,

@@ -56,7 +56,7 @@ def make_spider_with_author_name(
 ) -> Callable[[ParsedAuthor], WoSSpider]:
     def _make(author: ParsedAuthor) -> WoSSpider:
         monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
-        return WoSSpider(author_name=author.normalized_name, start_year="2020", end_year="2021")
+        return WoSSpider(author_name=author.canonical_name, start_year="2020", end_year="2021")
 
     return _make
 
@@ -81,7 +81,7 @@ def make_record_data() -> Callable[[list[ParsedAuthor]], dict[str, Any]]:
                     "names": {
                         "name": [
                             {
-                                "display_name": author.normalized_name,
+                                "display_name": author.full_name,
                                 "wos_standard": f"{author.last_name}, {author.first_initial}",
                             }
                             for author in authors
@@ -110,11 +110,11 @@ class TestWoSSpider:
         author = sample_authors[4]
         spider = make_spider_with_author_name(author)
         record = make_record_data([sample_authors[4], sample_authors[0]])
-        item = spider._build_item(record, author.normalized_name)
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == author.normalized_name
+        assert item.extra["matched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == ParsedAuthor.encode_author_string(
             [sample_authors[4], sample_authors[0]]
@@ -132,7 +132,7 @@ class TestWoSSpider:
         record = make_record_data([author])
         record["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
 
-        item = spider._build_item(record, author.normalized_name)
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
@@ -149,7 +149,7 @@ class TestWoSSpider:
         record = make_record_data([author])
         record["dynamic_data"]["cluster_related"] = {}
 
-        item = spider._build_item(record, author.normalized_name)
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
@@ -170,7 +170,7 @@ class TestWoSSpider:
         }
         query = spider._build_query(spider.author_name_for_query(sample_authors[4]))
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.normalized_name}
+            url="http://example.com/api", meta={"matched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",
@@ -189,7 +189,7 @@ class TestWoSSpider:
         item = items[0]
         assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == author.normalized_name
+        assert item.extra["matched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == ParsedAuthor.encode_author_string(
             [sample_authors[4], sample_authors[0]]
@@ -205,7 +205,7 @@ class TestWoSSpider:
         request = spider.build_search_request(author)
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
-        assert request.meta["matched_author"] == sample_authors[4].normalized_name
+        assert request.meta["matched_author"] == sample_authors[4].canonical_name
 
     def test_build_search_request_with_author_name_normalizes_to_wos_format(
         self, monkeypatch: pytest.MonkeyPatch
@@ -231,7 +231,7 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.normalized_name}
+            url="http://example.com/api", meta={"matched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",
@@ -261,7 +261,7 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.normalized_name}
+            url="http://example.com/api", meta={"matched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",

@@ -52,7 +52,7 @@ def make_spider_from_csv(
 @pytest.fixture
 def make_spider_with_author_name() -> Callable[[ParsedAuthor], OpenAlexSpider]:
     def _make(author: ParsedAuthor) -> OpenAlexSpider:
-        return OpenAlexSpider(author_name=author.normalized_name)
+        return OpenAlexSpider(author_name=author.canonical_name)
 
     return _make
 
@@ -167,9 +167,9 @@ class TestOpenAlexSpider:
             author_name=name_author.full_name,
         )
         assert len(spider.search_phrases) == 2
-        normalized_names = {record.normalized_name for record in spider.search_phrases}
-        assert csv_author.normalized_name in normalized_names
-        assert name_author.normalized_name in normalized_names
+        canonical_names = {record.canonical_name for record in spider.search_phrases}
+        assert csv_author.canonical_name in canonical_names
+        assert name_author.canonical_name in canonical_names
 
     def test_build_search_request(
         self,
@@ -183,7 +183,7 @@ class TestOpenAlexSpider:
         query_params = parse_qs(urlparse(request.url).query)
         assert query_params["search"] == [sample_authors[0].full_name]
         assert "affiliations.institution.id:" in query_params["filter"][0]
-        assert request.meta["matched_author"] == sample_authors[0].normalized_name
+        assert request.meta["matched_author"] == sample_authors[0].canonical_name
 
     @pytest.mark.parametrize(
         ("author_id", "cursor"),
@@ -287,7 +287,7 @@ class TestOpenAlexSpider:
         author2 = sample_authors[1]
         publication_data = make_publication_data([author1, author2])
         spider = make_spider_with_author_name(author1)
-        item = spider._build_article_item(publication_data, author1.normalized_name)
+        item = spider._build_article_item(publication_data, author1.canonical_name)
         assert isinstance(item, ArticleItem)
         assert item.doi == publication_data["doi"]
         assert item.title == publication_data["title"]
@@ -295,7 +295,7 @@ class TestOpenAlexSpider:
             item.extra["journal_name"]
             == publication_data["primary_location"]["source"]["display_name"]
         )
-        assert item.extra["matched_author"] == author1.normalized_name
+        assert item.extra["matched_author"] == author1.canonical_name
         assert item.authors == ParsedAuthor.encode_author_string([author1, author2])
 
     @pytest.mark.parametrize(
