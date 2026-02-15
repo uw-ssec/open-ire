@@ -55,7 +55,7 @@ class OpenAlexSpider(AuthorSearchSpider):
     def build_search_request(self, record: ParsedAuthor) -> Request:
         """Build the initial search request for a given author record."""
         term = self.author_name_for_query(record)
-        matched_author = self.canonical_author_name(record)
+        searched_author = self.canonical_author_name(record)
         params = {
             "search": term,
             "filter": f"affiliations.institution.id:{self.our_institution_id}",
@@ -70,7 +70,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             url,
             headers=self.request_headers,
             callback=self._search_for_authors,
-            meta={"matched_author": matched_author},
+            meta={"searched_author": searched_author},
         )
 
     def closed(self, _reason: str | None = None) -> None:
@@ -82,17 +82,17 @@ class OpenAlexSpider(AuthorSearchSpider):
         self, response: Response
     ) -> Generator[Request | AuthorItem, None, None]:
         """Parse author search results and generate publication requests."""
-        matched_author = response.meta["matched_author"]
+        searched_author = response.meta["searched_author"]
         data = json.loads(response.text or "{}")
         authors = data.get("results", [])
 
         if not authors:
-            self.logger.info("No authors found matching '%s'", matched_author)
+            self.logger.info("No authors found matching '%s'", searched_author)
             return
 
-        self.logger.info("Found %s authors matching '%s':", len(authors), matched_author)
+        self.logger.info("Found %s authors matching '%s':", len(authors), searched_author)
         for i, author in enumerate(authors):
-            author_id = self._extract_author_id(author, matched_author)
+            author_id = self._extract_author_id(author, searched_author)
 
             self.logger.info(
                 "%s) '%s' (ID: %s, ORCID: %s, relevance: %s)",
@@ -106,19 +106,19 @@ class OpenAlexSpider(AuthorSearchSpider):
         the_author = authors[0] if len(authors) == 1 else None
         if not the_author:
             try:
-                the_author = self._disambiguate_authors(authors, matched_author)
+                the_author = self._disambiguate_authors(authors, searched_author)
             except AmbiguousAuthorError as e:
                 self.logger.warning("%s", e)
-                self._add_to_ambiguous_authors(matched_author, e.candidates, e.reason)
+                self._add_to_ambiguous_authors(searched_author, e.candidates, e.reason)
                 return
 
-        yield self._build_author_item(matched_author, the_author)
+        yield self._build_author_item(searched_author, the_author)
 
-        author_id = self._extract_author_id(the_author, matched_author)
-        yield from self._request_author_publications(author_id, matched_author)
+        author_id = self._extract_author_id(the_author, searched_author)
+        yield from self._request_author_publications(author_id, searched_author)
 
     def _request_author_publications(
-        self, author_id: str, matched_author: str, cursor: str = "*"
+        self, author_id: str, searched_author: str, cursor: str = "*"
     ) -> Generator[Request, None, None]:
         """Generate a request for an author's publications with pagination support."""
         params = {
@@ -132,7 +132,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.logger.info(
             "Requesting %spublications for %s (ID: %s)",
             "" if cursor == "*" else "next page of ",
-            matched_author,
+            searched_author,
             self._id_from_uri(author_id),
         )
         self.logger.debug("Publication request URL: %s", url)
@@ -141,11 +141,11 @@ class OpenAlexSpider(AuthorSearchSpider):
             url,
             headers=self.request_headers,
             callback=self._parse_publications,
-            meta={"matched_author": matched_author, "cursor": cursor},
+            meta={"searched_author": searched_author, "cursor": cursor},
             cb_kwargs={"author_id": author_id},
         )
 
-    def _build_author_item(self, matched_author: str, author_record: dict[str, Any]) -> AuthorItem:
+    def _build_author_item(self, searched_author: str, author_record: dict[str, Any]) -> AuthorItem:
         """Build an AuthorItem from our data and OpenAlex author data."""
         identifiers = []
 
@@ -162,7 +162,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         # OpenAlex sometimes provides "parsed_longest_name", but that can
         # introduce surprises, so rely on "our" name.
-        parsed_name = ParsedAuthor(matched_author)
+        parsed_name = ParsedAuthor(searched_author)
 
         return AuthorItem(
             full_name=parsed_name.full_name,
@@ -176,7 +176,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         self, response: Response, author_id: str
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse publication results and yield ArticleItems, handling pagination."""
-        matched_author = response.meta["matched_author"]
+        searched_author = response.meta["searched_author"]
         is_first_page = response.meta["cursor"] == "*"
 
         data = json.loads(response.text or "{}")
@@ -190,14 +190,14 @@ class OpenAlexSpider(AuthorSearchSpider):
             if total_count == 0:
                 self.logger.info(
                     "No publications found for %s (ID: %s)",
-                    matched_author,
+                    searched_author,
                     self._id_from_uri(author_id),
                 )
             else:
                 self.logger.info(
                     "Found %s publications for %s (ID: %s):",
                     total_count,
-                    matched_author,
+                    searched_author,
                     self._id_from_uri(author_id),
                 )
 
@@ -205,10 +205,10 @@ class OpenAlexSpider(AuthorSearchSpider):
             if not isinstance(publication, dict):
                 continue
 
-            if item := self._build_article_item(publication, matched_author):
+            if item := self._build_article_item(publication, searched_author):
                 self.logger.info(
                     "%s: '%s' (%s)",
-                    matched_author,
+                    searched_author,
                     item.title[:50],
                     item.publication_date,
                 )
@@ -216,11 +216,11 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         if next_cursor := meta.get("next_cursor"):
             yield from self._request_author_publications(
-                author_id, matched_author, cursor=next_cursor
+                author_id, searched_author, cursor=next_cursor
             )
 
     def _build_article_item(
-        self, publication_record: dict[str, Any], matched_author: str
+        self, publication_record: dict[str, Any], searched_author: str
     ) -> ArticleItem | None:
         """Build an ArticleItem from OpenAlex publication data."""
         external_id = publication_record.get("id")
@@ -249,7 +249,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "is_open_access": is_oa,
                 "journal_name": self._extract_journal_name(publication_record),
                 "oa_status": oa_status,
-                "matched_author": matched_author,
+                "searched_author": searched_author,
                 "openalex": {
                     "type": publication_type,
                 },
@@ -268,7 +268,7 @@ class OpenAlexSpider(AuthorSearchSpider):
     Affiliation = namedtuple("Affiliation", ["institution", "years"])
 
     def _disambiguate_authors(
-        self, author_records: list[dict[str, Any]], matched_author: str
+        self, author_records: list[dict[str, Any]], searched_author: str
     ) -> dict[str, Any]:
         """Attempt to disambiguate multiple author matches by recent institutional affiliation.
 
@@ -287,7 +287,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         if not affiliated_authors or len(affiliated_authors) > 1:
             rough_number = "no" if not affiliated_authors else "multiple"
             raise AmbiguousAuthorError(
-                author_name=matched_author,
+                author_name=searched_author,
                 candidates=affiliated_authors,
                 reason=f"{rough_number} authors with institutional affiliation",
             )
@@ -295,22 +295,22 @@ class OpenAlexSpider(AuthorSearchSpider):
         the_author = affiliated_authors[0]
         self.logger.info(
             "Disambiguated '%s' to '%s' (ID: %s) based on recent institutional affiliation",
-            matched_author,
+            searched_author,
             the_author.get("display_name"),
-            self._id_from_uri(self._extract_author_id(the_author, matched_author)),
+            self._id_from_uri(self._extract_author_id(the_author, searched_author)),
         )
         return the_author
 
     def _add_to_ambiguous_authors(
         self,
-        matched_author: str,
+        searched_author: str,
         author_records: list[dict[str, Any]],
         reason: str,
     ) -> None:
         """Store one structured ambiguous-author record for the matched author."""
         self._ambiguous_authors.append(
             {
-                "matched_author": matched_author,
+                "searched_author": searched_author,
                 "reason": reason,
                 "start_year": int(self.start_date.split("-")[0]),
                 "candidates": author_records,
@@ -324,7 +324,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         rows: list[dict[str, str]] = []
         for ambiguous_author in self._ambiguous_authors:
-            matched_author = str(ambiguous_author.get("matched_author") or "")
+            searched_author = str(ambiguous_author.get("searched_author") or "")
             reason = str(ambiguous_author.get("reason") or "")
 
             raw_candidates = ambiguous_author.get("candidates") or []
@@ -333,7 +333,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
             for rank, author in enumerate(candidates, start=1):
                 row = self._build_ambiguous_authors_file_row(
-                    matched_author=matched_author,
+                    searched_author=searched_author,
                     author_record=author,
                     rank=rank,
                     candidate_count=candidate_count,
@@ -355,19 +355,19 @@ class OpenAlexSpider(AuthorSearchSpider):
                 writer.writeheader()
             writer.writerows(rows)
 
-        unique_matched_authors = {
-            row["matched_author"] for row in rows if row.get("matched_author")
+        unique_searched_authors = {
+            row["searched_author"] for row in rows if row.get("searched_author")
         }
         self.logger.warning(
             "Added %s ambiguous OpenAlex author(s) to %s",
-            len(unique_matched_authors),
+            len(unique_searched_authors),
             self.ambiguous_authors_file,
         )
         self._ambiguous_authors.clear()
 
     def _build_ambiguous_authors_file_row(
         self,
-        matched_author: str,
+        searched_author: str,
         author_record: dict[str, Any],
         rank: int,
         candidate_count: int,
@@ -385,7 +385,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         return {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "matched_author": matched_author,
+            "searched_author": searched_author,
             "candidate_rank": str(rank),
             "candidate_count": str(candidate_count),
             "ambiguity_reason": ambiguity_reason,
@@ -456,11 +456,11 @@ class OpenAlexSpider(AuthorSearchSpider):
         return authors
 
     @staticmethod
-    def _extract_author_id(author_record: dict[str, Any], matched_author: str) -> str:
+    def _extract_author_id(author_record: dict[str, Any], searched_author: str) -> str:
         """Ensure that the author record has an ID and return it."""
         author_id = author_record.get("id")
         if not author_id:
-            msg = f"Author match for '{matched_author}' has no ID: {author_record}"
+            msg = f"Author match for '{searched_author}' has no ID: {author_record}"
             raise ValueError(msg)
         assert isinstance(author_id, str)
         return author_id

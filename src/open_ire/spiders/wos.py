@@ -74,7 +74,7 @@ class WoSSpider(AuthorSearchSpider):
     def build_search_request(self, record: ParsedAuthor) -> Request:
         """Build a search request for a single author record."""
         term = self.author_name_for_query(record)
-        matched_author = self.canonical_author_name(record)
+        searched_author = self.canonical_author_name(record)
         query = self._build_query(term)
         params = self._build_params(query, page=1)
         url = f"{self.base_url}?{urlencode(params)}"
@@ -85,7 +85,7 @@ class WoSSpider(AuthorSearchSpider):
             url,
             headers=self.headers,
             callback=self.parse_publications,
-            meta={"matched_author": matched_author},
+            meta={"searched_author": searched_author},
             cb_kwargs={"query": query, "page": 1},
         )
 
@@ -112,10 +112,10 @@ class WoSSpider(AuthorSearchSpider):
         self, response: Response, query: str, page: int
     ) -> Generator[Request | ArticleItem, None, None]:
         """Parse WoS publication results and yield ArticleItems, handling pagination."""
-        matched_author = response.meta["matched_author"]
+        searched_author = response.meta["searched_author"]
 
         data = self._parse_response(response, query)
-        records = self._extract_records(data, query, matched_author)
+        records = self._extract_records(data, query, searched_author)
 
         try:
             total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
@@ -123,11 +123,11 @@ class WoSSpider(AuthorSearchSpider):
             total = 0
 
         if records and page == 1:
-            self.logger.info("Found %s publications for author '%s'", total, matched_author)
+            self.logger.info("Found %s publications for author '%s'", total, searched_author)
 
         emitted = 0
         for record in records:
-            if item := self._build_item(record, matched_author):
+            if item := self._build_item(record, searched_author):
                 emitted += 1
                 self.logger.info(
                     "'%s' by %s (%s)", item.title[:50], item.authors, item.publication_date
@@ -145,7 +145,7 @@ class WoSSpider(AuthorSearchSpider):
                 next_url,
                 headers=self.headers,
                 callback=self.parse_publications,
-                meta={"matched_author": matched_author},
+                meta={"searched_author": searched_author},
                 cb_kwargs={"query": query, "page": next_page},
             )
 
@@ -169,14 +169,14 @@ class WoSSpider(AuthorSearchSpider):
 
         return data
 
-    def _extract_records(self, data: dict[str, Any], query: str, matched_author: str) -> list[Any]:
+    def _extract_records(self, data: dict[str, Any], query: str, searched_author: str) -> list[Any]:
         """Extract records from WoS API response data."""
         records_container = (data.get("Data") or {}).get("Records", {}).get("records")
 
         # WoS "no results" => records: "" (string). Sometimes errors also show up as strings.
         if isinstance(records_container, str):
             if not records_container:
-                self.logger.info("No records found for query (%s): %r", matched_author, query)
+                self.logger.info("No records found for query (%s): %r", searched_author, query)
             else:
                 self.logger.warning(
                     "Unexpected WoS records payload (string) for query %r: %r",
@@ -195,7 +195,7 @@ class WoSSpider(AuthorSearchSpider):
 
         return as_list(records_container.get("REC"))
 
-    def _build_item(self, publication: Any, matched_author: str) -> ArticleItem | None:
+    def _build_item(self, publication: Any, searched_author: str) -> ArticleItem | None:
         """Build an ArticleItem from WoS publication data."""
         if not isinstance(publication, dict):
             return None
@@ -221,7 +221,7 @@ class WoSSpider(AuthorSearchSpider):
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "matched_author": matched_author,
+                "searched_author": searched_author,
                 "wos": {
                     "type": raw_type,
                 },

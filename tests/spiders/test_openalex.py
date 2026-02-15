@@ -167,9 +167,9 @@ class TestOpenAlexSpider:
             author_name=name_author.full_name,
         )
         assert len(spider.search_phrases) == 2
-        canonical_names = {record.canonical_name for record in spider.search_phrases}
-        assert csv_author.canonical_name in canonical_names
-        assert name_author.canonical_name in canonical_names
+        searched_authors = {record.canonical_name for record in spider.search_phrases}
+        assert csv_author.canonical_name in searched_authors
+        assert name_author.canonical_name in searched_authors
 
     def test_build_search_request(
         self,
@@ -183,7 +183,7 @@ class TestOpenAlexSpider:
         query_params = parse_qs(urlparse(request.url).query)
         assert query_params["search"] == [sample_authors[0].full_name]
         assert "affiliations.institution.id:" in query_params["filter"][0]
-        assert request.meta["matched_author"] == sample_authors[0].canonical_name
+        assert request.meta["searched_author"] == sample_authors[0].canonical_name
 
     @pytest.mark.parametrize(
         ("author_id", "cursor"),
@@ -205,7 +205,7 @@ class TestOpenAlexSpider:
         assert len(requests) == 1
         assert requests[0].url.startswith(spider.base_url + "/works")
         assert requests[0].cb_kwargs["author_id"] == author_id
-        assert requests[0].meta["matched_author"] == author.full_name
+        assert requests[0].meta["searched_author"] == author.full_name
 
         parsed_url = urlparse(requests[0].url)
         query_params = parse_qs(parsed_url.query)
@@ -258,7 +258,7 @@ class TestOpenAlexSpider:
         }
         initial_requests = list(
             spider._request_author_publications(
-                author_id="A1234567890", matched_author=author.full_name, cursor="*"
+                author_id="A1234567890", searched_author=author.full_name, cursor="*"
             )
         )
         response = HtmlResponse(
@@ -295,7 +295,7 @@ class TestOpenAlexSpider:
             item.extra["journal_name"]
             == publication_data["primary_location"]["source"]["display_name"]
         )
-        assert item.extra["matched_author"] == author1.canonical_name
+        assert item.extra["searched_author"] == author1.canonical_name
         assert item.authors == ParsedAuthor.encode_author_string([author1, author2])
 
     @pytest.mark.parametrize(
@@ -435,14 +435,14 @@ class TestAuthorDisambiguation:
         ]
 
         spider._add_to_ambiguous_authors(
-            matched_author="Eunjung Kim",
+            searched_author="Eunjung Kim",
             author_records=authors,
             reason="no authors with recent institutional affiliation (>=2018)",
         )
 
         assert len(spider._ambiguous_authors) == 1
         ambiguous_author = spider._ambiguous_authors[0]
-        assert ambiguous_author["matched_author"] == "Eunjung Kim"
+        assert ambiguous_author["searched_author"] == "Eunjung Kim"
         assert ambiguous_author["start_year"] == 2018
         assert ambiguous_author["candidates"] == authors
 
@@ -485,7 +485,7 @@ class TestAuthorDisambiguation:
             self._make_author("https://openalex.org/A3", "Eunjung Kim"),
         ]
         spider._add_to_ambiguous_authors(
-            matched_author="Eunjung Kim",
+            searched_author="Eunjung Kim",
             author_records=ambiguous_authors,
             reason="no authors with recent institutional affiliation (>=2018)",
         )

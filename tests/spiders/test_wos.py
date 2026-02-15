@@ -114,7 +114,7 @@ class TestWoSSpider:
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == author.canonical_name
+        assert item.extra["searched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == ParsedAuthor.encode_author_string(
             [sample_authors[4], sample_authors[0]]
@@ -170,7 +170,7 @@ class TestWoSSpider:
         }
         query = spider._build_query(spider.author_name_for_query(sample_authors[4]))
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.canonical_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",
@@ -189,7 +189,7 @@ class TestWoSSpider:
         item = items[0]
         assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == author.canonical_name
+        assert item.extra["searched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
         assert item.authors == ParsedAuthor.encode_author_string(
             [sample_authors[4], sample_authors[0]]
@@ -205,7 +205,7 @@ class TestWoSSpider:
         request = spider.build_search_request(author)
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
-        assert request.meta["matched_author"] == sample_authors[4].canonical_name
+        assert request.meta["searched_author"] == sample_authors[4].canonical_name
 
     def test_build_search_request_with_author_name_normalizes_to_wos_format(
         self, monkeypatch: pytest.MonkeyPatch
@@ -217,7 +217,7 @@ class TestWoSSpider:
 
         assert spider.search_phrases == [ParsedAuthor("John Doe")]
         assert 'AU=("Doe, John")' in request.cb_kwargs["query"]
-        assert request.meta["matched_author"] == "Doe, John"
+        assert request.meta["searched_author"] == "Doe, John"
 
     def test_parse_publications_no_results_records_empty_string(
         self,
@@ -231,7 +231,7 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.canonical_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",
@@ -261,7 +261,7 @@ class TestWoSSpider:
             "QueryResult": {"RecordsFound": 0},
         }
         request = Request(
-            url="http://example.com/api", meta={"matched_author": author.canonical_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
         response = HtmlResponse(
             url="http://example.com/api",
