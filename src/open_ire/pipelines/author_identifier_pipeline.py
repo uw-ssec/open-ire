@@ -75,6 +75,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     def _create_author_with_identifiers(session: Session, item: AuthorItem) -> Author:
         """Create a new author with all provided identifiers."""
         author = Author(
+            canonical_name=f"{item.last_name}, {item.first_name}",
             full_name=item.full_name,
             first_name=item.first_name,
             middle_names=item.middle_names,

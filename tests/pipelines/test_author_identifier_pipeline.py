@@ -54,7 +54,9 @@ class TestAuthorIdentifierPipeline:
         pipeline.process_item(item)
 
         with Session(pipeline.engine) as session:
-            author = session.exec(select(Author).where(Author.full_name == "Eunjung Kim")).first()
+            author = session.exec(
+                select(Author).where(Author.canonical_name == "Kim, Eunjung")
+            ).first()
 
             assert author is not None
             assert author.first_name == "Eunjung"
@@ -70,6 +72,8 @@ class TestAuthorIdentifierPipeline:
         # Create author with first item
         item1 = AuthorItem(
             full_name="Eunjung Kim",
+            first_name="Eunjung",
+            last_name="Kim",
             identifiers=[{"authority": "openalex", "identifier": "A5073669402"}],
         )
         pipeline.process_item(item1)
@@ -89,13 +93,15 @@ class TestAuthorIdentifierPipeline:
             assert len(authors) == 1  # No duplicate created
 
             author = authors[0]
-            assert author.full_name == "Eunjung Kim"  # Original name preserved
+            assert author.canonical_name == "Kim, Eunjung"  # Original name preserved
             assert len(author.identifiers) == 2  # ORCID was added
 
     def test_skips_item_without_identifiers(self, pipeline) -> None:
         """Items without identifiers are skipped."""
         item = AuthorItem(
             full_name="Test Author",
+            first_name="Test",
+            last_name="Author",
             identifiers=[],
         )
 
