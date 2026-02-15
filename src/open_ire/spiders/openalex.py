@@ -89,8 +89,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         """Parse author search results and generate publication requests."""
         matched_author = response.meta["matched_author"]
         data = json.loads(response.text or "{}")
+        authors = data.get("results", [])
 
-        for author in data.get("results", []):
+        for author in authors:
             author_id = author.get("id")
             if not author_id:
                 continue
@@ -98,6 +99,16 @@ class OpenAlexSpider(AuthorSearchSpider):
             # TODO: OpenAlex returns a relevance score; we could use it for early filtering.
 
             yield from self._request_publications(author_id, matched_author)
+
+        if len(authors) > 1:
+            self.logger.warning(
+                "Multiple possible authors (%s) found for '%s'; skipping.",
+                len(authors),
+                matched_author,
+            )
+            return
+
+        yield from self._request_publications(authors[0].get("id"), matched_author)
 
     # === SUPPORTING WORKFLOW METHODS ===
     # These methods support the main workflow
@@ -147,6 +158,11 @@ class OpenAlexSpider(AuthorSearchSpider):
         if not external_id:
             return None
 
+        title = publication.get("title")
+        if not title:
+            self.logger.debug("Skipping publication without title (ID: %s)", external_id)
+            return None
+
         authors = self._extract_authors(publication)
         oa_status = publication.get("open_access", {}).get("oa_status")
         is_oa = publication.get("open_access", {}).get("is_oa")
@@ -167,7 +183,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             publication_date=parse_date(publication.get("publication_date")),
             reference=str(external_id),
             repository=self.name,
-            title=publication.get("title"),
+            title=title,
             type=self._normalize_type(raw_type),
             url=publication.get("doi"),
         )
