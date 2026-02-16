@@ -104,7 +104,7 @@ warn_return_any = false
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = ["-vvv", "-ra", "--showlocals", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
 xfail_strict = false
 filterwarnings = ["error"]
 log_cli_level = "INFO"
