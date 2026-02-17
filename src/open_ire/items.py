@@ -1,6 +1,8 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
+
 from sqlmodel import Field, SQLModel
 
+from open_ire.author import ParsedAuthor
 from open_ire.models import ArticleBase
 
 
@@ -32,15 +34,13 @@ class UnavailableArticleItem(SQLModel):
     checked_at: str
 
 
-class AuthorItem(BaseModel):
+@dataclass
+class AuthorItem:
     """Author data with identifiers from a trusted source (e.g., OpenAlex).
 
     Used when a spider successfully disambiguates an author and discovers
     their canonical identifiers (OpenAlex ID, ORCID, etc.).
     """
 
-    full_name: str
-    first_name: str | None = None
-    middle_names: str | None = None
-    last_name: str | None = None
-    identifiers: list[dict[str, str]] = Field(default_factory=list)
+    author: ParsedAuthor
+    identifiers: list[dict[str, str]]

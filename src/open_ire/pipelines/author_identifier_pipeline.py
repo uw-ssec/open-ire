@@ -15,7 +15,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     """Store author identifiers discovered during crawling.
 
-    When a spider successfully disambiguates an author it yields an AuthorItem
+    When a spider successfully disambiguates an author, it yields an AuthorItem
     containing the author's canonical identifiers. This pipeline stores those
     identifiers, using them for deterministic author matching.
 
@@ -27,7 +27,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
 
         with Session(self.engine) as session:
             by_identifier = self._find_author_by_identifier(session, item.identifiers)
-            by_name = self._find_author_by_name(session, item)
+            by_name = self._find_author_by_name(session, item.author)
             candidates = [a for a in (by_identifier, by_name) if a is not None]
 
             if not candidates:
@@ -35,7 +35,9 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
             elif len(candidates) == 1 or (candidates[0].id == candidates[1].id):
                 self._update_author(session, candidates[0], item)
             else:
-                raise RuntimeError("Multiple existing authors found for " + item.full_name)
+                raise RuntimeError(
+                    "Multiple existing authors found for " + item.author.canonical_name
+                )
 
             session.commit()
 
@@ -55,27 +57,21 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
             if existing:
                 logger.info(
                     "Found existing author '%s' (id=%s) by identifier",
-                    existing.author.full_name,
+                    existing.author.canonical_name,
                     existing.author.id,
                 )
                 return existing.author
         return None
 
     @staticmethod
-    def _find_author_by_name(session: Session, item: AuthorItem) -> Author | None:
-        """Find an existing author by compatible parsed name."""
-        parsed = ParsedAuthor(item.full_name)
-        last_name = (item.last_name or parsed.last_name).strip()
-        if not last_name:
-            return None
-
-        candidates = session.exec(select(Author).where(Author.last_name == last_name)).all()
-        target = ParsedAuthor(item.full_name)
+    def _find_author_by_name(session: Session, author: ParsedAuthor) -> Author | None:
+        """Find an existing author by compatible name."""
+        candidates = session.exec(select(Author).where(Author.last_name == author.last_name)).all()
         for candidate in candidates:
-            if ParsedAuthor(candidate.canonical_name).likely_same(target):
+            if ParsedAuthor(candidate.canonical_name).likely_same(author):
                 logger.info(
                     "Found existing author '%s' (id=%s) by name",
-                    candidate.full_name,
+                    candidate.canonical_name,
                     candidate.id,
                 )
                 return candidate
@@ -91,21 +87,12 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     @staticmethod
     def _create_author_with_identifiers(session: Session, item: AuthorItem) -> Author:
         """Create a new author with all provided identifiers."""
-        parsed = ParsedAuthor(item.full_name)
-        first_name = item.first_name or parsed.first_name or None
-        middle_names = item.middle_names or parsed.middle_names or None
-        last_name = item.last_name or parsed.last_name or None
-
-        canonical_name = ParsedAuthor(
-            " ".join(part for part in [first_name, middle_names, last_name] if part)
-        ).canonical_name
-
         author = Author(
-            canonical_name=canonical_name,
-            full_name=item.full_name,
-            first_name=first_name,
-            middle_names=middle_names,
-            last_name=last_name,
+            canonical_name=item.author.canonical_name,
+            full_name=item.author.full_name,
+            first_name=item.author.first_name,
+            middle_names=item.author.middle_names,
+            last_name=item.author.last_name,
             explicitly_searched=True,
         )
         session.add(author)
