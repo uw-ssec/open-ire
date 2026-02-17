@@ -5,6 +5,7 @@ from typing import Any
 from scrapy.crawler import Crawler
 from sqlmodel import Session, select
 
+from open_ire.author import ParsedAuthor
 from open_ire.items import AuthorItem
 from open_ire.models import Author, AuthorIdentifier
 from open_ire.pipelines.base_sql_model_pipeline import BaseSQLModelPipeline
@@ -31,17 +32,17 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
         if not isinstance(item, AuthorItem):
             return item
 
-        if not item.identifiers:
-            logger.debug("AuthorItem for '%s' has no identifiers; skipping", item.full_name)
-            return item
-
         with Session(self.engine) as session:
-            author = self._find_author_by_identifier(session, item.identifiers)
+            by_identifier = self._find_author_by_identifier(session, item.identifiers)
+            by_name = self._find_author_by_name(session, item)
+            candidates = [a for a in (by_identifier, by_name) if a is not None]
 
-            if author:
-                self._update_author(session, author, item)
+            if not candidates:
+                self._create_author_with_identifiers(session, item)
+            elif len(candidates) == 1 or (candidates[0].id == candidates[1].id):
+                self._update_author(session, candidates[0], item)
             else:
-                author = self._create_author_with_identifiers(session, item)
+                raise RuntimeError("Multiple existing authors found for " + item.full_name)
 
             session.commit()
 
@@ -59,13 +60,36 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
                 .where(AuthorIdentifier.identifier == ident["identifier"])
             ).first()
             if existing:
+                logger.info(
+                    "Found existing author '%s' (id=%s) by identifier",
+                    existing.author.full_name,
+                    existing.author.id,
+                )
                 return existing.author
+        return None
+
+    @staticmethod
+    def _find_author_by_name(session: Session, item: AuthorItem) -> Author | None:
+        """Find an existing author by compatible parsed name."""
+        parsed = ParsedAuthor(item.full_name)
+        last_name = (item.last_name or parsed.last_name).strip()
+        if not last_name:
+            return None
+
+        candidates = session.exec(select(Author).where(Author.last_name == last_name)).all()
+        target = ParsedAuthor(item.full_name)
+        for candidate in candidates:
+            if ParsedAuthor(candidate.canonical_name).likely_same(target):
+                logger.info(
+                    "Found existing author '%s' (id=%s) by name",
+                    candidate.full_name,
+                    candidate.id,
+                )
+                return candidate
         return None
 
     def _update_author(self, session: Session, author: Author, item: AuthorItem) -> None:
         """Update an existing author with new data and add any missing identifiers."""
-        logger.info("Found existing author '%s' (id=%s) by identifier", author.full_name, author.id)
-
         author.updated_at = datetime.now()
 
         # Add any identifiers that don't already exist
@@ -74,12 +98,21 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     @staticmethod
     def _create_author_with_identifiers(session: Session, item: AuthorItem) -> Author:
         """Create a new author with all provided identifiers."""
+        parsed = ParsedAuthor(item.full_name)
+        first_name = item.first_name or parsed.first_name or None
+        middle_names = item.middle_names or parsed.middle_names or None
+        last_name = item.last_name or parsed.last_name or None
+
+        canonical_name = ParsedAuthor(
+            " ".join(part for part in [first_name, middle_names, last_name] if part)
+        ).normalized_name
+
         author = Author(
-            canonical_name=f"{item.last_name}, {item.first_name}",
+            canonical_name=canonical_name,
             full_name=item.full_name,
-            first_name=item.first_name,
-            middle_names=item.middle_names,
-            last_name=item.last_name,
+            first_name=first_name,
+            middle_names=middle_names,
+            last_name=last_name,
             explicitly_searched=True,
         )
         session.add(author)
