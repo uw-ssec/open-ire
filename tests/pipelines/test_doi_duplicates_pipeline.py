@@ -25,6 +25,7 @@ def pipeline(crawler: Crawler) -> Generator[DOIDuplicatesPipeline, None, None]:
 
 @pytest.fixture
 def pipeline_with_existing(
+    request: pytest.FixtureRequest,
     crawler: Crawler,
     tmp_path: Path,
 ) -> Generator[DOIDuplicatesPipeline, None, None]:
@@ -37,6 +38,7 @@ def pipeline_with_existing(
     instance.open_spider()
     assert instance.engine is not None
     with Session(instance.engine) as session:
+        seeded_doi = getattr(request, "param", "10.1234/test")
         article = Article(
             title="Existing Article",
             authors="Author One",
@@ -44,7 +46,7 @@ def pipeline_with_existing(
             repository="openalex",
             reference="OA123",
             url="https://doi.org/10.1234/test",
-            doi="10.1234/test",
+            doi=seeded_doi,
         )
         session.add(article)
         session.commit()
@@ -106,30 +108,51 @@ class TestDOIDuplicatesPipeline:
                 {"repository": "wos", "reference": "WOS:000123", "title": "Same Article from WoS"}
             ]
 
-    def test_normalizes_doi_before_matching(
+    @pytest.mark.parametrize(
+        ("pipeline_with_existing", "incoming_doi"),
+        [
+            ("10.1234/test", "https://doi.org/10.1234/test"),
+            ("https://doi.org/10.1234/test", "doi:10.1234/test"),
+            ("doi:10.1234/test", "10.1234/test"),
+        ],
+        ids=[
+            "db_norm__in_url",
+            "db_url__in_prefixed",
+            "db_prefixed__in_norm",
+        ],
+        indirect=["pipeline_with_existing"],
+    )
+    def test_matches_against_legacy_and_normalized_db_dois(
         self,
         pipeline_with_existing: DOIDuplicatesPipeline,
+        incoming_doi: str,
     ) -> None:
-        """DOI with URL prefix should still merge against normalized DOI in the database."""
+        """Unnormalized incoming DOI should still merge against normalized and unnormalized DOI in
+        the database."""
         pipeline = pipeline_with_existing
         assert pipeline.engine is not None
         wos_item = ArticleItem(
-            title="Article with URL DOI",
+            title="Same Article from WoS",
             authors="Author One",
             publication_date=date(2024, 1, 15),
             repository="wos",
             reference="WOS:000456",
             url="https://www.webofscience.com/wos/woscc/full-record/WOS:000456",
-            doi="https://doi.org/10.1234/test",
+            doi=incoming_doi,
         )
 
         with pytest.raises(DropItem):
             pipeline.process_item(wos_item)
 
         with Session(pipeline.engine) as session:
-            article = session.exec(select(Article).where(Article.doi == "10.1234/test")).first()
+            article = session.exec(
+                select(Article).where(
+                    Article.repository == "openalex",
+                    Article.reference == "OA123",
+                )
+            ).first()
             assert article is not None
             duplicate_sources = article.extra["duplicate_sources"]
             assert duplicate_sources == [
-                {"repository": "wos", "reference": "WOS:000456", "title": "Article with URL DOI"}
+                {"repository": "wos", "reference": "WOS:000456", "title": "Same Article from WoS"}
             ]
