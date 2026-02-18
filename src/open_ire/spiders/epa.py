@@ -2,13 +2,13 @@ from collections.abc import Generator
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
-from dateutil.parser import parse
 from scrapy import Spider
 from scrapy.http import Request, Response, TextResponse
 
 from open_ire.items import ArticleItem
 from open_ire.links import ValidLinkExtractor
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+from open_ire.utils import parse_date
 
 
 class EPASpider(Spider):
@@ -96,10 +96,7 @@ class EPASpider(Spider):
             or text_response.css('meta[name="DC.date.created"]::attr(content)').get()
         ) or ""
 
-        try:
-            publication_date = parse(publication_date_text).date()
-        except ValueError:
-            publication_date = None
+        publication_date = parse_date(publication_date_text)
 
         item = ArticleItem(
             abstract=abstract,
