@@ -73,3 +73,33 @@ class TestDOINormalizationPipeline:
         result = pipeline.process_item(item)
 
         assert result.doi is None
+
+    def test_normalize_percent_encoded_doi(
+        self, pipeline: DOINormalizationPipeline, item: ArticleItem
+    ) -> None:
+        """Test decoding percent-encoded DOI separators."""
+        item.doi = "10.1029%2F2019jc015650"
+
+        result = pipeline.process_item(item)
+
+        assert result.doi == "10.1029/2019jc015650"
+
+    def test_normalize_repeated_prefixes(
+        self, pipeline: DOINormalizationPipeline, item: ArticleItem
+    ) -> None:
+        """Test collapsing duplicated DOI URL prefixes."""
+        item.doi = "http://dx.doi.org/http://dx.doi.org/10.1214/17-BA1056R"
+
+        result = pipeline.process_item(item)
+
+        assert result.doi == "10.1214/17-BA1056R"
+
+    def test_normalize_embedded_doi_with_leading_slash(
+        self, pipeline: DOINormalizationPipeline, item: ArticleItem
+    ) -> None:
+        """Test extracting DOI with leading slash."""
+        item.doi = "/10.25923/hvy6-fe44"
+
+        result = pipeline.process_item(item)
+
+        assert result.doi == "10.25923/hvy6-fe44"

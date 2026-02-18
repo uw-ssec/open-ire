@@ -10,6 +10,7 @@ from scrapy.exporters import CsvItemExporter
 from scrapy.http import Request, Response
 from sqlalchemy import Engine
 from sqlmodel import asc, create_engine, select
+from twisted.internet.defer import Deferred
 from twisted.python.failure import Failure
 
 from open_ire.items import UnavailableArticleItem
@@ -17,7 +18,7 @@ from open_ire.models import Article
 
 
 @dataclass(frozen=True, slots=True)
-class CollectedArticleRecord:
+class _CollectedArticleRecord:
     article_id: str
     repository: str
     reference: str
@@ -25,14 +26,14 @@ class CollectedArticleRecord:
 
 
 @dataclass(slots=True)
-class RepositoryAvailabilityStats:
+class _RepositoryAvailabilityStats:
     checked: int = 0
     available: int = 0
     unavailable: int = 0
     http_errors: int = 0
     request_errors: int = 0
 
-    def add(self, other: "RepositoryAvailabilityStats") -> None:
+    def add(self, other: "_RepositoryAvailabilityStats") -> None:
         self.checked += other.checked
         self.available += other.available
         self.unavailable += other.unavailable
@@ -126,9 +127,22 @@ class UnavailableArticlesSpider(Spider):
         self._scheduled_articles = 0
         self._unavailable_items = 0
 
-        self.repository_stats: dict[str, RepositoryAvailabilityStats] = defaultdict(
-            RepositoryAvailabilityStats
+        self.repository_stats: dict[str, _RepositoryAvailabilityStats] = defaultdict(
+            _RepositoryAvailabilityStats
         )
+
+    @staticmethod
+    def close(spider: Spider, reason: str) -> Deferred[None] | None:
+        close_result = Spider.close(spider, reason)
+
+        if isinstance(spider, UnavailableArticlesSpider):
+            spider.exporter.close()
+            spider._log_summary(reason)
+
+            if spider.engine:
+                spider.engine.dispose()
+
+        return close_result
 
     @classmethod
     def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> "UnavailableArticlesSpider":
@@ -142,7 +156,7 @@ class UnavailableArticlesSpider(Spider):
 
         return spider
 
-    def _iter_articles(self) -> Iterator[CollectedArticleRecord]:
+    def _iter_articles(self) -> Iterator[_CollectedArticleRecord]:
         if not self.engine:
             return
 
@@ -171,14 +185,14 @@ class UnavailableArticlesSpider(Spider):
                     if not normalized_url:
                         continue
 
-                    yield CollectedArticleRecord(
+                    yield _CollectedArticleRecord(
                         article_id=str(article_id),
                         repository=str(repository),
                         reference=str(reference),
                         url=normalized_url,
                     )
 
-    def _build_request(self, article: CollectedArticleRecord, method: str) -> Request:
+    def _build_request(self, article: _CollectedArticleRecord, method: str) -> Request:
         return Request(
             article.url,
             method=method,
@@ -194,7 +208,7 @@ class UnavailableArticlesSpider(Spider):
 
     def _record_unavailable(
         self,
-        article: CollectedArticleRecord,
+        article: _CollectedArticleRecord,
         status_code: int | None,
         error: str,
         request_method: str,
@@ -243,7 +257,7 @@ class UnavailableArticlesSpider(Spider):
         )
 
     def _log_summary(self, reason: str) -> None:
-        totals = RepositoryAvailabilityStats()
+        totals = _RepositoryAvailabilityStats()
 
         for repository_stats in self.repository_stats.values():
             totals.add(repository_stats)
@@ -307,17 +321,10 @@ class UnavailableArticlesSpider(Spider):
             self._scheduled_articles,
         )
 
-    def closed(self, reason: str) -> None:
-        self.exporter.close()
-        self._log_summary(reason)
-
-        if self.engine:
-            self.engine.dispose()
-
     def parse_article_availability(
         self,
         response: Response,
-        article: CollectedArticleRecord,
+        article: _CollectedArticleRecord,
         request_method: str,
     ) -> Request | None:
         if request_method == "HEAD" and response.status in {405, 501}:
@@ -345,7 +352,7 @@ class UnavailableArticlesSpider(Spider):
         article = request.cb_kwargs.get("article")
         request_method = str(request.cb_kwargs.get("request_method") or request.method)
 
-        if not isinstance(article, CollectedArticleRecord):
+        if not isinstance(article, _CollectedArticleRecord):
             self.logger.warning("Request failed without article metadata: %s", failure.value)
             return
 

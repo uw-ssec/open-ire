@@ -4,15 +4,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
-from scrapy import Spider
 from scrapy.http import Request, Response
-from sqlalchemy import Engine
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, col, select
 
-from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
-from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
+from open_ire.enums import DepositTransitionReason, OAEvidenceKind
+from open_ire.models import Article
 from open_ire.pipelines import DOINormalizationPipeline
-from open_ire.settings import OPEN_IRE_CONTACT_EMAIL
+from open_ire.spiders.oa_evidence import BaseOAEvidenceSpider
 
 
 class LogMessages:
@@ -29,7 +27,7 @@ class LogMessages:
     SKIPPING_ARTICLE = "Skipping article %s - already has license evidence"
 
 
-class OALicenseSpider(Spider):
+class OALicenseSpider(BaseOAEvidenceSpider):
     """
     Fetch license information from Crossref and DataCite APIs.
     This spider queries the database for articles with DOIs, then:
@@ -42,22 +40,6 @@ class OALicenseSpider(Spider):
     name = "oa_license"
     crossref_base_url = "https://api.crossref.org/works"
     datacite_base_url = "https://api.datacite.org/dois"
-
-    custom_settings = {  # noqa: RUF012
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 2.0,
-        "DOWNLOAD_DELAY": 1,
-        "ITEM_PIPELINES": {},
-        "ROBOTSTXT_OBEY": False,
-    }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.engine: Engine | None = None
-        self.contact_email = OPEN_IRE_CONTACT_EMAIL
-        self.request_headers = {
-            "User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}",
-            "Accept": "application/json",
-        }
 
     @staticmethod
     def is_oa_license(license_url: str | None) -> bool:
@@ -150,60 +132,24 @@ class OALicenseSpider(Spider):
             "supports_oa": supports_oa,
         }
 
-    @classmethod
-    def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> "OALicenseSpider":
-        spider = super().from_crawler(crawler, *args, **kwargs)
-        db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
-        if db_path:
-            spider.engine = create_engine(
-                f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
-            )
-
-        return spider
-
-    def closed(self, reason: str) -> None:  # noqa: ARG002
-        """Clean up database engine when spider closes."""
-        if self.engine:
-            self.engine.dispose()
-
     def query_articles_with_doi(self) -> list[tuple[uuid.UUID, str]]:
         if not self.engine:
             return []
 
         with Session(self.engine) as session:
             statement = select(Article.id, Article.doi).where(
-                Article.doi.isnot(None),  # type: ignore[union-attr]
-                Article.doi != "",
+                col(Article.doi).is_not(None),
+                col(Article.doi) != "",
             )
             results = session.exec(statement).all()
             return [(row[0], row[1]) for row in results if row[1]]
 
     def has_license_evidence(self, article_id: uuid.UUID) -> bool:
-        if not self.engine:
-            return False
-
-        with Session(self.engine) as session:
-            statement = select(ArticleOAEvidence).where(
-                ArticleOAEvidence.article_id == article_id,
-                ArticleOAEvidence.kind == OAEvidenceKind.LICENSE,
-                ArticleOAEvidence.source.in_(["crossref", "datacite"]),  # type: ignore[union-attr]
-            )
-            return session.exec(statement).first() is not None
-
-    async def start(self) -> AsyncIterator[Request]:
-        articles = self.query_articles_with_doi()
-        self.logger.info(LogMessages.ARTICLES_FOUND, len(articles))
-
-        for article_id, doi in articles:
-            if self.has_license_evidence(article_id):
-                self.logger.debug(LogMessages.SKIPPING_ARTICLE, article_id)
-                continue
-
-            normalized_doi = DOINormalizationPipeline.normalize(doi)
-            if not normalized_doi:
-                continue
-
-            yield self.build_crossref_request(article_id, normalized_doi)
+        return self.has_oa_evidence(
+            article_id,
+            kind=OAEvidenceKind.LICENSE,
+            sources=["crossref", "datacite"],
+        )
 
     def build_crossref_request(self, article_id: uuid.UUID, doi: str) -> Request:
         encoded_doi = quote(doi, safe="")
@@ -306,43 +252,32 @@ class OALicenseSpider(Spider):
         source: str,
         license_data: dict[str, Any],
     ) -> None:
-        if not self.engine:
-            self.logger.error(LogMessages.NO_DATABASE_ENGINE)
-            return
-
         supports_oa = license_data.get("supports_oa", False)
+        self.save_oa_evidence(
+            article_id,
+            kind=OAEvidenceKind.LICENSE,
+            source=source,
+            supports_oa=supports_oa,
+            data={
+                "doi": doi,
+                "license_urls": license_data.get("license_urls", []),
+                "license_details": license_data.get("license_details", []),
+            },
+            transition_reason=DepositTransitionReason.LICENSE_OA,
+        )
+        self.logger.info(LogMessages.LICENSE_EVIDENCE_SAVED, article_id, source, supports_oa)
 
-        with Session(self.engine) as session:
-            article = session.get(Article, article_id)
-            if not article:
-                self.logger.warning(LogMessages.ARTICLE_NOT_FOUND, article_id)
-                return
+    async def start(self) -> AsyncIterator[Request]:
+        articles = self.query_articles_with_doi()
+        self.logger.info(LogMessages.ARTICLES_FOUND, len(articles))
 
-            current_status = article.deposit_status
-            evidence = ArticleOAEvidence(
-                article_id=article_id,
-                kind=OAEvidenceKind.LICENSE,
-                supports_oa=supports_oa,
-                source=source,
-                data={
-                    "doi": doi,
-                    "license_urls": license_data.get("license_urls", []),
-                    "license_details": license_data.get("license_details", []),
-                },
-            )
-            session.add(evidence)
+        for article_id, doi in articles:
+            if self.has_license_evidence(article_id):
+                self.logger.debug(LogMessages.SKIPPING_ARTICLE, article_id)
+                continue
 
-            if supports_oa and current_status not in (DepositStatus.READY, DepositStatus.PUBLISHED):
-                transition = ArticleDepositStatusTransition(
-                    article_id=article_id,
-                    from_status=current_status,
-                    to_status=DepositStatus.READY,
-                    reasons=[DepositTransitionReason.LICENSE_OA],
-                )
-                session.add(transition)
+            normalized_doi = DOINormalizationPipeline.normalize(doi)
+            if not normalized_doi:
+                continue
 
-                self.logger.info(LogMessages.ARTICLE_TRANSITIONED, article_id, source)
-
-            session.commit()
-
-            self.logger.info(LogMessages.LICENSE_EVIDENCE_SAVED, article_id, source, supports_oa)
+            yield self.build_crossref_request(article_id, normalized_doi)
