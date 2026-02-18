@@ -7,6 +7,7 @@ from scrapy.http import Request, Response
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
+from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL, OPENALEX_INSTITUTION_ID
 from open_ire.spiders.search import AuthorSearchSpider
@@ -112,12 +113,11 @@ class OpenAlexSpider(AuthorSearchSpider):
             )
 
         if len(authors) > 1:
-            self.logger.warning(
-                "Multiple possible authors (%s) found for '%s'; skipping.",
-                len(authors),
-                matched_author,
-            )
-            return
+            try:
+                authors = self._disambiguate_authors(authors, matched_author)
+            except AmbiguousAuthorError as e:
+                self.logger.warning("%s", e)
+                return
 
         yield from self._request_author_publications(authors[0].get("id"), matched_author)
 
@@ -234,7 +234,55 @@ class OpenAlexSpider(AuthorSearchSpider):
             url=publication.get("doi"),
         )
 
-    # === DATA EXTRACTION UTILITIES ===
+    # === HELPER METHODS ===
+
+    def _disambiguate_authors(
+        self, authors: list[dict[str, Any]], matched_author: str
+    ) -> list[dict[str, Any]]:
+        """Attempt to disambiguate multiple author matches by recent institutional affiliation.
+
+        Returns a single-element list if disambiguation succeeds.
+        Raises AmbiguousAuthorError if disambiguation fails.
+        """
+        start_year = int(self.start_date.split("-")[0])
+        recently_affiliated = [a for a in authors if self._has_recent_affiliation(a, start_year)]
+
+        if not recently_affiliated or len(recently_affiliated) > 1:
+            no_or_multiple = "no" if not recently_affiliated else "multiple"
+            raise AmbiguousAuthorError(
+                matched_author,
+                len(authors),
+                f"{no_or_multiple} authors with recent institutional affiliation (>={start_year})",
+            )
+
+        self.logger.info(
+            "Disambiguated '%s' to '%s' (ID: %s) based on recent institutional affiliation",
+            matched_author,
+            recently_affiliated[0].get("display_name"),
+            self._bare_openalex_id(recently_affiliated[0].get("id", "unknown")),
+        )
+        return recently_affiliated
+
+    def _has_recent_affiliation(self, author: dict[str, Any], start_year: int) -> bool:
+        """Check if the author has an institutional affiliation since start_year."""
+        for affiliation in author.get("affiliations", []):
+            if not isinstance(affiliation, dict):
+                continue
+
+            institution = affiliation.get("institution", {})
+            if not isinstance(institution, dict):
+                continue
+
+            institution_id = institution.get("id", "")
+            if not isinstance(institution_id, str):
+                continue
+
+            if institution_id.lower().endswith(self.institution_id.lower()):
+                years = affiliation.get("years", [])
+                if any(isinstance(year, int) and year >= start_year for year in years):
+                    return True
+
+        return False
 
     @staticmethod
     def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:

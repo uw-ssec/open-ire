@@ -9,6 +9,7 @@ from scrapy.http import HtmlResponse, Request
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
+from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem
 from open_ire.spiders.openalex import OpenAlexSpider
 
@@ -359,3 +360,81 @@ class TestOpenAlexSpider:
 
         authors = OpenAlexSpider._extract_authors({})
         assert authors == []
+
+
+class TestAuthorDisambiguation:
+    """Tests for author disambiguation based on recent institutional affiliation."""
+
+    INSTITUTION_ID = "I201448701"
+
+    @pytest.fixture
+    def spider(self) -> OpenAlexSpider:
+        return OpenAlexSpider(author_name="Test Author", start_date="2018-01-01")
+
+    def _make_author(
+        self,
+        author_id: str,
+        display_name: str,
+        institution_id: str | None = None,
+        years: list[int] | None = None,
+    ) -> dict[str, Any]:
+        author: dict[str, Any] = {"id": author_id, "display_name": display_name}
+        if institution_id and years:
+            author["affiliations"] = [
+                {
+                    "institution": {"id": f"https://openalex.org/{institution_id}"},
+                    "years": years,
+                }
+            ]
+        return author
+
+    def test_disambiguate_single_recent_affiliation(self, spider: OpenAlexSpider) -> None:
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
+            self._make_author("A3", "Eun-Jung Kim", "I999999999", [2022, 2023]),
+        ]
+        result = spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert len(result) == 1
+        assert result[0]["id"] == "A2"
+
+    def test_disambiguate_no_recent_affiliation(self, spider: OpenAlexSpider) -> None:
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
+            self._make_author("A3", "Eun-Jung Kim"),
+        ]
+        with pytest.raises(AmbiguousAuthorError) as exc_info:
+            spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert exc_info.value.author_name == "Eunjung Kim"
+        assert exc_info.value.candidate_count == 3
+
+    def test_disambiguate_multiple_recent_affiliations(self, spider: OpenAlexSpider) -> None:
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2019, 2022]),
+        ]
+        with pytest.raises(AmbiguousAuthorError) as exc_info:
+            spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert exc_info.value.author_name == "Eunjung Kim"
+        assert exc_info.value.candidate_count == 2
+
+    def test_has_recent_affiliation_true(self, spider: OpenAlexSpider) -> None:
+        author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2018, 2019])
+        assert spider._has_recent_affiliation(author, 2018) is True
+
+    def test_has_recent_affiliation_false_old_years(self, spider: OpenAlexSpider) -> None:
+        author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2015, 2016])
+        assert spider._has_recent_affiliation(author, 2018) is False
+
+    def test_has_recent_affiliation_false_wrong_institution(self, spider: OpenAlexSpider) -> None:
+        author = self._make_author("A1", "Test", "I999999999", [2020, 2021])
+        assert spider._has_recent_affiliation(author, 2018) is False
+
+    def test_has_recent_affiliation_no_affiliations(self, spider: OpenAlexSpider) -> None:
+        author = self._make_author("A1", "Test")
+        assert spider._has_recent_affiliation(author, 2018) is False
+
+    def test_has_recent_affiliation_case_insensitive(self, spider: OpenAlexSpider) -> None:
+        author = self._make_author("A1", "Test", self.INSTITUTION_ID.lower(), [2020])
+        assert spider._has_recent_affiliation(author, 2018) is True
