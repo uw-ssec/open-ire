@@ -1,9 +1,12 @@
 """Common utility functions."""
 
-from datetime import date
+import logging
+from datetime import date, datetime
 from typing import Any
 
 from dateutil.parser import parse
+
+logger = logging.getLogger(__name__)
 
 
 def parse_date(value: Any) -> date | None:
@@ -11,8 +14,11 @@ def parse_date(value: Any) -> date | None:
     if not value:
         return None
     try:
-        return parse(str(value)).date()
+        # Value containing just YYYY will produce YYYY-01-01; if unspecified, default defaults to today's date.
+        january_first = datetime.today().replace(day=1, month=1)
+        return parse(str(value), default=january_first).date()
     except (ValueError, TypeError):
+        logger.warning("Can't parse date '%s'", value)
         return None
 
 
