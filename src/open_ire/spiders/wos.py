@@ -35,11 +35,27 @@ class WoSSpider(AuthorSearchSpider):
     }
 
     @classmethod
-    def _normalize_type(cls, raw_type: str | None) -> ArticleType | None:
+    def _normalize_type(cls, raw_type: Any) -> ArticleType | None:
         """Normalize WOS document type to ArticleType."""
         if raw_type is None:
             return None
-        return cls.TYPE_MAP.get(raw_type.lower())
+        candidates: list[str] = []
+        if isinstance(raw_type, list):
+            for entry in raw_type:
+                if isinstance(entry, str):
+                    candidates.append(entry)
+                elif isinstance(entry, dict) and "content" in entry:
+                    candidates.append(str(entry["content"]))
+        elif isinstance(raw_type, dict) and "content" in raw_type:
+            candidates.append(str(raw_type["content"]))
+        else:
+            candidates.append(str(raw_type))
+
+        for candidate in candidates:
+            normalized = cls.TYPE_MAP.get(candidate.lower())
+            if normalized is not None:
+                return normalized
+        return None
 
     def __init__(
         self,
