@@ -40,7 +40,10 @@ class DOIDuplicatesPipeline(BaseSQLModelPipeline):
             ).all()
             for article_id, doi, repository, reference in rows:
                 assert doi is not None
-                self._doi_to_article[doi] = _ExistingArticle(
+                normalized = DOINormalizationPipeline.normalize(doi)
+                if normalized is None:
+                    continue
+                self._doi_to_article[normalized] = _ExistingArticle(
                     id=str(article_id), repository=repository, reference=reference
                 )
 
@@ -57,14 +60,19 @@ class DOIDuplicatesPipeline(BaseSQLModelPipeline):
 
         assert self.engine is not None
         with Session(self.engine) as session:
-            existing_article = session.exec(select(Article).where(Article.doi == doi)).first()
+            cached = self._doi_to_article[doi]
+            existing_article = session.exec(
+                select(Article).where(
+                    Article.repository == cached.repository,
+                    Article.reference == cached.reference,
+                )
+            ).first()
             if existing_article is None:
                 return item
             self._append_duplicate_source(existing_article, item)
             session.add(existing_article)
             session.commit()
 
-        cached = self._doi_to_article[doi]
         logger.info(
             "Dropping article '%s' from '%s': DOI '%s' already exists as '%s' in '%s'.",
             item.reference,
