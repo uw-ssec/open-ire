@@ -26,6 +26,8 @@ ITEM_PIPELINES = {
     # Filtering pipelines:
     "open_ire.pipelines.DuplicatesPipeline": 1,
     "open_ire.pipelines.SkipExistingPipeline": 2,
+    # Author identifier storage (early, before article processing):
+    "open_ire.pipelines.AuthorIdentifierPipeline": 5,
     # Data normalization pipelines:
     "open_ire.pipelines.DOINormalizationPipeline": 10,
     "open_ire.pipelines.DOIDuplicatesPipeline": 20,

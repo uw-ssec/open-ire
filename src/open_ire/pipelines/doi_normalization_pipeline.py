@@ -1,3 +1,5 @@
+from typing import Any
+
 from open_ire.items import ArticleItem
 
 
@@ -36,6 +38,9 @@ class DOINormalizationPipeline:
 
         return doi
 
-    def process_item(self, item: ArticleItem) -> ArticleItem:
+    def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         item.doi = self.normalize(item.doi)
         return item

@@ -1,4 +1,5 @@
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +14,14 @@ class TestDOINormalizationPipeline:
     def pipeline(self) -> DOINormalizationPipeline:
         """Create a pipeline instance for testing."""
         return DOINormalizationPipeline()
+
+    def test_passes_through_non_article_items(self, pipeline: DOINormalizationPipeline) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+
+        result = pipeline.process_item(item)
+
+        assert result is item
 
     def test_normalize_full_doi_url(
         self, pipeline: DOINormalizationPipeline, item: ArticleItem

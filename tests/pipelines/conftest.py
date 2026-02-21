@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock
 
@@ -8,6 +9,12 @@ from scrapy.crawler import Crawler
 from scrapy.settings import Settings
 
 from open_ire.items import ArticleItem
+
+
+@pytest.fixture
+def temp_db(tmp_path: Path) -> str:
+    """SQLite database URI for testing."""
+    return f"sqlite:///{tmp_path / 'test.db'}"
 
 
 @pytest.fixture

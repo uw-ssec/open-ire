@@ -1,3 +1,5 @@
+from typing import Any
+
 from scrapy.crawler import Crawler
 
 from open_ire.errors import DuplicateItemError
@@ -6,7 +8,7 @@ from open_ire.items import ArticleItem
 
 class DuplicatesPipeline:
     """
-    Drops duplicate items for a given spider session using the `reference` field.
+    Drops duplicate article items for a given spider session using the `reference` field.
     """
 
     def __init__(self) -> None:
@@ -22,7 +24,10 @@ class DuplicatesPipeline:
     def open_spider(self) -> None:
         pass
 
-    def process_item(self, item: ArticleItem) -> ArticleItem:
+    def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         if item.reference in self.seen:
             spider_name = (
                 self.crawler.spider.name
