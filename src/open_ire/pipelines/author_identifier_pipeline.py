@@ -2,7 +2,6 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from scrapy.crawler import Crawler
 from sqlmodel import Session, select
 
 from open_ire.author import ParsedAuthor
@@ -21,12 +20,6 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
     identifiers, using them for deterministic author matching.
 
     """
-
-    @classmethod
-    def from_crawler(cls, crawler: Crawler) -> "AuthorIdentifierPipeline":
-        pipeline = cls(crawler.settings.get("OPEN_IRE_DATABASE_FILE"))
-        pipeline.crawler = crawler
-        return pipeline
 
     def process_item(self, item: Any) -> Any:
         if not isinstance(item, AuthorItem):
