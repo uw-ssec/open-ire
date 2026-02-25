@@ -1,4 +1,6 @@
+import re
 from typing import Any
+from urllib.parse import unquote
 
 from open_ire.items import ArticleItem
 
@@ -17,7 +19,7 @@ class DOINormalizationPipeline:
         if not isinstance(doi, str) or not doi.strip():
             return None
 
-        doi = doi.strip()
+        doi = unquote(doi.strip())
         prefixes = [
             "https://doi.org/",
             "http://doi.org/",
@@ -27,20 +29,23 @@ class DOINormalizationPipeline:
             "doi:",
         ]
         for prefix in prefixes:
-            if doi.lower().startswith(prefix.lower()):
-                doi = doi[len(prefix) :]
-                break
+            while doi.lower().startswith(prefix.lower()):
+                doi = doi[len(prefix) :].strip()
 
-        doi = doi.strip()
+        doi = doi.strip().lstrip("/")
 
-        if not doi.startswith("10.") or "/" not in doi:
-            return None
+        if doi.startswith("10.") and "/" in doi:
+            return doi
 
-        return doi
+        doi_pattern = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
+        match = doi_pattern.search(doi)
+        if match:
+            return match.group(0)
+
+        return None
 
     def process_item(self, item: Any) -> Any:
         if not isinstance(item, ArticleItem):
             return item
-
         item.doi = self.normalize(item.doi)
         return item

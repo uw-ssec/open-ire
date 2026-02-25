@@ -12,8 +12,8 @@ from twisted.python.failure import Failure
 
 from open_ire.models import Article
 from open_ire.spiders.unavailable_articles import (
-    CollectedArticleRecord,
     UnavailableArticlesSpider,
+    _CollectedArticleRecord,
 )
 
 
@@ -30,7 +30,7 @@ def spider(tmp_path: Path) -> Generator[UnavailableArticlesSpider, None, None]:
 
     yield spider_instance
 
-    spider_instance.closed("test_teardown")
+    spider_instance.close(spider_instance, "test_teardown")
     engine.dispose()
 
 
@@ -78,7 +78,7 @@ class TestUnavailableArticlesSpider:
         self,
         spider: UnavailableArticlesSpider,
     ) -> None:
-        article = CollectedArticleRecord(
+        article = _CollectedArticleRecord(
             article_id="id-1",
             repository="repo_a",
             reference="A1",
@@ -98,7 +98,7 @@ class TestUnavailableArticlesSpider:
         self,
         spider: UnavailableArticlesSpider,
     ) -> None:
-        article = CollectedArticleRecord(
+        article = _CollectedArticleRecord(
             article_id="id-success",
             repository="repo_success",
             reference="S1",
@@ -117,7 +117,7 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_success"].request_errors == 0
 
     def test_parse_article_availability_fallback(self, spider: UnavailableArticlesSpider) -> None:
-        article = CollectedArticleRecord(
+        article = _CollectedArticleRecord(
             article_id="id-2",
             repository="repo_b",
             reference="B1",
@@ -133,7 +133,7 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_b"].checked == 0
 
     def test_handle_request_error(self, spider: UnavailableArticlesSpider) -> None:
-        article = CollectedArticleRecord(
+        article = _CollectedArticleRecord(
             article_id="id-3",
             repository="repo_c",
             reference="C1",
@@ -152,7 +152,7 @@ class TestUnavailableArticlesSpider:
     def test_handle_ignore_request_does_not_mark_unavailable(
         self, spider: UnavailableArticlesSpider
     ) -> None:
-        article = CollectedArticleRecord(
+        article = _CollectedArticleRecord(
             article_id="id-ignore",
             repository="repo_ignore",
             reference="I1",
@@ -169,13 +169,13 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_ignore"].request_errors == 0
 
     def test_csv_writes(self, spider: UnavailableArticlesSpider) -> None:
-        article_a = CollectedArticleRecord(
+        article_a = _CollectedArticleRecord(
             article_id="id-4",
             repository="repo_d",
             reference="D1",
             url="https://example.org/d1",
         )
-        article_b = CollectedArticleRecord(
+        article_b = _CollectedArticleRecord(
             article_id="id-5",
             repository="repo_d",
             reference="D2",
@@ -191,7 +191,7 @@ class TestUnavailableArticlesSpider:
         spider.parse_article_availability(response_a, article_a, "HEAD")
         spider.parse_article_availability(response_b, article_b, "HEAD")
 
-        spider.closed("finished")
+        spider.close(spider, "finished")
 
         csv_path = spider.output_csv
         assert csv_path.exists()
