@@ -422,23 +422,23 @@ class TestAuthorDisambiguation:
 
     def test_has_recent_affiliation_true(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2018, 2019])
-        assert spider._has_recent_affiliation(author, 2018) is True
+        assert spider._has_recent_affiliation_with_us(author, 2018) is True
 
     def test_has_recent_affiliation_false_old_years(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2015, 2016])
-        assert spider._has_recent_affiliation(author, 2018) is False
+        assert spider._has_recent_affiliation_with_us(author, 2018) is False
 
     def test_has_recent_affiliation_false_wrong_institution(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test", "I999999999", [2020, 2021])
-        assert spider._has_recent_affiliation(author, 2018) is False
+        assert spider._has_recent_affiliation_with_us(author, 2018) is False
 
     def test_has_recent_affiliation_no_affiliations(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test")
-        assert spider._has_recent_affiliation(author, 2018) is False
+        assert spider._has_recent_affiliation_with_us(author, 2018) is False
 
     def test_has_recent_affiliation_case_insensitive(self, spider: OpenAlexSpider) -> None:
         author = self._make_author("A1", "Test", self.INSTITUTION_ID.lower(), [2020])
-        assert spider._has_recent_affiliation(author, 2018) is True
+        assert spider._has_recent_affiliation_with_us(author, 2018) is True
 
     def test_add_to_ambiguous_authors_stores_structured_records(
         self, spider: OpenAlexSpider

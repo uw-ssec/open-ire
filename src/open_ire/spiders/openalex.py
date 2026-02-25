@@ -59,7 +59,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         super().__init__(*args, **kwargs)
 
         self.start_date = start_date
-        self.institution_id = OPENALEX_INSTITUTION_ID
+        self.our_institution_id = OPENALEX_INSTITUTION_ID
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
         self.ambiguous_authors_file = Path(OPENALEX_AMBIGUOUS_AUTHORS_FILE)
         self._ambiguous_authors: list[dict[str, Any]] = []
@@ -75,7 +75,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         matched_author = self.canonical_author_name(record)
         params = {
             "search": term,
-            "filter": f"affiliations.institution.id:{self.institution_id}",
+            "filter": f"affiliations.institution.id:{self.our_institution_id}",
             "per_page": str(self.page_size),
         }
         url = f"{self.base_url}/authors?{urlencode(params)}"
@@ -294,15 +294,17 @@ class OpenAlexSpider(AuthorSearchSpider):
         Returns a single-element list if disambiguation succeeds.
         Raises AmbiguousAuthorError if disambiguation fails.
         """
-        start_year = int(self.start_date.split("-")[0])
-        recently_affiliated = [a for a in authors if self._has_recent_affiliation(a, start_year)]
+        affiliation_cutoff_year = int(self.start_date.split("-")[0])
+        recently_affiliated = [
+            a for a in authors if self._has_recent_affiliation_with_us(a, affiliation_cutoff_year)
+        ]
 
         if not recently_affiliated or len(recently_affiliated) > 1:
             no_or_multiple = "no" if not recently_affiliated else "multiple"
             raise AmbiguousAuthorError(
                 matched_author,
                 len(authors),
-                f"{no_or_multiple} authors with recent institutional affiliation (>={start_year})",
+                f"{no_or_multiple} authors with recent institutional affiliation (>={affiliation_cutoff_year})",
             )
 
         self.logger.info(
@@ -313,7 +315,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
         return recently_affiliated
 
-    def _has_recent_affiliation(self, author: dict[str, Any], start_year: int) -> bool:
+    def _has_recent_affiliation_with_us(self, author: dict[str, Any], cutoff_year: int) -> bool:
         """Check if the author has an institutional affiliation since start_year."""
         for affiliation in author.get("affiliations", []):
             if not isinstance(affiliation, dict):
@@ -327,9 +329,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             if not isinstance(institution_id, str):
                 continue
 
-            if institution_id.lower().endswith(self.institution_id.lower()):
+            if institution_id.lower().endswith(self.our_institution_id.lower()):
                 years = affiliation.get("years", [])
-                if any(isinstance(year, int) and year >= start_year for year in years):
+                if any(isinstance(year, int) and year >= cutoff_year for year in years):
                     return True
 
         return False
@@ -447,7 +449,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             institution_id = institution.get("id", "")
             if not (
                 isinstance(institution_id, str)
-                and institution_id.lower().endswith(self.institution_id.lower())
+                and institution_id.lower().endswith(self.our_institution_id.lower())
             ):
                 continue
 
