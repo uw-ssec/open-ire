@@ -4,7 +4,6 @@ from typing import Any, Self
 from scrapy import Spider
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, col, create_engine, select
-from twisted.internet.defer import Deferred
 
 from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
 from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
@@ -39,14 +38,9 @@ class BaseOAEvidenceSpider(Spider):
 
         return spider
 
-    @staticmethod
-    def close(spider: Spider, reason: str) -> Deferred[None] | None:
-        close_result = Spider.close(spider, reason)
-
-        if isinstance(spider, BaseOAEvidenceSpider) and spider.engine:
-            spider.engine.dispose()
-
-        return close_result
+    def closed(self, reason: str) -> None:  # noqa: ARG002
+        if self.engine:
+            self.engine.dispose()
 
     def has_oa_evidence(
         self,

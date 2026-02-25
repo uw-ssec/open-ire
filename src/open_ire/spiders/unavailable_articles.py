@@ -10,7 +10,6 @@ from scrapy.exporters import CsvItemExporter
 from scrapy.http import Request, Response
 from sqlalchemy import Engine
 from sqlmodel import asc, create_engine, select
-from twisted.internet.defer import Deferred
 from twisted.python.failure import Failure
 
 from open_ire.items import UnavailableArticleItem
@@ -130,19 +129,6 @@ class UnavailableArticlesSpider(Spider):
         self.repository_stats: dict[str, _RepositoryAvailabilityStats] = defaultdict(
             _RepositoryAvailabilityStats
         )
-
-    @staticmethod
-    def close(spider: Spider, reason: str) -> Deferred[None] | None:
-        close_result = Spider.close(spider, reason)
-
-        if isinstance(spider, UnavailableArticlesSpider):
-            spider.exporter.close()
-            spider._log_summary(reason)
-
-            if spider.engine:
-                spider.engine.dispose()
-
-        return close_result
 
     @classmethod
     def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> "UnavailableArticlesSpider":
@@ -292,6 +278,13 @@ class UnavailableArticlesSpider(Spider):
                 repository_stats.http_errors,
                 repository_stats.request_errors,
             )
+
+    def closed(self, reason: str) -> None:
+        self.exporter.close()
+        self._log_summary(reason)
+
+        if self.engine:
+            self.engine.dispose()
 
     async def start(self) -> AsyncIterator[Request]:
         if not self.engine:
