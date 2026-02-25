@@ -1,3 +1,6 @@
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 from scrapy.crawler import Crawler
 from scrapy.exceptions import DropItem
@@ -16,6 +19,13 @@ class TestDuplicatesPipeline:
         assert pipeline.crawler is not None
         assert pipeline.crawler.spider is not None
         return pipeline
+
+    def test_passes_through_non_article_items(self, pipeline: DuplicatesPipeline) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+        result = pipeline.process_item(item)
+
+        assert result is item
 
     def test_process_unique_item(self, pipeline: DuplicatesPipeline, item: ArticleItem) -> None:
         """Test processing a unique item."""

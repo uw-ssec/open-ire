@@ -5,12 +5,12 @@ from types import MappingProxyType
 from typing import Any
 
 import requests
-from dateutil.parser import parse
 from scrapy import Spider
 
 from open_ire.errors import SpiderParameterError
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+from open_ire.utils import parse_date
 
 # See https://github.com/NOAA-Central-Library-NCL/NOAA_IR/blob/master/noaa_json_api/pandas-ir.ipynb for
 # details on the document fields.
@@ -103,10 +103,7 @@ class NOAAMetaSpider(Spider):
                 continue
 
             date_text = self._normalize_field_value(date_value) or ""
-            try:
-                return parse(date_text).date()
-            except (ValueError, TypeError):
-                continue
+            return parse_date(date_text)
 
         return None
 

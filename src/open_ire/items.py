@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from sqlmodel import Field, SQLModel
 
 from open_ire.models import ArticleBase
@@ -28,3 +29,17 @@ class UnavailableArticleItem(SQLModel):
     error: str
     request_method: str
     checked_at: str
+
+
+class AuthorItem(BaseModel):
+    """Author data with identifiers from a trusted source (e.g., OpenAlex).
+
+    Used when a spider successfully disambiguates an author and discovers
+    their canonical identifiers (OpenAlex ID, ORCID, etc.).
+    """
+
+    full_name: str
+    first_name: str | None = None
+    middle_names: str | None = None
+    last_name: str | None = None
+    identifiers: list[dict[str, str]] = Field(default_factory=list)

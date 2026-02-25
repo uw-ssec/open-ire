@@ -3193,8 +3193,8 @@ packages:
   requires_python: '>=3.10'
 - pypi: ./
   name: open-ire
-  version: 0.1.dev174
-  sha256: 38063bc89373da8746393711392d58b8d594a3bb0deb2c8ba26df1c633134242
+  version: 0.1.dev187
+  sha256: 77d041db7b651c935d718dc6a27f2f6222b2dbcd13a02075322a469597063797
   requires_dist:
   - msgraph-sdk
   - nameparser

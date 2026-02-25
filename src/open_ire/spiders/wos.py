@@ -35,11 +35,27 @@ class WoSSpider(AuthorSearchSpider):
     }
 
     @classmethod
-    def _normalize_type(cls, raw_type: str | None) -> ArticleType | None:
+    def _normalize_type(cls, raw_type: Any) -> ArticleType | None:
         """Normalize WOS document type to ArticleType."""
         if raw_type is None:
             return None
-        return cls.TYPE_MAP.get(raw_type.lower())
+        candidates: list[str] = []
+        if isinstance(raw_type, list):
+            for entry in raw_type:
+                if isinstance(entry, str):
+                    candidates.append(entry)
+                elif isinstance(entry, dict) and "content" in entry:
+                    candidates.append(str(entry["content"]))
+        elif isinstance(raw_type, dict) and "content" in raw_type:
+            candidates.append(str(raw_type["content"]))
+        else:
+            candidates.append(str(raw_type))
+
+        for candidate in candidates:
+            normalized = cls.TYPE_MAP.get(candidate.lower())
+            if normalized is not None:
+                return normalized
+        return None
 
     def __init__(
         self,
@@ -199,6 +215,11 @@ class WoSSpider(AuthorSearchSpider):
         authors = self._extract_authors(names)
 
         pub_info = summary.get("pub_info", {})
+        publication_date = parse_date(pub_info.get("coverdate") or pub_info.get("sortdate"))
+        if publication_date is None:
+            pub_year = pub_info.get("pubyear")
+            if pub_year:
+                publication_date = parse_date(f"{pub_year}-01-01")
         cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
         identifiers = as_list(cluster_related.get("identifiers", {}).get("identifier"))
         doi = next(
@@ -221,7 +242,7 @@ class WoSSpider(AuthorSearchSpider):
                     "type": raw_type,
                 },
             },
-            publication_date=parse_date(pub_info.get("coverdate") or pub_info.get("sortdate")),
+            publication_date=publication_date,
             reference=str(external_id),
             repository=self.name,
             title=title,

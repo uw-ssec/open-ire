@@ -40,7 +40,7 @@ class ArticleBase(SQLModel):
     extra: dict[str, Any] = Field(default_factory=dict)
     isbn: str | None = None
     issn: str | None = None
-    publication_date: date = Field(index=True)
+    publication_date: date | None = Field(default=None, index=True)
     reference: str = Field(index=True)
     repository: str = Field(index=True)
     title: str
@@ -232,6 +232,7 @@ class AuthorBase(SQLModel):
     middle_names: str | None = None
     last_name: str | None = None
     full_name: str = Field(index=True)
+    canonical_name: str = Field(index=True)
     uw_academic_unit: str | None = Field(default=None, index=True)
     explicitly_searched: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.now)

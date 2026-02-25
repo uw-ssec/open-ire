@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from scrapy.crawler import Crawler
@@ -41,6 +43,15 @@ class TestSkipExistingPipeline:
         self, pipeline_disabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
         result = pipeline_disabled.process_item(item)
+
+        assert result is item
+
+    def test_passes_through_non_article_items(
+        self, pipeline_enabled: SkipExistingPipeline, item: Any
+    ) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+        result = pipeline_enabled.process_item(item)
 
         assert result is item
 

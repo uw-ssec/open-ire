@@ -231,6 +231,7 @@ class AuthorIndex:
     """
 
     _required_fields = frozenset({"FirstName", "LastName", "Email"})
+    _optional_fields = frozenset({"MiddleNames"})
 
     def __init__(self, csv_path: Path) -> None:
         self.path = csv_path
@@ -255,7 +256,10 @@ class AuthorIndex:
 
             for row in reader:
                 record = self._build_record(
-                    row.get("FirstName"), row.get("LastName"), row.get("Email")
+                    row.get("FirstName"),
+                    row.get("MiddleNames") or "",
+                    row.get("LastName"),
+                    row.get("Email"),
                 )
                 if record:
                     records.append(record)
@@ -269,17 +273,19 @@ class AuthorIndex:
     def _build_record(
         self,
         first_name: str | None,
+        middle_names: str | None,
         last_name: str | None,
         email: str | None,
     ) -> ParsedAuthor | None:
         """Build a ParsedAuthor from CSV row data, returning None if invalid."""
         email = (email or "").strip()
         first_name = (first_name or "").strip()
+        middle_names = (middle_names or "").strip()
         last_name = (last_name or "").strip()
 
-        if not any((email, first_name, last_name)):
+        if not any((email, first_name, middle_names, last_name)):
             return None
 
         # Construct full name from components and parse it
-        full_name = f"{first_name} {last_name}"
-        return ParsedAuthor(email=email, name=HumanName(full_name))
+        full_name = f"{first_name} {middle_names} {last_name}"
+        return ParsedAuthor(name=HumanName(full_name), email=email)

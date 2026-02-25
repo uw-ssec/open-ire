@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from scrapy.exceptions import IgnoreRequest
 from scrapy.http import HtmlResponse, Request
 from sqlmodel import Session, SQLModel, create_engine
 from twisted.internet.error import DNSLookupError
@@ -147,6 +148,25 @@ class TestUnavailableArticlesSpider:
         assert spider.repository_stats["repo_c"].checked == 1
         assert spider.repository_stats["repo_c"].unavailable == 1
         assert spider.repository_stats["repo_c"].request_errors == 1
+
+    def test_handle_ignore_request_does_not_mark_unavailable(
+        self, spider: UnavailableArticlesSpider
+    ) -> None:
+        article = _CollectedArticleRecord(
+            article_id="id-ignore",
+            repository="repo_ignore",
+            reference="I1",
+            url="https://example.org/i1",
+        )
+        request = spider._build_request(article, method="HEAD")
+        failure = Failure(IgnoreRequest("filtered"))  # type: ignore[no-untyped-call]
+        failure.request = request  # type: ignore[attr-defined]
+
+        spider.handle_request_error(failure)
+
+        assert spider.repository_stats["repo_ignore"].checked == 0
+        assert spider.repository_stats["repo_ignore"].unavailable == 0
+        assert spider.repository_stats["repo_ignore"].request_errors == 0
 
     def test_csv_writes(self, spider: UnavailableArticlesSpider) -> None:
         article_a = _CollectedArticleRecord(

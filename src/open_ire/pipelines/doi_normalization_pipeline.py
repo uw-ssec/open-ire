@@ -1,4 +1,5 @@
 import re
+from typing import Any
 from urllib.parse import unquote
 
 from open_ire.items import ArticleItem
@@ -43,6 +44,8 @@ class DOINormalizationPipeline:
 
         return None
 
-    def process_item(self, item: ArticleItem) -> ArticleItem:
+    def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
         item.doi = self.normalize(item.doi)
         return item

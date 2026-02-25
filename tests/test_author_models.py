@@ -57,7 +57,12 @@ class TestAuthorModelRelationships:
             url="https://example.com/test",
         )
 
-        author = Author(full_name="Test Author", first_name="Test", last_name="Author")
+        author = Author(
+            full_name="Test Author",
+            first_name="Test",
+            last_name="Author",
+            canonical_name="Author, Test",
+        )
 
         # Add to session to get IDs
         session.add(article)
@@ -101,8 +106,18 @@ class TestAuthorModelRelationships:
             url="https://example.com/test2",
         )
 
-        author1 = Author(full_name="Author One", first_name="Author", last_name="One")
-        author2 = Author(full_name="Author Two", first_name="Author", last_name="Two")
+        author1 = Author(
+            full_name="Author One",
+            first_name="Author",
+            last_name="One",
+            canonical_name="One, Author",
+        )
+        author2 = Author(
+            full_name="Author Two",
+            first_name="Author",
+            last_name="Two",
+            canonical_name="Two, Author",
+        )
 
         session.add_all([article, author1, author2])
         session.commit()
@@ -125,7 +140,12 @@ class TestAuthorModelRelationships:
 
     def test_multiple_articles_per_author(self, session: Session):
         """Test that an author can be associated with multiple articles."""
-        author = Author(full_name="Prolific Author", first_name="Prolific", last_name="Author")
+        author = Author(
+            full_name="Prolific Author",
+            first_name="Prolific",
+            last_name="Author",
+            canonical_name="Author, Prolific",
+        )
 
         article1 = Article(
             title="First Article",
@@ -166,7 +186,12 @@ class TestAuthorModelRelationships:
 
     def test_author_identifiers_relationship(self, session: Session):
         """Test that author identifiers are properly linked to authors."""
-        author = Author(full_name="Identified Author", first_name="Identified", last_name="Author")
+        author = Author(
+            full_name="Identified Author",
+            first_name="Identified",
+            last_name="Author",
+            canonical_name="Author, Identified",
+        )
 
         session.add(author)
         session.commit()
@@ -194,7 +219,12 @@ class TestAuthorModelRelationships:
 
     def test_delete_author_removes_identifiers(self, session: Session):
         """Deleting an author should remove related identifier rows."""
-        author = Author(full_name="Identified Author", first_name="Identified", last_name="Author")
+        author = Author(
+            full_name="Identified Author",
+            first_name="Identified",
+            last_name="Author",
+            canonical_name="Author, Identified",
+        )
         session.add(author)
         session.commit()
         session.refresh(author)
@@ -215,6 +245,15 @@ class TestAuthorModelRelationships:
 
         assert len(session.exec(select(AuthorIdentifier)).all()) == 0
 
+    def test_author_requires_canonical_name(self, session: Session):
+        """Creating an author without canonical_name should fail at commit time."""
+        author = Author(full_name="Missing Canonical", first_name="Missing", last_name="Canonical")
+        session.add(author)
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
     def test_delete_junction_keeps_article_and_author(self, session: Session):
         """Test that relationships are maintained when objects are deleted."""
         # Create test data
@@ -227,7 +266,12 @@ class TestAuthorModelRelationships:
             url="https://example.com/test5",
         )
 
-        author = Author(full_name="Cascade Author", first_name="Cascade", last_name="Author")
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
 
         session.add_all([article, author])
         session.commit()
@@ -261,7 +305,12 @@ class TestAuthorModelRelationships:
             reference="test_ref_006",
             url="https://example.com/test6",
         )
-        author = Author(full_name="Cascade Author", first_name="Cascade", last_name="Author")
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
         session.add_all([article, author])
         session.commit()
         session.refresh(article)
@@ -287,7 +336,12 @@ class TestAuthorModelRelationships:
             reference="test_ref_007",
             url="https://example.com/test7",
         )
-        author = Author(full_name="Cascade Author", first_name="Cascade", last_name="Author")
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
         session.add_all([article, author])
         session.commit()
         session.refresh(article)
@@ -306,7 +360,12 @@ class TestAuthorModelRelationships:
 
 class TestAuthorAffiliations:
     def test_author_affiliation_relationship(self, session: Session):
-        author = Author(full_name="Affiliated Author", first_name="Affiliated", last_name="Author")
+        author = Author(
+            full_name="Affiliated Author",
+            first_name="Affiliated",
+            last_name="Author",
+            canonical_name="Author, Affiliated",
+        )
         session.add(author)
         session.commit()
         session.refresh(author)
@@ -324,7 +383,12 @@ class TestAuthorAffiliations:
 
     def test_delete_author_removes_affiliations(self, session: Session):
         """Deleting an author should remove related affiliation rows."""
-        author = Author(full_name="Affiliated Author", first_name="Affiliated", last_name="Author")
+        author = Author(
+            full_name="Affiliated Author",
+            first_name="Affiliated",
+            last_name="Author",
+            canonical_name="Author, Affiliated",
+        )
         session.add(author)
         session.commit()
         session.refresh(author)
@@ -348,7 +412,12 @@ class TestAuthorAffiliations:
             AuthorAffiliation.model_validate({"author_id": 1, "year": 1899})
 
     def test_author_affiliation_year_check_constraint(self, session: Session):
-        author = Author(full_name="Bounded Year Author", first_name="Bounded", last_name="Author")
+        author = Author(
+            full_name="Bounded Year Author",
+            first_name="Bounded",
+            last_name="Author",
+            canonical_name="Author, Bounded",
+        )
         session.add(author)
         session.commit()
         session.refresh(author)
@@ -359,7 +428,12 @@ class TestAuthorAffiliations:
         session.rollback()
 
     def test_author_affiliation_unique_author_year(self, session: Session):
-        author = Author(full_name="Unique Year Author", first_name="Unique", last_name="Author")
+        author = Author(
+            full_name="Unique Year Author",
+            first_name="Unique",
+            last_name="Author",
+            canonical_name="Author, Unique",
+        )
         session.add(author)
         session.commit()
         session.refresh(author)

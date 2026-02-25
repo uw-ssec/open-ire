@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 from scrapy import Spider
+from scrapy.exceptions import IgnoreRequest
 from scrapy.exporters import CsvItemExporter
 from scrapy.http import Request, Response
 from sqlalchemy import Engine
@@ -102,12 +103,13 @@ class UnavailableArticlesSpider(Spider):
     name = "unavailable_articles"
 
     custom_settings = {  # noqa: RUF012
-        "CONCURRENT_REQUESTS": 8,
-        "DOWNLOAD_HANDLERS": {
-            "http": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
-            "https": "scrapy.core.downloader.handlers.http.HTTPDownloadHandler",
-        },
         "ITEM_PIPELINES": {},
+        "CONCURRENT_REQUESTS": 8,
+        "ROBOTSTXT_OBEY": False,
+        "DOWNLOAD_HANDLERS": {
+            "http": "scrapy.core.downloader.handlers.http11.HTTP11DownloadHandler",
+            "https": "scrapy.core.downloader.handlers.http11.HTTP11DownloadHandler",
+        },
     }
 
     def __init__(
@@ -119,7 +121,7 @@ class UnavailableArticlesSpider(Spider):
         super().__init__(*args, **kwargs)
 
         self.engine: Engine | None = None
-        self.output_csv = Path(output_csv)
+        self.output_csv = self._dated_output_csv(Path(output_csv))
         self.db_batch_size = 5000
         self.exporter = UnavailableArticleExporter(self.output_csv)
 
@@ -129,6 +131,15 @@ class UnavailableArticlesSpider(Spider):
         self.repository_stats: dict[str, _RepositoryAvailabilityStats] = defaultdict(
             _RepositoryAvailabilityStats
         )
+
+    @staticmethod
+    def _dated_output_csv(output_csv: Path) -> Path:
+        date_suffix = datetime.now(UTC).date().isoformat()
+        stem = output_csv.stem
+        if stem.endswith(date_suffix):
+            return output_csv
+
+        return output_csv.with_name(f"{stem}_{date_suffix}{output_csv.suffix}")
 
     @classmethod
     def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> "UnavailableArticlesSpider":
@@ -347,6 +358,14 @@ class UnavailableArticlesSpider(Spider):
 
         if not isinstance(article, _CollectedArticleRecord):
             self.logger.warning("Request failed without article metadata: %s", failure.value)
+            return
+
+        if isinstance(failure.value, IgnoreRequest):
+            self.logger.info(
+                "Skipping unavailable article record for filtered request (%s): %s",
+                article.url,
+                failure.value,
+            )
             return
 
         response = getattr(failure.value, "response", None)

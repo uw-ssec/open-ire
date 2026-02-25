@@ -126,18 +126,32 @@ pixi run search-terms eric "ocean acidification,coral bleaching"
 
 ### Search by Author
 
-To run a spider that supports searching by author against a list of authors, use
-the `search-authors` command. This requires a CSV file with `FirstName`,
-`LastName`, and `Email` columns.
+To search for a single author's name, use the `search-author` (singular)
+command:
 
 ```bash
-pixi run search-authors <spider_name> <path_to_csv>
+pixi run search-author <spider_name> "<author's full name>"
 ```
 
-For example, to search `openalex` using an author file:
+For example:
 
 ```bash
-pixi run search-authors openalex data/authors.csv
+pixi run search-author openalex "Michelle Habell-Pallán"
+```
+
+To run a spider that supports searching by author against a list of authors, use
+the `search-authors` (plural) command. This requires a CSV file with
+`FirstName`, `MiddleNames` (optional), `LastName`, and `Email` columns.
+
+```bash
+pixi run search-authors <spider_name> "<path_to_csv>"
+```
+
+For example, to search `openalex` for publications by any one among a number of
+authors:
+
+```bash
+pixi run search-authors openalex "data/authors.csv"
 ```
 
 ## Contributing
