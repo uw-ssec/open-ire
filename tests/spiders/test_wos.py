@@ -158,6 +158,17 @@ class TestWoSSpider:
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
 
+    def test_build_search_request_with_author_name_normalizes_to_wos_format(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
+        spider = WoSSpider(author_name="John Doe")
+
+        request = spider.build_search_request(spider.search_terms[0])
+
+        assert spider.search_terms == ["Doe, John"]
+        assert 'AU=("Doe, John")' in request.cb_kwargs["query"]
+
     def test_parse_publications_no_results_records_empty_string(
         self, spider: WoSSpider, five_authors: list[ParsedAuthor]
     ) -> None:

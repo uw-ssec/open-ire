@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from scrapy.crawler import Crawler
@@ -64,7 +65,10 @@ class FileReferencePipeline:
 
         return file_reference
 
-    async def process_item(self, item: ArticleItem) -> ArticleItem:
+    async def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
+
         if self.crawler is None:
             msg = "Crawler context unavailable in FileReferencePipeline.process_item()."
             raise RuntimeError(msg)

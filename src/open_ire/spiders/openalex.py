@@ -60,7 +60,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
 
     def _get_author_name(self, record: ParsedAuthor) -> str:
-        return f"{record.first_name} {record.last_name}"
+        return " ".join(
+            part for part in [record.first_name, record.middle_names, record.last_name] if part
+        )
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
     # These methods define the main crawling workflow

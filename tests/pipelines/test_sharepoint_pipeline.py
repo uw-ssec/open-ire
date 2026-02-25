@@ -33,6 +33,14 @@ class TestSharePointPipeline:
             return pipeline
 
     @pytest.mark.asyncio
+    async def test_passes_through_non_article_items(self, pipeline: SharePointPipeline) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+        result = await pipeline.process_item(item)
+
+        assert result is item
+
+    @pytest.mark.asyncio
     async def test_item_with_files(
         self, pipeline: SharePointPipeline, item: ArticleItem, tmp_path: Path
     ) -> None:

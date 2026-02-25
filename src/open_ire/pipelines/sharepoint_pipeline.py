@@ -3,7 +3,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 from posixpath import join as posix_join
-from typing import Self
+from typing import Any, Self
 
 from scrapy import Spider, signals
 from scrapy.crawler import Crawler
@@ -155,7 +155,9 @@ class SharePointPipeline:
     def close_spider(self) -> None:
         pass
 
-    async def process_item(self, item: ArticleItem) -> ArticleItem:
+    async def process_item(self, item: Any) -> Any:
+        if not isinstance(item, ArticleItem):
+            return item
         if not item.files:
             msg = f"No files found for article '{item.reference}'."
             logger.warning(msg)

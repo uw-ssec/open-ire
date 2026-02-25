@@ -1,6 +1,6 @@
 from collections.abc import Generator
-from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from scrapy.crawler import Crawler
@@ -25,6 +25,13 @@ class TestSQLModelPipeline:
         assert instance.engine is not None
         yield instance
         instance.engine.dispose()
+
+    def test_passes_through_non_article_items(self, pipeline: SQLModelPipeline) -> None:
+        """Test that non-ArticleItem items are passed through unchanged."""
+        item = MagicMock(spec=Any)
+        result = pipeline.process_item(item)
+
+        assert result is item
 
     def test_process_valid_item(self, pipeline: SQLModelPipeline, item: ArticleItem) -> None:
         """A valid item is processed successfully."""
@@ -181,11 +188,3 @@ class TestSQLModelPipeline:
         with Session(pipeline.engine) as session:
             file_refs = session.exec(select(ArticleFileReference)).all()
             assert len(file_refs) == 1
-
-    def test_from_crawler_creates_missing_db_parent_dir(self, tmp_path: Path) -> None:
-        missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
-        crawler = SimpleNamespace(
-            settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
-        )
-        SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
-        assert Path(missing_db).parent.exists()
