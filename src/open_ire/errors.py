@@ -1,3 +1,5 @@
+from typing import Any
+
 from scrapy.exceptions import DropItem
 
 
@@ -47,9 +49,9 @@ class DatabaseDuplicateItemError(OpenIRError, DropItem):
 class AmbiguousAuthorError(OpenIRError):
     """Raised when author disambiguation fails."""
 
-    def __init__(self, author_name: str, candidate_count: int, reason: str) -> None:
-        message = f"Cannot disambiguate '{author_name}': {reason} ({candidate_count} candidates)"
+    def __init__(self, author_name: str, candidates: list[dict[str, Any]], reason: str) -> None:
+        message = f"Cannot disambiguate '{author_name}': {reason} ({len(candidates)} candidates)"
         super().__init__(message)
         self.author_name = author_name
-        self.candidate_count = candidate_count
+        self.candidates = candidates
         self.reason = reason

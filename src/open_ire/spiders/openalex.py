@@ -1,5 +1,6 @@
 import csv
 import json
+from collections import namedtuple
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
@@ -59,7 +60,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         super().__init__(*args, **kwargs)
 
         self.start_date = start_date
-        self.our_institution_id = OPENALEX_INSTITUTION_ID
+        self.our_institution_id = OPENALEX_INSTITUTION_ID.strip().upper()
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
         self.ambiguous_authors_file = Path(OPENALEX_AMBIGUOUS_AUTHORS_FILE)
         self._ambiguous_authors: list[dict[str, Any]] = []
@@ -109,9 +110,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         self.logger.info("Found %s authors matching '%s':", len(authors), matched_author)
         for i, author in enumerate(authors):
-            author_id = author.get("id")
-            if not author_id:
-                continue
+            author_id = self._extract_author_id(author, matched_author)
 
             # TODO: OpenAlex returns a relevance score; we could use it for early filtering.
             self.logger.info(
@@ -123,21 +122,19 @@ class OpenAlexSpider(AuthorSearchSpider):
                 author.get("relevance_score"),
             )
 
-        if len(authors) > 1:
+        the_author = authors[0] if len(authors) == 1 else None
+        if not the_author:
             try:
-                authors = self._disambiguate_authors(authors, matched_author)
+                the_author = self._disambiguate_authors(authors, matched_author)
             except AmbiguousAuthorError as e:
                 self.logger.warning("%s", e)
-                self._add_to_ambiguous_authors(matched_author, authors, e.reason)
+                self._add_to_ambiguous_authors(matched_author, e.candidates, e.reason)
                 return
 
-        # Yield author identifiers for storage
-        author_data = authors[0]
-        yield self._build_author_item(matched_author, author_data)
+        yield self._build_author_item(matched_author, the_author)
 
-        yield from self._request_author_publications(
-            author_data.get("id", "unknown"), matched_author
-        )
+        author_id = self._extract_author_id(the_author, matched_author)
+        yield from self._request_author_publications(author_id, matched_author)
 
     def _request_author_publications(
         self, author_id: str, matched_author: str, cursor: str = "*"
@@ -284,57 +281,44 @@ class OpenAlexSpider(AuthorSearchSpider):
             url=url,
         )
 
-    # === HELPER METHODS ===
+    # === AUTHOR DISAMBIGUATION ===
+
+    Institution = namedtuple("Institution", ["id", "name"])
+    Affiliation = namedtuple("Affiliation", ["institution", "years"])
 
     def _disambiguate_authors(
         self, authors: list[dict[str, Any]], matched_author: str
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Attempt to disambiguate multiple author matches by recent institutional affiliation.
 
         Returns a single-element list if disambiguation succeeds.
         Raises AmbiguousAuthorError if disambiguation fails.
         """
-        affiliation_cutoff_year = int(self.start_date.split("-")[0])
-        recently_affiliated = [
-            a for a in authors if self._has_recent_affiliation_with_us(a, affiliation_cutoff_year)
-        ]
+        affiliated_authors = []
 
-        if not recently_affiliated or len(recently_affiliated) > 1:
-            no_or_multiple = "no" if not recently_affiliated else "multiple"
+        for author_record in authors:
+            affiliations = self._extract_affiliations(author_record)
+            institution_years = self._years_at_institution(self.our_institution_id, affiliations)
+            if not institution_years:
+                continue
+            affiliated_authors.append(author_record)
+
+        if not affiliated_authors or len(affiliated_authors) > 1:
+            rough_number = "no" if not affiliated_authors else "multiple"
             raise AmbiguousAuthorError(
-                matched_author,
-                len(authors),
-                f"{no_or_multiple} authors with recent institutional affiliation (>={affiliation_cutoff_year})",
+                author_name=matched_author,
+                candidates=affiliated_authors,
+                reason=f"{rough_number} authors with institutional affiliation",
             )
 
+        the_author = affiliated_authors[0]
         self.logger.info(
             "Disambiguated '%s' to '%s' (ID: %s) based on recent institutional affiliation",
             matched_author,
-            recently_affiliated[0].get("display_name"),
-            self._id_from_uri(recently_affiliated[0].get("id", "unknown")),
+            the_author.get("display_name"),
+            self._id_from_uri(self._extract_author_id(the_author, matched_author)),
         )
-        return recently_affiliated
-
-    def _has_recent_affiliation_with_us(self, author: dict[str, Any], cutoff_year: int) -> bool:
-        """Check if the author has an institutional affiliation since start_year."""
-        for affiliation in author.get("affiliations", []):
-            if not isinstance(affiliation, dict):
-                continue
-
-            institution = affiliation.get("institution", {})
-            if not isinstance(institution, dict):
-                continue
-
-            institution_id = institution.get("id", "")
-            if not isinstance(institution_id, str):
-                continue
-
-            if institution_id.lower().endswith(self.our_institution_id.lower()):
-                years = affiliation.get("years", [])
-                if any(isinstance(year, int) and year >= cutoff_year for year in years):
-                    return True
-
-        return False
+        return the_author
 
     def _add_to_ambiguous_authors(
         self,
@@ -367,17 +351,16 @@ class OpenAlexSpider(AuthorSearchSpider):
             candidates = [c for c in raw_candidates if isinstance(c, dict)]
             candidate_count = len(candidates)
 
-            rows.extend(
-                self._build_ambiguous_authors_file_row(
+            for rank, author in enumerate(candidates, start=1):
+                row = self._build_ambiguous_authors_file_row(
                     matched_author=matched_author,
-                    author=author,
+                    author_record=author,
                     rank=rank,
                     candidate_count=candidate_count,
                     reason=reason,
                     start_year=start_year,
                 )
-                for rank, author in enumerate(candidates, start=1)
-            )
+                rows.append(row)
 
         if not rows:
             self._ambiguous_authors.clear()
@@ -393,9 +376,12 @@ class OpenAlexSpider(AuthorSearchSpider):
                 writer.writeheader()
             writer.writerows(rows)
 
+        unique_matched_authors = {
+            row["matched_author"] for row in rows if row.get("matched_author")
+        }
         self.logger.warning(
-            "Wrote %s ambiguous OpenAlex author row(s) to %s",
-            len(rows),
+            "Added %s ambiguous OpenAlex author(s) to %s",
+            len(unique_matched_authors),
             self.ambiguous_authors_file,
         )
         self._ambiguous_authors.clear()
@@ -403,16 +389,21 @@ class OpenAlexSpider(AuthorSearchSpider):
     def _build_ambiguous_authors_file_row(
         self,
         matched_author: str,
-        author: dict[str, Any],
+        author_record: dict[str, Any],
         rank: int,
         candidate_count: int,
         reason: str,
         start_year: int,
     ) -> dict[str, str]:
         """Build a single CSV row for manual disambiguation review."""
-        openalex_id = str(author.get("id") or "")
-        years, institutions = self._extract_affiliation_details(author)
-        last_known_names = self._extract_last_known_affiliations(author)
+        openalex_id = str(author_record.get("id") or "")
+        affiliations = self._extract_affiliations(author_record)
+        institution_years = self._years_at_institution(self.our_institution_id, affiliations)
+        last_known_institutions = [
+            self._extract_institution(lki).name
+            for lki in (author_record.get("last_known_institutions", []) or [])
+            if lki is not None
+        ]
 
         return {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -421,65 +412,57 @@ class OpenAlexSpider(AuthorSearchSpider):
             "candidate_count": str(candidate_count),
             "ambiguity_reason": reason,
             "start_year": str(start_year),
-            "candidate_openalex_id": self._id_from_uri(openalex_id),
-            "candidate_openalex_url": openalex_id,
-            "candidate_display_name": str(author.get("display_name") or ""),
-            "candidate_orcid": self._id_from_uri(str(author.get("orcid") or "")),
-            "candidate_relevance_score": str(author.get("relevance_score") or ""),
-            "candidate_works_count": str(author.get("works_count") or ""),
-            "candidate_cited_by_count": str(author.get("cited_by_count") or ""),
-            "institution_affiliation_years": ";".join(str(y) for y in sorted(set(years))),
-            "last_known_affiliations": ";".join(sorted(set(last_known_names))),
+            "openalex_id": self._id_from_uri(openalex_id),
+            "openalex_url": openalex_id,
+            "display_name": str(author_record.get("display_name", "")),
+            "orcid": self._id_from_uri(str(author_record.get("orcid", ""))),
+            "relevance_score": str(author_record.get("relevance_score", -1)),
+            "works_count": str(author_record.get("works_count", -1)),
+            "cited_by_count": str(author_record.get("cited_by_count", -1)),
+            "years_affiliated": ",".join([str(y) for y in institution_years]),
+            "last_known_institutions": ";".join(last_known_institutions),
         }
 
-    def _extract_affiliation_details(self, author: dict[str, Any]) -> tuple[list[int], list[str]]:
-        """Extract institutional affiliation years and institution names from an author candidate."""
-        years: list[int] = []
-        institutions: list[str] = []
-
-        affiliations = author.get("affiliations") or []
+    @staticmethod
+    def _years_at_institution(institution_id: str, affiliations: list[Affiliation]) -> set[int]:
+        """Extract the years of affiliation with an institution."""
+        years: set[int] = set()
         for affiliation in affiliations:
-            if not isinstance(affiliation, dict):
+            if not OpenAlexSpider._same_institution(affiliation.institution.id, institution_id):
                 continue
-
-            institution = affiliation.get("institution") or {}
-            if not isinstance(institution, dict):
-                continue
-
-            institution_id = institution.get("id", "")
-            if not (
-                isinstance(institution_id, str)
-                and institution_id.lower().endswith(self.our_institution_id.lower())
-            ):
-                continue
-
-            display_name = institution.get("display_name")
-            if isinstance(display_name, str) and display_name:
-                institutions.append(display_name)
-
-            years = affiliation.get("years") or []
-            years.extend(year for year in years if isinstance(year, int))
-
-        return years, institutions
+            years.update(affiliation.years)
+        return years
 
     @staticmethod
-    def _extract_last_known_affiliations(author: dict[str, Any]) -> list[str]:
-        """Extract last-known institution display names from an author candidate.
+    def _extract_affiliations(author_record: dict[str, Any]) -> list[Affiliation]:
+        """Extract institutional affiliation details from an author record."""
+        affiliations: list[OpenAlexSpider.Affiliation] = []
 
-        These are one or more affiliations that the author listed in their most
-        recent OpenAlex-indexed publication.
-        """
-        institutions = author.get("last_known_institutions") or []
-        institution_names: list[str] = []
-        for institution in institutions:
-            if not isinstance(institution, dict):
+        affiliation_records = author_record.get("affiliations") or []
+        for record in affiliation_records:
+            if not isinstance(record, dict):
                 continue
 
-            display_name = institution.get("display_name")
-            if isinstance(display_name, str) and display_name:
-                institution_names.append(display_name)
+            institution_record = record.get("institution") or {}
+            if not isinstance(institution_record, dict):
+                continue
 
-        return institution_names
+            affiliations.append(
+                OpenAlexSpider.Affiliation(
+                    OpenAlexSpider._extract_institution(institution_record), record.get("years", [])
+                )
+            )
+
+        return affiliations
+
+    @staticmethod
+    def _extract_institution(record: dict[str, Any]) -> Institution:
+        """Extract institutions from the institution record."""
+        institution_id = record.get("id", "")
+        institution_name = record.get("display_name", "")
+        return OpenAlexSpider.Institution(institution_id, institution_name)
+
+    # === HELPER METHODS ===
 
     @staticmethod
     def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:
@@ -495,6 +478,15 @@ class OpenAlexSpider(AuthorSearchSpider):
                 authors.append(ParsedAuthor(display_name))
 
         return authors
+
+    @staticmethod
+    def _extract_author_id(author_data: dict[str, Any], matched_author: str) -> str:
+        author_id = author_data.get("id")
+        if not author_id:
+            msg = f"Author match for '{matched_author}' has no ID: {author_data}"
+            raise ValueError(msg)
+        assert isinstance(author_id, str)
+        return author_id
 
     @staticmethod
     def _extract_journal_name(publication: dict[str, Any]) -> str | None:
@@ -525,10 +517,19 @@ class OpenAlexSpider(AuthorSearchSpider):
             https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
 
         Returns:
-             Upcased ID string, or an empty string if URI is invalid."""
+             Upcased ID string, or input string if the string is not a URI."""
         if not uri.startswith(("https://", "http://")):
-            return ""
+            return uri
         return uri.split("/")[-1].upper()
+
+    @staticmethod
+    def _same_institution(institution_a: str | None, institution_b: str | None) -> bool:
+        if not institution_a or not institution_b:
+            return False
+        return (
+            OpenAlexSpider._id_from_uri(institution_a).casefold()
+            == OpenAlexSpider._id_from_uri(institution_b).casefold()
+        )
 
     @staticmethod
     def _normalize_type(raw_type: str | None) -> ArticleType | None:

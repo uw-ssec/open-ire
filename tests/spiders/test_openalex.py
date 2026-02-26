@@ -389,56 +389,42 @@ class TestAuthorDisambiguation:
             ]
         return author
 
-    def test_disambiguate_single_recent_affiliation(self, spider: OpenAlexSpider) -> None:
+    def test_disambiguate_single_affiliation(self, spider: OpenAlexSpider) -> None:
+        # Only one author has affiliation with our institution
         authors = [
-            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A1", "Eunjung Kim", "I999999999", [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
-            self._make_author("A3", "Eun-Jung Kim", "I999999999", [2022, 2023]),
+            self._make_author("A3", "Eun-Jung Kim", "I888888888", [2022, 2023]),
         ]
         result = spider._disambiguate_authors(authors, "Eunjung Kim")
-        assert len(result) == 1
-        assert result[0]["id"] == "A2"
+        assert isinstance(result, dict)
+        assert result["id"] == "A2"
 
-    def test_disambiguate_no_recent_affiliation(self, spider: OpenAlexSpider) -> None:
+    def test_disambiguate_multiple_affiliations(self, spider: OpenAlexSpider) -> None:
+        # Multiple authors have affiliation with our institution (ambiguous)
         authors = [
             self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
-            self._make_author("A3", "Eun-Jung Kim"),
+            self._make_author("A3", "Eun-Jung Kim", "I999999999", [2022, 2023]),
         ]
         with pytest.raises(AmbiguousAuthorError) as exc_info:
             spider._disambiguate_authors(authors, "Eunjung Kim")
         assert exc_info.value.author_name == "Eunjung Kim"
-        assert exc_info.value.candidate_count == 3
+        # The candidate count is the number of affiliated authors (2)
+        assert len(exc_info.value.candidates) == 2
 
-    def test_disambiguate_multiple_recent_affiliations(self, spider: OpenAlexSpider) -> None:
+    def test_disambiguate_no_affiliation(self, spider: OpenAlexSpider) -> None:
+        # No authors have affiliation with our institution
         authors = [
-            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
-            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2019, 2022]),
+            self._make_author("A1", "Eunjung Kim", "I999999999", [2020, 2021]),
+            self._make_author("A2", "Eunjung Kim", "I888888888", [2019, 2022]),
+            self._make_author("A3", "Eunjung Kim"),  # No affiliation at all
         ]
         with pytest.raises(AmbiguousAuthorError) as exc_info:
             spider._disambiguate_authors(authors, "Eunjung Kim")
         assert exc_info.value.author_name == "Eunjung Kim"
-        assert exc_info.value.candidate_count == 2
-
-    def test_has_recent_affiliation_true(self, spider: OpenAlexSpider) -> None:
-        author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2018, 2019])
-        assert spider._has_recent_affiliation_with_us(author, 2018) is True
-
-    def test_has_recent_affiliation_false_old_years(self, spider: OpenAlexSpider) -> None:
-        author = self._make_author("A1", "Test", self.INSTITUTION_ID, [2015, 2016])
-        assert spider._has_recent_affiliation_with_us(author, 2018) is False
-
-    def test_has_recent_affiliation_false_wrong_institution(self, spider: OpenAlexSpider) -> None:
-        author = self._make_author("A1", "Test", "I999999999", [2020, 2021])
-        assert spider._has_recent_affiliation_with_us(author, 2018) is False
-
-    def test_has_recent_affiliation_no_affiliations(self, spider: OpenAlexSpider) -> None:
-        author = self._make_author("A1", "Test")
-        assert spider._has_recent_affiliation_with_us(author, 2018) is False
-
-    def test_has_recent_affiliation_case_insensitive(self, spider: OpenAlexSpider) -> None:
-        author = self._make_author("A1", "Test", self.INSTITUTION_ID.lower(), [2020])
-        assert spider._has_recent_affiliation_with_us(author, 2018) is True
+        # No affiliated authors
+        assert len(exc_info.value.candidates) == 0
 
     def test_add_to_ambiguous_authors_stores_structured_records(
         self, spider: OpenAlexSpider
@@ -457,9 +443,36 @@ class TestAuthorDisambiguation:
         assert len(spider._ambiguous_authors) == 1
         ambiguous_author = spider._ambiguous_authors[0]
         assert ambiguous_author["matched_author"] == "Eunjung Kim"
-        assert ambiguous_author["reason"].startswith("no authors with recent")
         assert ambiguous_author["start_year"] == 2018
         assert ambiguous_author["candidates"] == authors
+
+    @pytest.mark.parametrize(
+        ("institution_a", "institution_b", "expected"),
+        [
+            (
+                "https://openalex.org/I201448701",
+                "https://openalex.org/I201448701",
+                True,
+            ),
+            (
+                "https://openalex.org/i201448701",
+                "https://openalex.org/I201448701",
+                True,
+            ),
+            (
+                "https://openalex.org/I201448701",
+                "https://openalex.org/I999999999",
+                False,
+            ),
+            (None, "https://openalex.org/I201448701", False),
+            (None, None, False),
+            ("I201448701", "https://openalex.org/I201448701", True),
+        ],
+    )
+    def test_same_institution(
+        self, institution_a: str | None, institution_b: str | None, expected: bool
+    ) -> None:
+        assert OpenAlexSpider._same_institution(institution_a, institution_b) is expected
 
     def test_write_ambiguous_authors_file_creates_csv_with_expected_rows(
         self, spider: OpenAlexSpider, tmp_path: Path
@@ -484,3 +497,44 @@ class TestAuthorDisambiguation:
             rows = list(csv.DictReader(handle))
         assert len(rows) == len(ambiguous_authors)
         assert spider._ambiguous_authors == []
+
+    def test_extract_affiliations(self) -> None:
+        author_record = {
+            "affiliations": [
+                {
+                    "institution": {
+                        "id": "https://openalex.org/I1234567890",
+                        "display_name": "Test University",
+                    },
+                    "years": [2020, 2021],
+                },
+                "invalid",
+                {"institution": "invalid"},
+                {
+                    "institution": {
+                        "id": "https://openalex.org/I9999999999",
+                        "display_name": "Other",
+                    }
+                },
+            ]
+        }
+
+        affiliations = OpenAlexSpider._extract_affiliations(author_record)
+
+        assert len(affiliations) == 2
+        assert affiliations[0].institution.id == "https://openalex.org/I1234567890"
+        assert affiliations[0].institution.name == "Test University"
+        assert affiliations[0].years == [2020, 2021]
+        assert affiliations[1].institution.id == "https://openalex.org/I9999999999"
+        assert affiliations[1].institution.name == "Other"
+        assert affiliations[1].years == []
+
+    def test_extract_institution(self) -> None:
+        record = {"id": "https://openalex.org/I1234567890", "display_name": "Test University"}
+        institution = OpenAlexSpider._extract_institution(record)
+        assert institution.id == "https://openalex.org/I1234567890"
+        assert institution.name == "Test University"
+
+        institution = OpenAlexSpider._extract_institution({})
+        assert institution.id == ""
+        assert institution.name == ""
