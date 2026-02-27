@@ -1,7 +1,30 @@
 import logging
-from typing import Self
+from typing import Any, Self
 
 from scrapy.crawler import Crawler
+from scrapy.logformatter import LogFormatter, LogFormatterResult
+from scrapy.spiders import Spider
+
+
+class OpenIRELogFormatter(LogFormatter):
+    """Scrapy log formatter with optional dropped-item suppression."""
+
+    def dropped(
+        self,
+        item: Any,
+        exception: BaseException,
+        response: Any,
+        spider: Spider,
+    ) -> LogFormatterResult:
+        result = super().dropped(item, exception, response, spider)
+        show_item = spider.crawler.settings.getbool("OPEN_IRE_LOG_DROPPED_ITEMS", True)
+        if show_item:
+            return result
+        return {
+            "level": result["level"],
+            "msg": "Dropped: %(exception)s",
+            "args": {"exception": exception},
+        }
 
 
 class OpenIRELogger:
@@ -38,5 +61,11 @@ class OpenIRELogger:
         # Capture spider logs emitted via self.logger (named after spider).
         if crawler.spider:
             attach(crawler.spider.name)
+
+        # Override levels based on the OPEN_IRE_LOG_LEVELS setting
+        log_levels: dict[str, str] = crawler.settings.getdict("OPEN_IRE_LOG_LEVELS", {})
+        for logger_name, override_name in log_levels.items():
+            override_level = getattr(logging, str(override_name).upper(), logging.INFO)
+            logging.getLogger(logger_name).setLevel(override_level)
 
         return cls(level_name)

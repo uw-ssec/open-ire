@@ -96,6 +96,10 @@ follow_imports = "skip"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "open_ire.settings.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 check_untyped_defs = false
 disallow_incomplete_defs = false
