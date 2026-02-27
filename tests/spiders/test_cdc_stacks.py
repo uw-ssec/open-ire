@@ -111,3 +111,29 @@ class TestCDCStacksSpider:
 
         reference = spider._extract_reference(response)
         assert reference == url
+
+    def test_extract_journal_from_details_list(self) -> None:
+        """Test journal article fallback from details list rows."""
+        html = """
+        <html>
+            <head></head>
+            <body>
+                <ul class="bookDetailsList">
+                    <li class="bookDetails-row">
+                        <div class="bookDetailsLabel">
+                            <b>Journal Article:</b>
+                        </div>
+                        <div class="bookDetailsData pt-3">
+                            <div>CDC Journal Article Details</div>
+                        </div>
+                    </li>
+                </ul>
+            </body>
+        </html>
+        """
+        response = HtmlResponse(url="https://stacks.cdc.gov/", body=html.encode("utf-8"))
+        spider = CDCStacksSpider()
+
+        extra = spider._extract_extra_details(response)
+
+        assert extra["journal_title"] == "CDC Journal Article Details"
