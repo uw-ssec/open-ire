@@ -82,12 +82,13 @@ class TestUnavailableArticlesSpider:
             article_id="id-1",
             repository="repo_a",
             reference="A1",
+            kind="article_metadata",
             url="https://example.org/a1",
         )
         request = Request(url=article.url)
         response = HtmlResponse(url=article.url, status=404, body=b"", request=request)
 
-        result = spider.parse_article_availability(response, article, "HEAD")
+        result = spider.parse_article_availability(response, article, "GET")
 
         assert result is None
         assert spider.repository_stats["repo_a"].checked == 1
@@ -102,6 +103,7 @@ class TestUnavailableArticlesSpider:
             article_id="id-success",
             repository="repo_success",
             reference="S1",
+            kind="article_metadata",
             url="https://example.org/s1",
         )
         request = Request(url=article.url)
@@ -121,10 +123,11 @@ class TestUnavailableArticlesSpider:
             article_id="id-2",
             repository="repo_b",
             reference="B1",
+            kind="article_metadata",
             url="https://example.org/b1",
         )
         request = Request(url=article.url)
-        response = HtmlResponse(url=article.url, status=405, body=b"", request=request)
+        response = HtmlResponse(url=article.url, status=404, body=b"", request=request)
 
         fallback_request = spider.parse_article_availability(response, article, "HEAD")
 
@@ -137,6 +140,7 @@ class TestUnavailableArticlesSpider:
             article_id="id-3",
             repository="repo_c",
             reference="C1",
+            kind="article_metadata",
             url="https://example.org/c1",
         )
         request = spider._build_request(article, method="GET")
@@ -156,6 +160,7 @@ class TestUnavailableArticlesSpider:
             article_id="id-ignore",
             repository="repo_ignore",
             reference="I1",
+            kind="article_metadata",
             url="https://example.org/i1",
         )
         request = spider._build_request(article, method="HEAD")
@@ -173,12 +178,14 @@ class TestUnavailableArticlesSpider:
             article_id="id-4",
             repository="repo_d",
             reference="D1",
+            kind="article_metadata",
             url="https://example.org/d1",
         )
         article_b = _CollectedArticleRecord(
             article_id="id-5",
             repository="repo_d",
             reference="D2",
+            kind="article_metadata",
             url="https://example.org/d2",
         )
 
@@ -188,7 +195,7 @@ class TestUnavailableArticlesSpider:
         response_a = HtmlResponse(url=article_a.url, status=404, body=b"", request=request_a)
         response_b = HtmlResponse(url=article_b.url, status=500, body=b"", request=request_b)
 
-        spider.parse_article_availability(response_a, article_a, "HEAD")
+        spider.parse_article_availability(response_a, article_a, "GET")
         spider.parse_article_availability(response_b, article_b, "HEAD")
 
         spider.close(spider, "finished")
