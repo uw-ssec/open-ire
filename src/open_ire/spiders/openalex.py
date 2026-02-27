@@ -118,7 +118,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "%s) '%s' (ID: %s, ORCID: %s, relevance: %s)",
                 f"{i + 1:2d}",
                 author.get("display_name"),
-                self._bare_openalex_id(author_id),
+                self._id_from_uri(author_id),
                 author.get("orcid"),
                 author.get("relevance_score"),
             )
@@ -155,7 +155,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             "Requesting %spublications for %s (ID: %s)",
             "" if cursor == "*" else "next page of ",
             matched_author,
-            self._bare_openalex_id(author_id),
+            self._id_from_uri(author_id),
         )
         self.logger.debug("Publication request URL: %s", url)
 
@@ -175,12 +175,12 @@ class OpenAlexSpider(AuthorSearchSpider):
             identifiers.append(
                 {
                     "authority": "openalex",
-                    "identifier": self._bare_openalex_id(openalex_id),
+                    "identifier": self._id_from_uri(openalex_id),
                 }
             )
 
         if orcid_url := author_data.get("orcid"):
-            identifiers.append({"authority": "orcid", "identifier": self._bare_orcid(orcid_url)})
+            identifiers.append({"authority": "orcid", "identifier": self._id_from_uri(orcid_url)})
 
         # OpenAlex sometimes provides "parsed_longest_name", but that can
         # introduce surprises, so rely on "our" name.
@@ -213,14 +213,14 @@ class OpenAlexSpider(AuthorSearchSpider):
                 self.logger.info(
                     "No publications found for %s (ID: %s)",
                     matched_author,
-                    self._bare_openalex_id(author_id),
+                    self._id_from_uri(author_id),
                 )
             else:
                 self.logger.info(
                     "Found %s publications for %s (ID: %s):",
                     total_count,
                     matched_author,
-                    self._bare_openalex_id(author_id),
+                    self._id_from_uri(author_id),
                 )
 
         for _i, publication in enumerate(results):
@@ -311,7 +311,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             "Disambiguated '%s' to '%s' (ID: %s) based on recent institutional affiliation",
             matched_author,
             recently_affiliated[0].get("display_name"),
-            self._bare_openalex_id(recently_affiliated[0].get("id", "unknown")),
+            self._id_from_uri(recently_affiliated[0].get("id", "unknown")),
         )
         return recently_affiliated
 
@@ -421,10 +421,10 @@ class OpenAlexSpider(AuthorSearchSpider):
             "candidate_count": str(candidate_count),
             "ambiguity_reason": reason,
             "start_year": str(start_year),
-            "candidate_openalex_id": self._bare_openalex_id(openalex_id),
+            "candidate_openalex_id": self._id_from_uri(openalex_id),
             "candidate_openalex_url": openalex_id,
             "candidate_display_name": str(author.get("display_name") or ""),
-            "candidate_orcid": self._bare_openalex_id(str(author.get("orcid") or "")),
+            "candidate_orcid": self._id_from_uri(str(author.get("orcid") or "")),
             "candidate_relevance_score": str(author.get("relevance_score") or ""),
             "candidate_works_count": str(author.get("works_count") or ""),
             "candidate_cited_by_count": str(author.get("cited_by_count") or ""),
@@ -517,20 +517,18 @@ class OpenAlexSpider(AuthorSearchSpider):
         return None
 
     @staticmethod
-    def _bare_openalex_id(openalex_id: str) -> str:
-        """Extract just the ID part from a full OpenAlex identifier."""
-        if not openalex_id:
-            return ""
-        # https://openalex.org/A5077779935 => A5077779935
-        return openalex_id.split("/")[-1]
+    def _id_from_uri(uri: str) -> str:
+        """Extract the ID part from a full URI (e.g., OpenAlex or ORCID).
 
-    @staticmethod
-    def _bare_orcid(orcid_url: str) -> str:
-        """Extract just the ID part from a full ORCID URL."""
-        if not orcid_url:
+        Examples:
+            https://openalex.org/A5077779935 => A5077779935
+            https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
+
+        Returns:
+             Upcased ID string, or an empty string if URI is invalid."""
+        if not uri.startswith(("https://", "http://")):
             return ""
-        # https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
-        return orcid_url.split("/")[-1]
+        return uri.split("/")[-1].upper()
 
     @staticmethod
     def _normalize_type(raw_type: str | None) -> ArticleType | None:
