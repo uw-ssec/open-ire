@@ -1,4 +1,6 @@
+import csv
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -8,12 +10,13 @@ from scrapy.http import HtmlResponse, Request
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
+from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem
 from open_ire.spiders.openalex import OpenAlexSpider
 
 
 @pytest.fixture
-def five_authors() -> list[ParsedAuthor]:
+def sample_authors() -> list[ParsedAuthor]:
     return [
         ParsedAuthor("Luis Manuel Garcia-Mispireta"),
         ParsedAuthor("E.V.S.S.K. Babu"),
@@ -24,119 +27,222 @@ def five_authors() -> list[ParsedAuthor]:
 
 
 @pytest.fixture
-def spider(tmp_path: Path, five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
-    author = five_authors[4]
-    csv_content = f"""Full Name,FirstName,MiddleNames,LastName,Email
-{author.full_name},{author.first_name},{author.middle_names},{author.last_name},{author.email}
-"""
-    csv_path = tmp_path / "authors.csv"
-    csv_path.write_text(csv_content)
+def make_csv_for_author(tmp_path: Path) -> Callable[[ParsedAuthor], Path]:
+    def _make(author: ParsedAuthor) -> Path:
+        csv_path = tmp_path / f"{author.last_name}.csv"
+        csv_path.write_text(
+            f"Full Name,FirstName,MiddleNames,LastName,Email\n"
+            f"{author.full_name},{author.first_name},{author.middle_names},{author.last_name},{author.email or ''}\n"
+        )
+        return csv_path
 
-    return OpenAlexSpider(author_csv=str(csv_path))
-
-
-@pytest.fixture
-def spider_with_author_name(five_authors: list[ParsedAuthor]) -> OpenAlexSpider:
-    return OpenAlexSpider(author_name=five_authors[1].full_name)
+    return _make
 
 
 @pytest.fixture
-def dummy_publication(five_authors: list[ParsedAuthor]) -> dict[str, Any]:
-    return {
-        "id": "W123",
-        "title": "A Study on Testing",
-        "publication_date": "2022-05-15",
-        "primary_location": {"source": {"display_name": "Journal of Testing"}},
-        "authorships": [
-            {"author": {"display_name": five_authors[0].full_name}},
-            {"author": {"display_name": five_authors[1].full_name}},
-        ],
-        "doi": "https://doi.org/10.1234/test.doi",
-    }
+def make_spider_from_csv(
+    make_csv_for_author: Callable[[ParsedAuthor], Path],
+) -> Callable[[ParsedAuthor], OpenAlexSpider]:
+    def _make(author: ParsedAuthor) -> OpenAlexSpider:
+        return OpenAlexSpider(author_csv=str(make_csv_for_author(author)))
+
+    return _make
+
+
+@pytest.fixture
+def make_spider_with_author_name() -> Callable[[ParsedAuthor], OpenAlexSpider]:
+    def _make(author: ParsedAuthor) -> OpenAlexSpider:
+        return OpenAlexSpider(author_name=author.normalized_name)
+
+    return _make
+
+
+@pytest.fixture
+def make_publication_data(
+    sample_authors: list[ParsedAuthor],
+) -> Callable[[list[ParsedAuthor]], dict[str, Any]]:
+    def _make(authors: list[ParsedAuthor]) -> dict[str, Any]:
+        return {
+            "id": "W4292663470",
+            "title": "A Study on Testing",
+            "publication_date": "2022-05-15",
+            "primary_location": {"source": {"display_name": "Journal of Testing"}},
+            "authorships": [{"author": {"display_name": author.full_name}} for author in authors],
+            "doi": "https://doi.org/10.1234/test.doi",
+        }
+
+    return _make
 
 
 class TestOpenAlexSpider:
-    def test_extract_journal_name(self) -> None:
-        primary_location = {"source": {"display_name": "Journal of Testing"}}
-        locations = [{"source": {"display_name": "Alternate Journal Name"}}]
-        publication_with_primary = {"primary_location": primary_location, "locations": locations}
-        publication_without_primary = {"primary_location": None, "locations": locations}
+    def test_no_arguments_raises_error(self) -> None:
+        with pytest.raises(ValueError, match="requires either"):
+            OpenAlexSpider()
 
-        journal_name = OpenAlexSpider._extract_journal_name(publication_with_primary)
-        assert journal_name == "Journal of Testing"
-
-        journal_name = OpenAlexSpider._extract_journal_name(publication_without_primary)
-        assert journal_name == "Alternate Journal Name"
-
-        journal_name = OpenAlexSpider._extract_journal_name({})
-        assert journal_name is None
-
-        journal_name = OpenAlexSpider._extract_journal_name(
-            {"primary_location": "invalid data", "locations": ["invalid location"]}
-        )
-        assert journal_name is None
-
-    def test_extract_authors(
-        self, five_authors: list[ParsedAuthor], dummy_publication: dict[str, Any]
+    @pytest.mark.asyncio
+    async def test_start_with_csv_file(
+        self,
+        make_spider_from_csv: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
     ) -> None:
-        authors = OpenAlexSpider._extract_authors(dummy_publication)
-        assert authors == [five_authors[0], five_authors[1]]
+        requests = []
+        async for req in make_spider_from_csv(sample_authors[4]).start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        query_params = parse_qs(urlparse(requests[0].url).query)
+        assert query_params["search"] == [sample_authors[4].full_name]
 
-        authors = OpenAlexSpider._extract_authors({})
-        assert authors == []
+    @pytest.mark.asyncio
+    async def test_start_with_author_name(
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
+    ) -> None:
+        requests = []
+        author = sample_authors[1]
+        async for req in make_spider_with_author_name(author).start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        parsed_url = urlparse(requests[0].url)
+        query_params = parse_qs(parsed_url.query)
+        assert query_params["search"] == [author.full_name]
+
+    @pytest.mark.asyncio
+    async def test_start_with_both_parameters(
+        self,
+        make_csv_for_author: Callable[[ParsedAuthor], Path],
+        sample_authors: list[ParsedAuthor],
+    ) -> None:
+        csv_author = sample_authors[0]
+        name_author = sample_authors[1]
+        spider = OpenAlexSpider(
+            author_csv=str(make_csv_for_author(csv_author)), author_name=name_author.full_name
+        )
+        requests = []
+        async for req in spider.start():
+            requests.append(req)
+        assert len(requests) == 2
+        assert all(isinstance(req, Request) for req in requests)
+        query_params0 = parse_qs(urlparse(requests[0].url).query)
+        assert query_params0["search"] == [csv_author.full_name]
+        query_params1 = parse_qs(urlparse(requests[1].url).query)
+        assert query_params1["search"] == [name_author.full_name]
+
+    @pytest.mark.asyncio
+    async def test_old_csv_format_still_supported(
+        self, tmp_path: Path, sample_authors: list[ParsedAuthor]
+    ) -> None:
+        """CSVs with only FirstName and LastName columns are still supported."""
+        csv_author = sample_authors[0]
+        csv_path = tmp_path / "authors.csv"
+        csv_path.write_text(
+            f"Full Name,FirstName,LastName,Email\n"
+            f"{csv_author.full_name},{csv_author.first_name},{csv_author.last_name},{csv_author.email}\n"
+        )
+        spider = OpenAlexSpider(author_csv=str(csv_path))
+        requests = []
+        async for req in spider.start():
+            requests.append(req)
+        assert len(requests) == 1
+        assert isinstance(requests[0], Request)
+        query_params = parse_qs(urlparse(requests[0].url).query)
+        assert query_params["search"] == [f"{csv_author.first_name} {csv_author.last_name}"]
+
+    def test_author_name_parameter(self, sample_authors: list[ParsedAuthor]) -> None:
+        author = sample_authors[2]
+        spider = OpenAlexSpider(author_name=author.full_name)
+        assert spider.search_phrases == [author]
+
+    def test_both_parameters_allowed(
+        self,
+        make_csv_for_author: Callable[[ParsedAuthor], Path],
+        sample_authors: list[ParsedAuthor],
+    ) -> None:
+        csv_author = sample_authors[0]
+        name_author = sample_authors[3]
+        spider = OpenAlexSpider(
+            author_csv=str(make_csv_for_author(csv_author)),
+            author_name=name_author.full_name,
+        )
+        assert len(spider.search_phrases) == 2
+        normalized_names = {record.normalized_name for record in spider.search_phrases}
+        assert csv_author.normalized_name in normalized_names
+        assert name_author.normalized_name in normalized_names
+
+    def test_build_search_request(
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
+    ) -> None:
+        spider = make_spider_with_author_name(sample_authors[0])
+        request = spider.build_search_request(sample_authors[0])
+        assert isinstance(request, Request)
+        assert request.url.startswith(spider.base_url + "/authors")
+        query_params = parse_qs(urlparse(request.url).query)
+        assert query_params["search"] == [sample_authors[0].full_name]
+        assert "affiliations.institution.id:" in query_params["filter"][0]
+        assert request.meta["matched_author"] == sample_authors[0].normalized_name
 
     @pytest.mark.parametrize(
         ("author_id", "cursor"),
         [
-            ("A1", "*"),
-            ("A2", "cursor123"),
+            ("A1234567890", "*"),
+            ("A1234567890", "cursor123"),
         ],
     )
-    def test_request_publications(
+    def test_request_author_publications_with_pagination(
         self,
-        spider: OpenAlexSpider,
-        five_authors: list[ParsedAuthor],
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
         author_id: str,
         cursor: str,
     ) -> None:
-        requests = list(
-            spider._request_publications(author_id, five_authors[0].normalized_name, cursor)
-        )
+        author = sample_authors[0]
+        spider = make_spider_with_author_name(author)
+        requests = list(spider._request_author_publications(author_id, author.full_name, cursor))
         assert len(requests) == 1
         assert requests[0].url.startswith(spider.base_url + "/works")
         assert requests[0].cb_kwargs["author_id"] == author_id
-        assert requests[0].meta["matched_author"] == five_authors[0].normalized_name
+        assert requests[0].meta["matched_author"] == author.full_name
 
         parsed_url = urlparse(requests[0].url)
         query_params = parse_qs(parsed_url.query)
         assert query_params["cursor"] == [cursor]
 
-    def test_author_publication_requests(
-        self, spider: OpenAlexSpider, five_authors: list[ParsedAuthor]
+    def test_search_for_authors_skips_author_when_multiple_matches(
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
     ) -> None:
-        response_data = {"results": [{"id": "A1"}, {"id": "A2"}]}
-        request = Request(
-            url="http://dummy.url", meta={"matched_author": five_authors[0].normalized_name}
-        )
+        author = sample_authors[0]
+        spider = make_spider_with_author_name(author)
+        response_data = {
+            "results": [
+                {"id": "https://openalex.org/A1234567890"},
+                {"id": "https://openalex.org/A1234567891"},
+            ]
+        }
+        request = spider.build_search_request(author)
         response = HtmlResponse(
-            url="http://dummy.url",
+            url=request.url,
             body=json.dumps(response_data),
             encoding="utf-8",
             request=request,
         )
 
-        requests = list(spider.author_publication_requests(response))
-        assert len(requests) == 2
-        assert all(isinstance(req, Request) for req in requests)
-        assert requests[0].url.startswith(spider.base_url + "/works")
-        assert requests[1].url.startswith(spider.base_url + "/works")
+        assert not list(spider._search_for_authors(response))
 
-    def test_parse_publications(
+    def test_parse_publications_yields_items_and_pagination_request(
         self,
-        spider: OpenAlexSpider,
-        five_authors: list[ParsedAuthor],
-        dummy_publication: dict[str, Any],
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
+        make_publication_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
+        author = sample_authors[0]
+        spider = make_spider_with_author_name(author)
+        dummy_publication = make_publication_data([sample_authors[0], sample_authors[1]])
         publication_data = {
             "results": [
                 {
@@ -150,55 +256,47 @@ class TestOpenAlexSpider:
                 "count": 2,
             },
         }
-        request = Request(
-            url="http://dummy.url", meta={"matched_author": five_authors[0].normalized_name}
+        initial_requests = list(
+            spider._request_author_publications(
+                author_id="A1234567890", matched_author=author.full_name, cursor="*"
+            )
         )
         response = HtmlResponse(
-            url="http://dummy.url",
+            url=initial_requests[0].url,
             body=json.dumps(publication_data),
             encoding="utf-8",
-            request=request,
+            request=initial_requests[0],
         )
 
-        emitted = list(spider.parse_publications(response, author_id="A1"))
-        assert isinstance(emitted[0], ArticleItem)
-        assert isinstance(emitted[1], Request)
+        emitted = list(spider._parse_publications(response, author_id="A1234567890"))
+        assert len(emitted) == 2
+        items = [x for x in emitted if isinstance(x, ArticleItem)]
+        reqs = [x for x in emitted if isinstance(x, Request)]
+        assert len(items) == 1
+        assert len(reqs) == 1
+        query = parse_qs(urlparse(reqs[0].url).query)
+        assert query["cursor"] == ["cursor123"]
 
     def test_build_item(
         self,
-        spider: OpenAlexSpider,
-        five_authors: list[ParsedAuthor],
-        dummy_publication: dict[str, Any],
+        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
+        sample_authors: list[ParsedAuthor],
+        make_publication_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        item = spider._build_item(dummy_publication, five_authors[0].normalized_name)
+        author1 = sample_authors[0]
+        author2 = sample_authors[1]
+        publication_data = make_publication_data([author1, author2])
+        spider = make_spider_with_author_name(author1)
+        item = spider._build_article_item(publication_data, author1.normalized_name)
         assert isinstance(item, ArticleItem)
+        assert item.doi == publication_data["doi"]
+        assert item.title == publication_data["title"]
         assert (
-            item.doi == "https://doi.org/10.1234/test.doi"
-        )  # Spider returns original DOI, pipeline normalizes it
-        assert item.title == "A Study on Testing"
-        assert item.extra["journal_name"] == "Journal of Testing"
-        assert item.extra["matched_author"] == five_authors[0].normalized_name
-        assert item.authors == ParsedAuthor.encode_author_string([five_authors[0], five_authors[1]])
-
-    def test_build_search_request(
-        self, spider: OpenAlexSpider, five_authors: list[ParsedAuthor]
-    ) -> None:
-        request = spider.build_search_request(five_authors[0].normalized_name)
-        assert isinstance(request, Request)
-        assert request.url.startswith(spider.base_url + "/authors")
-        parsed_url = urlparse(request.url)
-        query_params = parse_qs(parsed_url.query)
-        assert query_params["search"] == [five_authors[0].normalized_name]
-        assert "affiliations.institution.id:" in query_params["filter"][0]
-
-    @pytest.mark.asyncio
-    async def test_start(self, spider: OpenAlexSpider) -> None:
-        requests = []
-        async for req in spider.start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        assert "Kemi+Adeyemi" in requests[0].url
+            item.extra["journal_name"]
+            == publication_data["primary_location"]["source"]["display_name"]
+        )
+        assert item.extra["matched_author"] == author1.normalized_name
+        assert item.authors == ParsedAuthor.encode_author_string([author1, author2])
 
     @pytest.mark.parametrize(
         ("raw_type", "expected"),
@@ -232,82 +330,211 @@ class TestOpenAlexSpider:
     def test_normalize_type_unknown(self) -> None:
         assert OpenAlexSpider._normalize_type("unknown-type") is None
 
-    @pytest.mark.asyncio
-    async def test_start_with_author_name(
-        self, spider_with_author_name: OpenAlexSpider, five_authors: list[ParsedAuthor]
-    ) -> None:
-        requests = []
-        async for req in spider_with_author_name.start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        parsed_url = urlparse(requests[0].url)
-        query_params = parse_qs(parsed_url.query)
-        assert query_params["search"] == [five_authors[1].full_name]
+    def test_extract_journal_name(self) -> None:
+        primary_location = {"source": {"display_name": "Journal of Testing"}}
+        locations = [{"source": {"display_name": "Alternate Journal Name"}}]
+        publication_with_primary = {"primary_location": primary_location, "locations": locations}
+        publication_without_primary = {"primary_location": None, "locations": locations}
 
-    def test_author_name_parameter(self, five_authors: list[ParsedAuthor]) -> None:
-        author = five_authors[2]
-        spider = OpenAlexSpider(author_name=author.full_name)
-        assert spider.search_terms == [author.full_name]
+        journal_name = OpenAlexSpider._extract_journal_name(publication_with_primary)
+        assert journal_name == "Journal of Testing"
 
-    def test_both_parameters_allowed(
-        self, tmp_path: Path, five_authors: list[ParsedAuthor]
-    ) -> None:
-        csv_author = five_authors[0]
-        csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(f"""Full Name,FirstName,MiddleNames,LastName,Email
-{csv_author.full_name},{csv_author.first_name},{csv_author.middle_names},{csv_author.last_name},{csv_author.email}
-""")
+        journal_name = OpenAlexSpider._extract_journal_name(publication_without_primary)
+        assert journal_name == "Alternate Journal Name"
 
-        name_author = five_authors[3]
-        spider = OpenAlexSpider(author_csv=str(csv_path), author_name=name_author.full_name)
-        assert len(spider.search_terms) == 2
-        assert csv_author.full_name in spider.search_terms
-        assert name_author.full_name in spider.search_terms
+        journal_name = OpenAlexSpider._extract_journal_name({})
+        assert journal_name is None
 
-    @pytest.mark.asyncio
-    async def test_old_csv_format_still_supported(
-        self, tmp_path: Path, five_authors: list[ParsedAuthor]
-    ) -> None:
-        """CSVs with only FirstName and LastName columns are still supported."""
-        csv_author = five_authors[0]
-        csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(
-            f"Full Name,FirstName,LastName,Email\n"
-            f"{csv_author.full_name},{csv_author.first_name},{csv_author.last_name},{csv_author.email}\n"
+        journal_name = OpenAlexSpider._extract_journal_name(
+            {"primary_location": "invalid data", "locations": ["invalid location"]}
         )
-        spider = OpenAlexSpider(author_csv=str(csv_path))
-        requests = []
-        async for req in spider.start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        query_params = parse_qs(urlparse(requests[0].url).query)
-        assert query_params["search"] == [f"{csv_author.first_name} {csv_author.last_name}"]
+        assert journal_name is None
 
-    @pytest.mark.asyncio
-    async def test_start_with_both_parameters(
-        self, tmp_path: Path, five_authors: list[ParsedAuthor]
+    def test_extract_authors(
+        self,
+        sample_authors: list[ParsedAuthor],
+        make_publication_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        csv_author = five_authors[0]
-        csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(f"""Full Name,FirstName,MiddleNames,LastName,Email
-{csv_author.full_name},{csv_author.first_name},{csv_author.middle_names},{csv_author.last_name},{csv_author.email}
-""")
+        dummy_publication = make_publication_data([sample_authors[0], sample_authors[1]])
+        authors = OpenAlexSpider._extract_authors(dummy_publication)
+        assert authors == [sample_authors[0], sample_authors[1]]
 
-        name_author = five_authors[1]
-        spider = OpenAlexSpider(author_csv=str(csv_path), author_name=name_author.full_name)
-        requests = []
-        async for req in spider.start():
-            requests.append(req)
+        authors = OpenAlexSpider._extract_authors({})
+        assert authors == []
 
-        assert len(requests) == 2
-        assert all(isinstance(req, Request) for req in requests)
-        query_params0 = parse_qs(urlparse(requests[0].url).query)
-        assert query_params0["search"] == [csv_author.full_name]
-        query_params1 = parse_qs(urlparse(requests[1].url).query)
-        assert query_params1["search"] == [name_author.full_name]
 
-    def test_no_parameters_error(self) -> None:
-        with pytest.raises(ValueError, match="requires either"):
-            OpenAlexSpider()
+class TestAuthorDisambiguation:
+    """Tests for author disambiguation based on recent institutional affiliation."""
+
+    INSTITUTION_ID = "I201448701"
+
+    @pytest.fixture
+    def spider(self) -> OpenAlexSpider:
+        return OpenAlexSpider(author_name="Test Author", start_date="2018-01-01")
+
+    def _make_author(
+        self,
+        author_id: str,
+        display_name: str,
+        institution_id: str | None = None,
+        years: list[int] | None = None,
+    ) -> dict[str, Any]:
+        author: dict[str, Any] = {"id": author_id, "display_name": display_name}
+        if institution_id and years:
+            author["affiliations"] = [
+                {
+                    "institution": {"id": f"https://openalex.org/{institution_id}"},
+                    "years": years,
+                }
+            ]
+        return author
+
+    def test_disambiguate_single_affiliation(self, spider: OpenAlexSpider) -> None:
+        # Only one author has affiliation with our institution
+        authors = [
+            self._make_author("A1", "Eunjung Kim", "I999999999", [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
+            self._make_author("A3", "Eun-Jung Kim", "I888888888", [2022, 2023]),
+        ]
+        result = spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert isinstance(result, dict)
+        assert result["id"] == "A2"
+
+    def test_disambiguate_multiple_affiliations(self, spider: OpenAlexSpider) -> None:
+        # Multiple authors have affiliation with our institution (ambiguous)
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
+            self._make_author("A3", "Eun-Jung Kim", "I999999999", [2022, 2023]),
+        ]
+        with pytest.raises(AmbiguousAuthorError) as exc_info:
+            spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert exc_info.value.author_name == "Eunjung Kim"
+        # The candidate count is the number of affiliated authors (2)
+        assert len(exc_info.value.candidates) == 2
+
+    def test_disambiguate_no_affiliation(self, spider: OpenAlexSpider) -> None:
+        # No authors have affiliation with our institution
+        authors = [
+            self._make_author("A1", "Eunjung Kim", "I999999999", [2020, 2021]),
+            self._make_author("A2", "Eunjung Kim", "I888888888", [2019, 2022]),
+            self._make_author("A3", "Eunjung Kim"),  # No affiliation at all
+        ]
+        with pytest.raises(AmbiguousAuthorError) as exc_info:
+            spider._disambiguate_authors(authors, "Eunjung Kim")
+        assert exc_info.value.author_name == "Eunjung Kim"
+        # No affiliated authors
+        assert len(exc_info.value.candidates) == 0
+
+    def test_add_to_ambiguous_authors_stores_structured_records(
+        self, spider: OpenAlexSpider
+    ) -> None:
+        authors = [
+            self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
+        ]
+
+        spider._add_to_ambiguous_authors(
+            matched_author="Eunjung Kim",
+            author_records=authors,
+            reason="no authors with recent institutional affiliation (>=2018)",
+        )
+
+        assert len(spider._ambiguous_authors) == 1
+        ambiguous_author = spider._ambiguous_authors[0]
+        assert ambiguous_author["matched_author"] == "Eunjung Kim"
+        assert ambiguous_author["start_year"] == 2018
+        assert ambiguous_author["candidates"] == authors
+
+    @pytest.mark.parametrize(
+        ("institution_a", "institution_b", "expected"),
+        [
+            (
+                "https://openalex.org/I201448701",
+                "https://openalex.org/I201448701",
+                True,
+            ),
+            (
+                "https://openalex.org/i201448701",
+                "https://openalex.org/I201448701",
+                True,
+            ),
+            (
+                "https://openalex.org/I201448701",
+                "https://openalex.org/I999999999",
+                False,
+            ),
+            (None, "https://openalex.org/I201448701", False),
+            (None, None, False),
+            ("I201448701", "https://openalex.org/I201448701", True),
+        ],
+    )
+    def test_same_institution(
+        self, institution_a: str | None, institution_b: str | None, expected: bool
+    ) -> None:
+        assert OpenAlexSpider._same_institution(institution_a, institution_b) is expected
+
+    def test_write_ambiguous_authors_file_creates_csv_with_expected_rows(
+        self, spider: OpenAlexSpider, tmp_path: Path
+    ) -> None:
+        spider.ambiguous_authors_file = tmp_path / "ambiguous_authors.csv"
+
+        ambiguous_authors = [
+            self._make_author("https://openalex.org/A1", "Eunjung Kim"),
+            self._make_author("https://openalex.org/A2", "Eunjung Kim"),
+            self._make_author("https://openalex.org/A3", "Eunjung Kim"),
+        ]
+        spider._add_to_ambiguous_authors(
+            matched_author="Eunjung Kim",
+            author_records=ambiguous_authors,
+            reason="no authors with recent institutional affiliation (>=2018)",
+        )
+
+        spider._write_ambiguous_authors_file()
+
+        assert spider.ambiguous_authors_file.exists()
+        with spider.ambiguous_authors_file.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == len(ambiguous_authors)
+        assert spider._ambiguous_authors == []
+
+    def test_extract_affiliations(self) -> None:
+        author_record = {
+            "affiliations": [
+                {
+                    "institution": {
+                        "id": "https://openalex.org/I1234567890",
+                        "display_name": "Test University",
+                    },
+                    "years": [2020, 2021],
+                },
+                "invalid",
+                {"institution": "invalid"},
+                {
+                    "institution": {
+                        "id": "https://openalex.org/I9999999999",
+                        "display_name": "Other",
+                    }
+                },
+            ]
+        }
+
+        affiliations = OpenAlexSpider._extract_affiliations(author_record)
+
+        assert len(affiliations) == 2
+        assert affiliations[0].institution.id == "https://openalex.org/I1234567890"
+        assert affiliations[0].institution.name == "Test University"
+        assert affiliations[0].years == [2020, 2021]
+        assert affiliations[1].institution.id == "https://openalex.org/I9999999999"
+        assert affiliations[1].institution.name == "Other"
+        assert affiliations[1].years == []
+
+    def test_extract_institution(self) -> None:
+        record = {"id": "https://openalex.org/I1234567890", "display_name": "Test University"}
+        institution = OpenAlexSpider._extract_institution(record)
+        assert institution.id == "https://openalex.org/I1234567890"
+        assert institution.name == "Test University"
+
+        institution = OpenAlexSpider._extract_institution({})
+        assert institution.id == ""
+        assert institution.name == ""

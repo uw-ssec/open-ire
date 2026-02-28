@@ -130,7 +130,7 @@ class TestWoSSpider:
     def test_parse_publications(
         self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_response: HtmlResponse
     ) -> None:
-        query = spider._build_query(five_authors[4].normalized_name)
+        query = spider._build_query(spider.author_name_for_query(five_authors[4]))
         # Create a request with meta to tie to the response
         request = Request(
             url="http://example.com/api", meta={"matched_author": five_authors[4].normalized_name}
@@ -154,9 +154,10 @@ class TestWoSSpider:
     def test_build_search_request(
         self, spider: WoSSpider, five_authors: list[ParsedAuthor]
     ) -> None:
-        request = spider.build_search_request(five_authors[4].normalized_name)
+        request = spider.build_search_request(five_authors[4])
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
+        assert request.meta["matched_author"] == five_authors[4].normalized_name
 
     def test_build_search_request_with_author_name_normalizes_to_wos_format(
         self, monkeypatch: pytest.MonkeyPatch
@@ -164,10 +165,11 @@ class TestWoSSpider:
         monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
         spider = WoSSpider(author_name="John Doe")
 
-        request = spider.build_search_request(spider.search_terms[0])
+        request = spider.build_search_request(spider.search_phrases[0])
 
-        assert spider.search_terms == ["Doe, John"]
+        assert spider.search_phrases == [ParsedAuthor("John Doe")]
         assert 'AU=("Doe, John")' in request.cb_kwargs["query"]
+        assert request.meta["matched_author"] == "Doe, John"
 
     def test_parse_publications_no_results_records_empty_string(
         self, spider: WoSSpider, five_authors: list[ParsedAuthor]
@@ -185,7 +187,7 @@ class TestWoSSpider:
             url="http://example.com/api", body=body_str, encoding="utf-8", request=request
         )
 
-        query = spider._build_query(five_authors[1].normalized_name)
+        query = spider._build_query(spider.author_name_for_query(five_authors[1]))
         results = list(spider.parse_publications(response, query, page=1))
 
         items = [res for res in results if isinstance(res, ArticleItem)]
@@ -210,7 +212,7 @@ class TestWoSSpider:
             url="http://example.com/api", body=body_str, encoding="utf-8", request=request
         )
 
-        query = spider._build_query(five_authors[2].normalized_name)
+        query = spider._build_query(spider.author_name_for_query(five_authors[2]))
         results = list(spider.parse_publications(response, query, page=1))
 
         items = [res for res in results if isinstance(res, ArticleItem)]

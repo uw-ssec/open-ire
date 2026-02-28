@@ -85,4 +85,5 @@ OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
 OPENALEX_INSTITUTION_ID = "i201448701"
+OPENALEX_AMBIGUOUS_AUTHORS_FILE = f"{FILES_STORE}/openalex_ambiguous_authors.csv"
 WOS_ORGANIZATION = "University of Washington"
