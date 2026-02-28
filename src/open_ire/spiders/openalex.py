@@ -31,37 +31,6 @@ class OpenAlexSpider(AuthorSearchSpider):
     base_url = "https://api.openalex.org"
     page_size = 25
 
-    # OpenAlex publication type mappings
-    # See https://docs.openalex.org/api-entities/works/work-object#type
-    TYPE_MAP: ClassVar[dict[str, ArticleType]] = {
-        "article": ArticleType.SCHOLARLY_ARTICLE,
-        "book": ArticleType.OTHER,
-        "book-chapter": ArticleType.OTHER,
-        "book-section": ArticleType.OTHER,
-        "database": ArticleType.OTHER,
-        "dataset": ArticleType.OTHER,
-        "dissertation": ArticleType.OTHER,
-        "editorial": ArticleType.OTHER,
-        "erratum": ArticleType.OTHER,
-        "grant": ArticleType.OTHER,
-        "letter": ArticleType.OTHER,
-        "libguides": ArticleType.OTHER,
-        "other": ArticleType.OTHER,
-        "paratext": ArticleType.OTHER,
-        "peer-review": ArticleType.OTHER,
-        "posted-content": ArticleType.SCHOLARLY_ARTICLE,
-        "preprint": ArticleType.SCHOLARLY_ARTICLE,
-        "proceedings-article": ArticleType.SCHOLARLY_ARTICLE,
-        "reference-entry": ArticleType.OTHER,
-        "report": ArticleType.OTHER,
-        "report-component": ArticleType.OTHER,
-        "retraction": ArticleType.OTHER,
-        "review": ArticleType.SCHOLARLY_ARTICLE,
-        "software": ArticleType.OTHER,
-        "standard": ArticleType.OTHER,
-        "supplementary-materials": ArticleType.OTHER,
-    }
-
     # === SUPERCLASS OVERRIDES ===
 
     def __init__(
@@ -125,7 +94,6 @@ class OpenAlexSpider(AuthorSearchSpider):
         for i, author in enumerate(authors):
             author_id = self._extract_author_id(author, matched_author)
 
-            # TODO: OpenAlex returns a relevance score; we could use it for early filtering.
             self.logger.info(
                 "%s) '%s' (ID: %s, ORCID: %s, relevance: %s)",
                 f"{i + 1:2d}",
@@ -177,11 +145,11 @@ class OpenAlexSpider(AuthorSearchSpider):
             cb_kwargs={"author_id": author_id},
         )
 
-    def _build_author_item(self, matched_author: str, author_data: dict[str, Any]) -> AuthorItem:
+    def _build_author_item(self, matched_author: str, author_record: dict[str, Any]) -> AuthorItem:
         """Build an AuthorItem from our data and OpenAlex author data."""
         identifiers = []
 
-        if openalex_id := author_data.get("id"):
+        if openalex_id := author_record.get("id"):
             identifiers.append(
                 {
                     "authority": "openalex",
@@ -189,7 +157,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 }
             )
 
-        if orcid_url := author_data.get("orcid"):
+        if orcid_url := author_record.get("orcid"):
             identifiers.append({"authority": "orcid", "identifier": self._id_from_uri(orcid_url)})
 
         # OpenAlex sometimes provides "parsed_longest_name", but that can
@@ -252,45 +220,45 @@ class OpenAlexSpider(AuthorSearchSpider):
             )
 
     def _build_article_item(
-        self, publication: dict[str, Any], matched_author: str
+        self, publication_record: dict[str, Any], matched_author: str
     ) -> ArticleItem | None:
         """Build an ArticleItem from OpenAlex publication data."""
-        external_id = publication.get("id")
+        external_id = publication_record.get("id")
         if not external_id:
             return None
 
-        title = publication.get("title")
+        title = publication_record.get("title")
         if not title:
             self.logger.warning("Skipping publication without title (ID: %s)", external_id)
             return None
 
-        authors = self._extract_authors(publication)
-        oa_status = publication.get("open_access", {}).get("oa_status")
-        is_oa = publication.get("open_access", {}).get("is_oa")
+        authors = self._extract_authors(publication_record)
+        oa_status = publication_record.get("open_access", {}).get("oa_status")
+        is_oa = publication_record.get("open_access", {}).get("is_oa")
 
-        raw_type = publication.get("type")
+        publication_type = publication_record.get("type")
         url = (
-            publication.get("doi")
-            or publication.get("primary_location", {}).get("landing_page_url")
+            publication_record.get("doi")
+            or publication_record.get("primary_location", {}).get("landing_page_url")
             or external_id
         )
         return ArticleItem(
             authors=ParsedAuthor.encode_author_string(authors),
-            doi=publication.get("doi"),
+            doi=publication_record.get("doi"),
             extra={
                 "is_open_access": is_oa,
-                "journal_name": self._extract_journal_name(publication),
+                "journal_name": self._extract_journal_name(publication_record),
                 "oa_status": oa_status,
                 "matched_author": matched_author,
                 "openalex": {
-                    "type": raw_type,
+                    "type": publication_type,
                 },
             },
-            publication_date=parse_date(publication.get("publication_date")),
+            publication_date=parse_date(publication_record.get("publication_date")),
             reference=str(external_id),
             repository=self.name,
             title=title,
-            type=self._normalize_type(raw_type),
+            type=self._normalize_type(publication_type),
             url=url,
         )
 
@@ -300,7 +268,7 @@ class OpenAlexSpider(AuthorSearchSpider):
     Affiliation = namedtuple("Affiliation", ["institution", "years"])
 
     def _disambiguate_authors(
-        self, authors: list[dict[str, Any]], matched_author: str
+        self, author_records: list[dict[str, Any]], matched_author: str
     ) -> dict[str, Any]:
         """Attempt to disambiguate multiple author matches by recent institutional affiliation.
 
@@ -309,7 +277,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         """
         affiliated_authors = []
 
-        for author_record in authors:
+        for author_record in author_records:
             affiliations = self._extract_affiliations(author_record)
             institution_years = self._years_at_institution(self.our_institution_id, affiliations)
             if not institution_years:
@@ -336,7 +304,7 @@ class OpenAlexSpider(AuthorSearchSpider):
     def _add_to_ambiguous_authors(
         self,
         matched_author: str,
-        authors: list[dict[str, Any]],
+        author_records: list[dict[str, Any]],
         reason: str,
     ) -> None:
         """Store one structured ambiguous-author record for the matched author."""
@@ -345,7 +313,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 "matched_author": matched_author,
                 "reason": reason,
                 "start_year": int(self.start_date.split("-")[0]),
-                "candidates": authors,
+                "candidates": author_records,
             }
         )
 
@@ -358,7 +326,6 @@ class OpenAlexSpider(AuthorSearchSpider):
         for ambiguous_author in self._ambiguous_authors:
             matched_author = str(ambiguous_author.get("matched_author") or "")
             reason = str(ambiguous_author.get("reason") or "")
-            start_year = int(ambiguous_author.get("start_year") or 0)
 
             raw_candidates = ambiguous_author.get("candidates") or []
             candidates = [c for c in raw_candidates if isinstance(c, dict)]
@@ -370,8 +337,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                     author_record=author,
                     rank=rank,
                     candidate_count=candidate_count,
-                    reason=reason,
-                    start_year=start_year,
+                    ambiguity_reason=reason,
                 )
                 rows.append(row)
 
@@ -405,8 +371,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         author_record: dict[str, Any],
         rank: int,
         candidate_count: int,
-        reason: str,
-        start_year: int,
+        ambiguity_reason: str,
     ) -> dict[str, str]:
         """Build a single CSV row for manual disambiguation review."""
         openalex_id = str(author_record.get("id") or "")
@@ -423,16 +388,14 @@ class OpenAlexSpider(AuthorSearchSpider):
             "matched_author": matched_author,
             "candidate_rank": str(rank),
             "candidate_count": str(candidate_count),
-            "ambiguity_reason": reason,
-            "start_year": str(start_year),
-            "openalex_id": self._id_from_uri(openalex_id),
-            "openalex_url": openalex_id,
+            "ambiguity_reason": ambiguity_reason,
+            "openalex_id": openalex_id,
             "display_name": str(author_record.get("display_name", "")),
             "orcid": self._id_from_uri(str(author_record.get("orcid", ""))),
             "relevance_score": str(author_record.get("relevance_score", -1)),
             "works_count": str(author_record.get("works_count", -1)),
             "cited_by_count": str(author_record.get("cited_by_count", -1)),
-            "years_affiliated": ",".join([str(y) for y in institution_years]),
+            "years_affiliated": ",".join([str(y) for y in sorted(institution_years)]),
             "last_known_institutions": ";".join(last_known_institutions),
         }
 
@@ -469,19 +432,19 @@ class OpenAlexSpider(AuthorSearchSpider):
         return affiliations
 
     @staticmethod
-    def _extract_institution(record: dict[str, Any]) -> Institution:
-        """Extract institutions from the institution record."""
-        institution_id = record.get("id", "")
-        institution_name = record.get("display_name", "")
+    def _extract_institution(institution_record: dict[str, Any]) -> Institution:
+        """Extract Institution from the institution record."""
+        institution_id = institution_record.get("id", "")
+        institution_name = institution_record.get("display_name", "")
         return OpenAlexSpider.Institution(institution_id, institution_name)
 
     # === HELPER METHODS ===
 
     @staticmethod
-    def _extract_authors(publication: dict[str, Any]) -> list[ParsedAuthor]:
+    def _extract_authors(publication_record: dict[str, Any]) -> list[ParsedAuthor]:
         """Extract author names from publication authorship data."""
         authors: list[ParsedAuthor] = []
-        authorships = publication.get("authorships", [])
+        authorships = publication_record.get("authorships", [])
         for authorship in authorships:
             if not isinstance(authorship, dict):
                 continue
@@ -493,24 +456,25 @@ class OpenAlexSpider(AuthorSearchSpider):
         return authors
 
     @staticmethod
-    def _extract_author_id(author_data: dict[str, Any], matched_author: str) -> str:
-        author_id = author_data.get("id")
+    def _extract_author_id(author_record: dict[str, Any], matched_author: str) -> str:
+        """Ensure that the author record has an ID and return it."""
+        author_id = author_record.get("id")
         if not author_id:
-            msg = f"Author match for '{matched_author}' has no ID: {author_data}"
+            msg = f"Author match for '{matched_author}' has no ID: {author_record}"
             raise ValueError(msg)
         assert isinstance(author_id, str)
         return author_id
 
     @staticmethod
-    def _extract_journal_name(publication: dict[str, Any]) -> str | None:
-        """Extract journal name from publication location data."""
-        primary_location = publication.get("primary_location") or {}
+    def _extract_journal_name(publication_record: dict[str, Any]) -> str | None:
+        """Extract the journal name from publication location data."""
+        primary_location = publication_record.get("primary_location") or {}
         if isinstance(primary_location, dict):
             source = primary_location.get("source") or {}
             if isinstance(source, dict) and source.get("display_name"):
                 return str(source["display_name"])
 
-        for location in publication.get("locations", []) or []:
+        for location in publication_record.get("locations", []) or []:
             if not isinstance(location, dict):
                 continue
 
@@ -536,17 +500,54 @@ class OpenAlexSpider(AuthorSearchSpider):
         return uri.split("/")[-1].upper()
 
     @staticmethod
-    def _same_institution(institution_a: str | None, institution_b: str | None) -> bool:
-        if not institution_a or not institution_b:
+    def _same_institution(id_a: str | None, id_b: str | None) -> bool:
+        """Check if two institution IDs are the same.
+
+        Returns:
+            True if the institution IDs are the same, False otherwise. If either ID is None,
+            returns False.
+        """
+        if not id_a or not id_b:
             return False
         return (
-            OpenAlexSpider._id_from_uri(institution_a).casefold()
-            == OpenAlexSpider._id_from_uri(institution_b).casefold()
+            OpenAlexSpider._id_from_uri(id_a).casefold()
+            == OpenAlexSpider._id_from_uri(id_b).casefold()
         )
 
+    # OpenAlex publication type mappings
+    # See https://docs.openalex.org/api-entities/works/work-object#type
+    TYPE_MAP: ClassVar[dict[str, ArticleType]] = {
+        "article": ArticleType.SCHOLARLY_ARTICLE,
+        "book": ArticleType.OTHER,
+        "book-chapter": ArticleType.OTHER,
+        "book-section": ArticleType.OTHER,
+        "database": ArticleType.OTHER,
+        "dataset": ArticleType.OTHER,
+        "dissertation": ArticleType.OTHER,
+        "editorial": ArticleType.OTHER,
+        "erratum": ArticleType.OTHER,
+        "grant": ArticleType.OTHER,
+        "letter": ArticleType.OTHER,
+        "libguides": ArticleType.OTHER,
+        "other": ArticleType.OTHER,
+        "paratext": ArticleType.OTHER,
+        "peer-review": ArticleType.OTHER,
+        "posted-content": ArticleType.SCHOLARLY_ARTICLE,
+        "preprint": ArticleType.SCHOLARLY_ARTICLE,
+        "proceedings-article": ArticleType.SCHOLARLY_ARTICLE,
+        "reference-entry": ArticleType.OTHER,
+        "report": ArticleType.OTHER,
+        "report-component": ArticleType.OTHER,
+        "retraction": ArticleType.OTHER,
+        "review": ArticleType.SCHOLARLY_ARTICLE,
+        "software": ArticleType.OTHER,
+        "standard": ArticleType.OTHER,
+        "supplementary-materials": ArticleType.OTHER,
+    }
+
     @staticmethod
-    def _normalize_type(raw_type: str | None) -> ArticleType | None:
+    def _normalize_type(openalex_publication_type: str | None) -> ArticleType | None:
         """Normalize OpenAlex publication type to ArticleType."""
-        if raw_type is None:
+        if openalex_publication_type is None:
             return None
-        return OpenAlexSpider.TYPE_MAP.get(raw_type.lower())
+        return OpenAlexSpider.TYPE_MAP.get(openalex_publication_type.lower())

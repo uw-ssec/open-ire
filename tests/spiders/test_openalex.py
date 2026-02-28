@@ -436,7 +436,7 @@ class TestAuthorDisambiguation:
 
         spider._add_to_ambiguous_authors(
             matched_author="Eunjung Kim",
-            authors=authors,
+            author_records=authors,
             reason="no authors with recent institutional affiliation (>=2018)",
         )
 
@@ -486,7 +486,7 @@ class TestAuthorDisambiguation:
         ]
         spider._add_to_ambiguous_authors(
             matched_author="Eunjung Kim",
-            authors=ambiguous_authors,
+            author_records=ambiguous_authors,
             reason="no authors with recent institutional affiliation (>=2018)",
         )
 
