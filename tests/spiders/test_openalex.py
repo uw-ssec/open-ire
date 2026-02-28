@@ -10,9 +10,15 @@ from scrapy.http import HtmlResponse, Request
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
-from open_ire.errors import AmbiguousAuthorError
-from open_ire.items import ArticleItem
-from open_ire.spiders.openalex import OpenAlexSpider
+from open_ire.items import ArticleItem, AuthorItem
+from open_ire.spiders.openalex import (
+    AmbiguousAuthor,
+    AmbiguousAuthorList,
+    OpenAlexAffiliation,
+    OpenAlexAuthor,
+    OpenAlexInstitution,
+    OpenAlexSpider,
+)
 
 
 def _search_value(req: Request) -> str:
@@ -152,8 +158,8 @@ class TestOpenAlexSpider:
         spider = make_spider_with_author_name(author)
         response_data = {
             "results": [
-                {"id": "https://openalex.org/A1234567890"},
-                {"id": "https://openalex.org/A1234567891"},
+                {"id": "https://openalex.org/A1234567890", "display_name": "Author A"},
+                {"id": "https://openalex.org/A1234567891", "display_name": "Author B"},
             ]
         }
         request = spider.build_search_request(author)
@@ -164,7 +170,9 @@ class TestOpenAlexSpider:
             request=request,
         )
 
-        assert not list(spider._search_for_authors(response))
+        emitted = list(spider._parse_author_search_results(response))
+        assert not emitted
+        assert len(spider.ambiguous_authors.entries) == 1
 
     def test_parse_publications_yields_items_and_pagination_request(
         self,
@@ -308,163 +316,176 @@ class TestAuthorDisambiguation:
         display_name: str,
         institution_id: str | None = None,
         years: list[int] | None = None,
-    ) -> dict[str, Any]:
-        author: dict[str, Any] = {"id": author_id, "display_name": display_name}
+    ) -> OpenAlexAuthor:
+        raw: dict[str, Any] = {"id": author_id, "display_name": display_name}
         if institution_id and years:
-            author["affiliations"] = [
+            raw["affiliations"] = [
                 {
-                    "institution": {"id": f"https://openalex.org/{institution_id}"},
+                    "institution": {
+                        "id": f"https://openalex.org/{institution_id}",
+                        "display_name": "Test Institution",
+                    },
                     "years": years,
                 }
             ]
-        return author
+        return OpenAlexAuthor.from_api(raw)
+
+    def _make_response(self, spider: OpenAlexSpider, authors: list[OpenAlexAuthor]) -> HtmlResponse:
+        """Build a fake author-search response from a list of OpenAlexAuthor objects."""
+        raw_results = []
+        for au in authors:
+            raw: dict[str, Any] = {"id": au.id, "display_name": au.display_name}
+            if au.affiliations:
+                raw["affiliations"] = [
+                    {
+                        "institution": {
+                            "id": f"https://openalex.org/{aff.institution.id}",
+                            "display_name": aff.institution.display_name,
+                        },
+                        "years": aff.years,
+                    }
+                    for aff in au.affiliations
+                ]
+            raw_results.append(raw)
+
+        request = Request(
+            url="https://api.openalex.org/authors?search=test",
+            callback=spider._parse_author_search_results,
+            meta={"searched_author": "Eunjung Kim"},
+        )
+        return HtmlResponse(
+            url=request.url,
+            body=json.dumps({"results": raw_results}),
+            encoding="utf-8",
+            request=request,
+        )
 
     def test_disambiguate_single_affiliation(self, spider: OpenAlexSpider) -> None:
-        # Only one author has affiliation with our institution
         authors = [
             self._make_author("A1", "Eunjung Kim", "I999999999", [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2020, 2021]),
             self._make_author("A3", "Eun-Jung Kim", "I888888888", [2022, 2023]),
         ]
-        result = spider._disambiguate_authors(authors, "Eunjung Kim")
-        assert isinstance(result, dict)
-        assert result["id"] == "A2"
+        response = self._make_response(spider, authors)
+        emitted = list(spider._parse_author_search_results(response))
+        # Should yield an AuthorItem + a publications Request
+        assert len(emitted) == 2
+
+        author_item = emitted[0]
+        assert isinstance(author_item, AuthorItem)
+        assert author_item.author.canonical_name == "Kim, Eunjung"
+        pub_request = emitted[1]
+        assert isinstance(pub_request, Request)
+        assert "A2" in pub_request.url
 
     def test_disambiguate_multiple_affiliations(self, spider: OpenAlexSpider) -> None:
-        # Multiple authors have affiliation with our institution (ambiguous)
         authors = [
             self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
             self._make_author("A3", "Eun-Jung Kim", "I999999999", [2022, 2023]),
         ]
-        with pytest.raises(AmbiguousAuthorError) as exc_info:
-            spider._disambiguate_authors(authors, "Eunjung Kim")
-        assert exc_info.value.author_name == "Eunjung Kim"
-        # The candidate count is the number of affiliated authors (2)
-        assert len(exc_info.value.candidates) == 2
+        response = self._make_response(spider, authors)
+        emitted = list(spider._parse_author_search_results(response))
+        # Should yield nothing; authors are ambiguous
+        assert len(emitted) == 0
+        assert len(spider.ambiguous_authors.entries) == 1
+        assert (
+            spider.ambiguous_authors.entries[0].ambiguity_reason
+            == "multiple authors with institutional affiliation"
+        )
 
     def test_disambiguate_no_affiliation(self, spider: OpenAlexSpider) -> None:
-        # No authors have affiliation with our institution
         authors = [
             self._make_author("A1", "Eunjung Kim", "I999999999", [2020, 2021]),
             self._make_author("A2", "Eunjung Kim", "I888888888", [2019, 2022]),
-            self._make_author("A3", "Eunjung Kim"),  # No affiliation at all
+            self._make_author("A3", "Eunjung Kim"),
         ]
-        with pytest.raises(AmbiguousAuthorError) as exc_info:
-            spider._disambiguate_authors(authors, "Eunjung Kim")
-        assert exc_info.value.author_name == "Eunjung Kim"
-        # No affiliated authors
-        assert len(exc_info.value.candidates) == 0
+        response = self._make_response(spider, authors)
+        emitted = list(spider._parse_author_search_results(response))
+        # Should yield nothing; no authors with our affiliation
+        assert len(emitted) == 0
+        assert len(spider.ambiguous_authors.entries) == 1
+        assert (
+            spider.ambiguous_authors.entries[0].ambiguity_reason
+            == "no authors with institutional affiliation"
+        )
 
-    def test_add_to_ambiguous_authors_stores_structured_records(
-        self, spider: OpenAlexSpider
-    ) -> None:
+    def test_ambiguous_authors_stored_as_structured_records(self, spider: OpenAlexSpider) -> None:
         authors = [
             self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
         ]
 
-        spider._add_to_ambiguous_authors(
-            searched_author="Eunjung Kim",
-            author_records=authors,
-            reason="no authors with recent institutional affiliation (>=2018)",
+        spider.ambiguous_authors.append(
+            AmbiguousAuthor(
+                searched_author="Eunjung Kim",
+                candidates=authors,
+                ambiguity_reason="multiple authors with institutional affiliation",
+            )
         )
 
-        assert len(spider._ambiguous_authors) == 1
-        ambiguous_author = spider._ambiguous_authors[0]
-        assert ambiguous_author["searched_author"] == "Eunjung Kim"
-        assert ambiguous_author["start_year"] == 2018
-        assert ambiguous_author["candidates"] == authors
+        assert len(spider.ambiguous_authors.entries) == 1
+        aa = spider.ambiguous_authors.entries[0]
+        assert aa.searched_author == "Eunjung Kim"
+        assert aa.candidates == authors
+        assert aa.ambiguity_reason == "multiple authors with institutional affiliation"
 
     @pytest.mark.parametrize(
-        ("institution_a", "institution_b", "expected"),
+        ("institution_id", "compare_to", "expected"),
         [
-            (
-                "https://openalex.org/I201448701",
-                "https://openalex.org/I201448701",
-                True,
-            ),
-            (
-                "https://openalex.org/i201448701",
-                "https://openalex.org/I201448701",
-                True,
-            ),
-            (
-                "https://openalex.org/I201448701",
-                "https://openalex.org/I999999999",
-                False,
-            ),
-            (None, "https://openalex.org/I201448701", False),
-            (None, None, False),
+            ("https://openalex.org/I201448701", "https://openalex.org/I201448701", True),
+            ("https://openalex.org/i201448701", "https://openalex.org/I201448701", True),
+            ("https://openalex.org/I201448701", "https://openalex.org/I999999999", False),
             ("I201448701", "https://openalex.org/I201448701", True),
         ],
     )
-    def test_same_institution(
-        self, institution_a: str | None, institution_b: str | None, expected: bool
+    def test_matches_institution(
+        self, institution_id: str, compare_to: str, expected: bool
     ) -> None:
-        assert OpenAlexSpider._same_institution(institution_a, institution_b) is expected
+        inst = OpenAlexInstitution(id=institution_id, display_name="Test", raw={})
+        assert inst.matches_institution(compare_to) is expected
 
     def test_write_ambiguous_authors_file_creates_csv_with_expected_rows(
-        self, spider: OpenAlexSpider, tmp_path: Path
+        self, tmp_path: Path
     ) -> None:
-        spider.ambiguous_authors_file = tmp_path / "ambiguous_authors.csv"
+        ambiguous_authors = AmbiguousAuthorList(tmp_path / "ambiguous_authors.csv")
 
-        ambiguous_authors = [
+        candidates = [
             self._make_author("https://openalex.org/A1", "Eunjung Kim"),
             self._make_author("https://openalex.org/A2", "Eunjung Kim"),
             self._make_author("https://openalex.org/A3", "Eunjung Kim"),
         ]
-        spider._add_to_ambiguous_authors(
-            searched_author="Eunjung Kim",
-            author_records=ambiguous_authors,
-            reason="no authors with recent institutional affiliation (>=2018)",
+        ambiguous_authors.append(
+            AmbiguousAuthor(
+                searched_author="Eunjung Kim",
+                candidates=candidates,
+                ambiguity_reason="multiple authors with institutional affiliation",
+            )
         )
 
-        spider._write_ambiguous_authors_file()
+        ambiguous_authors.write(self.INSTITUTION_ID)
 
-        assert spider.ambiguous_authors_file.exists()
-        with spider.ambiguous_authors_file.open(newline="", encoding="utf-8") as handle:
+        assert ambiguous_authors.file_path.exists()
+        with ambiguous_authors.file_path.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
-        assert len(rows) == len(ambiguous_authors)
-        assert spider._ambiguous_authors == []
+        assert len(rows) == len(candidates)
+        assert ambiguous_authors.entries == []
 
-    def test_extract_affiliations(self) -> None:
-        author_record = {
-            "affiliations": [
-                {
-                    "institution": {
-                        "id": "https://openalex.org/I1234567890",
-                        "display_name": "Test University",
-                    },
-                    "years": [2020, 2021],
-                },
-                "invalid",
-                {"institution": "invalid"},
-                {
-                    "institution": {
-                        "id": "https://openalex.org/I9999999999",
-                        "display_name": "Other",
-                    }
-                },
-            ]
+    def test_openalex_affiliation_from_api(self) -> None:
+        raw = {
+            "institution": {
+                "id": "https://openalex.org/I1234567890",
+                "display_name": "Test University",
+            },
+            "years": [2020, 2021],
         }
+        affiliation = OpenAlexAffiliation.from_api(raw)
+        assert affiliation.institution.id == "https://openalex.org/I1234567890"
+        assert affiliation.institution.display_name == "Test University"
+        assert affiliation.years == [2020, 2021]
 
-        affiliations = OpenAlexSpider._extract_affiliations(author_record)
-
-        assert len(affiliations) == 2
-        assert affiliations[0].institution.id == "https://openalex.org/I1234567890"
-        assert affiliations[0].institution.name == "Test University"
-        assert affiliations[0].years == [2020, 2021]
-        assert affiliations[1].institution.id == "https://openalex.org/I9999999999"
-        assert affiliations[1].institution.name == "Other"
-        assert affiliations[1].years == []
-
-    def test_extract_institution(self) -> None:
-        record = {"id": "https://openalex.org/I1234567890", "display_name": "Test University"}
-        institution = OpenAlexSpider._extract_institution(record)
+    def test_openalex_institution_from_api(self) -> None:
+        raw = {"id": "https://openalex.org/I1234567890", "display_name": "Test University"}
+        institution = OpenAlexInstitution.from_api(raw)
         assert institution.id == "https://openalex.org/I1234567890"
-        assert institution.name == "Test University"
-
-        institution = OpenAlexSpider._extract_institution({})
-        assert institution.id == ""
-        assert institution.name == ""
+        assert institution.display_name == "Test University"
