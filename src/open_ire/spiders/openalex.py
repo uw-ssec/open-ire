@@ -8,13 +8,16 @@ from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
+from sqlmodel import Session, create_engine
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem, AuthorItem
+from open_ire.pipelines.author_identifier_pipeline import find_author_by_name
 from open_ire.settings import (
     OPEN_IRE_CONTACT_EMAIL,
+    OPEN_IRE_DATABASE_FILE,
     OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE,
     OPEN_IRE_OPENALEX_INSTITUTION_ID,
 )
@@ -46,6 +49,8 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
         self.ambiguous_authors_file = Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE)
         self._ambiguous_authors: list[dict[str, Any]] = []
+        self._resolved_choices: dict[str, list[dict[str, str]]] = {}
+        self._load_resolved_choices()
 
     def author_name_for_query(self, record: ParsedAuthor) -> str:
         return " ".join(
@@ -53,9 +58,25 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
 
     def build_search_request(self, record: ParsedAuthor) -> Request:
-        """Build the initial search request for a given author record."""
-        term = self.author_name_for_query(record)
+        """Build a request for a given author record.
+
+        If the author already has known OpenAlex IDs in the database, skip the
+        author search and go straight to fetching publications. Otherwise, search
+        for the author via the OpenAlex API.
+        """
         searched_author = self.canonical_author_name(record)
+
+        known_ids = self._find_known_openalex_ids(record)
+        if known_ids:
+            author_id_filter = "|".join(known_ids)
+            self.logger.info(
+                "Found %s known OpenAlex ID(s) for '%s'; skipping author search",
+                len(known_ids),
+                searched_author,
+            )
+            return self._build_publications_request(author_id_filter, searched_author)
+
+        term = self.author_name_for_query(record)
         params = {
             "search": term,
             "filter": f"affiliations.institution.id:{self.our_institution_id}",
@@ -103,6 +124,21 @@ class OpenAlexSpider(AuthorSearchSpider):
                 author.get("relevance_score"),
             )
 
+        # Use pre-resolved choices from the ambiguous authors CSV, if available.
+        if searched_author in self._resolved_choices:
+            chosen = self._resolved_choices[searched_author]
+            self.logger.info(
+                "Using %s pre-resolved choice(s) for '%s'",
+                len(chosen),
+                searched_author,
+            )
+            yield self._build_author_item_from_choices(searched_author, chosen)
+            for choice in chosen:
+                openalex_id = choice["openalex_id"]
+                if openalex_id:
+                    yield self._build_publications_request(openalex_id, searched_author)
+            return
+
         the_author = authors[0] if len(authors) == 1 else None
         if not the_author:
             try:
@@ -115,12 +151,12 @@ class OpenAlexSpider(AuthorSearchSpider):
         yield self._build_author_item(searched_author, the_author)
 
         author_id = self._extract_author_id(the_author, searched_author)
-        yield from self._request_author_publications(author_id, searched_author)
+        yield self._build_publications_request(author_id, searched_author)
 
-    def _request_author_publications(
+    def _build_publications_request(
         self, author_id: str, searched_author: str, cursor: str = "*"
-    ) -> Generator[Request, None, None]:
-        """Generate a request for an author's publications with pagination support."""
+    ) -> Request:
+        """Build a request for an author's publications."""
         params = {
             "filter": f"author.id:{author_id},from_publication_date:{self.start_date}",
             "per_page": str(self.page_size),
@@ -137,7 +173,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
         self.logger.debug("Publication request URL: %s", url)
 
-        yield Request(
+        return Request(
             url,
             headers=self.request_headers,
             callback=self._parse_publications,
@@ -162,6 +198,29 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         # OpenAlex sometimes provides "parsed_longest_name", but that can
         # introduce surprises, so rely on "our" name.
+        return AuthorItem(
+            author=ParsedAuthor(searched_author),
+            identifiers=identifiers,
+        )
+
+    def _build_author_item_from_choices(
+        self, searched_author: str, choices: list[dict[str, str]]
+    ) -> AuthorItem:
+        """Build an AuthorItem from pre-resolved CSV choices (may include multiple OpenAlex IDs)."""
+        identifiers: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        for choice in choices:
+            openalex_id = self._id_from_uri(choice.get("openalex_id", ""))
+            if openalex_id and openalex_id not in seen:
+                identifiers.append({"authority": "openalex", "identifier": openalex_id})
+                seen.add(openalex_id)
+
+            orcid = self._id_from_uri(choice.get("orcid", ""))
+            if orcid and orcid not in seen:
+                identifiers.append({"authority": "orcid", "identifier": orcid})
+                seen.add(orcid)
+
         return AuthorItem(
             author=ParsedAuthor(searched_author),
             identifiers=identifiers,
@@ -210,9 +269,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 yield item
 
         if next_cursor := meta.get("next_cursor"):
-            yield from self._request_author_publications(
-                author_id, searched_author, cursor=next_cursor
-            )
+            yield self._build_publications_request(author_id, searched_author, cursor=next_cursor)
 
     def _build_article_item(
         self, publication_record: dict[str, Any], searched_author: str
@@ -258,6 +315,63 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
 
     # === AUTHOR DISAMBIGUATION ===
+
+    @staticmethod
+    def _find_known_openalex_ids(author: ParsedAuthor) -> list[str]:
+        """Look up existing OpenAlex IDs for an author in the database."""
+        db_path = Path(OPEN_IRE_DATABASE_FILE)
+        if not db_path.exists():
+            return []
+
+        engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+        try:
+            with Session(engine) as session:
+                db_author = find_author_by_name(session, author)
+                if not db_author:
+                    return []
+
+                openalex_ids = []
+                for ident in db_author.identifiers:
+                    if ident.authority == "openalex":
+                        openalex_ids.append(ident.identifier)
+                return openalex_ids
+        finally:
+            engine.dispose()
+
+    TRUTHY_CHOICES = frozenset({"yes", "y", "1", "true"})
+
+    def _load_resolved_choices(self) -> None:
+        """Read the ambiguous authors CSV and extract rows where the user filled in a choice."""
+        if not self.ambiguous_authors_file.exists():
+            return
+
+        with self.ambiguous_authors_file.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                choice = (row.get("choice") or "").strip().lower()
+                if choice not in self.TRUTHY_CHOICES:
+                    continue
+
+                searched_author = row.get("searched_author", "")
+                if not searched_author:
+                    continue
+
+                if searched_author not in self._resolved_choices:
+                    self._resolved_choices[searched_author] = []
+
+                self._resolved_choices[searched_author].append(
+                    {
+                        "openalex_id": row.get("openalex_id", ""),
+                        "orcid": row.get("orcid", ""),
+                    }
+                )
+
+        if self._resolved_choices:
+            self.logger.info(
+                "Loaded pre-resolved choices for %s author(s) from %s",
+                len(self._resolved_choices),
+                self.ambiguous_authors_file,
+            )
 
     Institution = namedtuple("Institution", ["id", "name"])
     Affiliation = namedtuple("Affiliation", ["institution", "years"])
@@ -314,11 +428,18 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     def _write_ambiguous_authors_file(self) -> None:
         """Write a CSV file of ambiguous author records to disk."""
-        if not self._ambiguous_authors:
+        # Filter out authors that have already been resolved via CSV choices.
+        unresolved = [
+            a
+            for a in self._ambiguous_authors
+            if a.get("searched_author") not in self._resolved_choices
+        ]
+        if not unresolved:
+            self._ambiguous_authors.clear()
             return
 
         rows: list[dict[str, str]] = []
-        for ambiguous_author in self._ambiguous_authors:
+        for ambiguous_author in unresolved:
             searched_author = str(ambiguous_author.get("searched_author") or "")
             reason = str(ambiguous_author.get("reason") or "")
 
@@ -379,6 +500,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         ]
 
         return {
+            "choice": "",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "searched_author": searched_author,
             "candidate_rank": str(rank),
@@ -386,7 +508,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             "ambiguity_reason": ambiguity_reason,
             "openalex_id": openalex_id,
             "display_name": str(author_record.get("display_name", "")),
-            "orcid": self._id_from_uri(str(author_record.get("orcid", ""))),
+            "orcid": self._id_from_uri(str(author_record.get("orcid") or "")),
             "relevance_score": str(author_record.get("relevance_score", -1)),
             "works_count": str(author_record.get("works_count", -1)),
             "cited_by_count": str(author_record.get("cited_by_count", -1)),

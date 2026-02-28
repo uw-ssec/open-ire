@@ -134,13 +134,12 @@ class TestOpenAlexSpider:
     ) -> None:
         author = sample_authors[0]
         spider = make_spider_with_author_name(author)
-        requests = list(spider._request_author_publications(author_id, author.full_name, cursor))
-        assert len(requests) == 1
-        assert requests[0].url.startswith(spider.base_url + "/works")
-        assert requests[0].cb_kwargs["author_id"] == author_id
-        assert requests[0].meta["searched_author"] == author.full_name
+        request = spider._build_publications_request(author_id, author.full_name, cursor)
+        assert request.url.startswith(spider.base_url + "/works")
+        assert request.cb_kwargs["author_id"] == author_id
+        assert request.meta["searched_author"] == author.full_name
 
-        parsed_url = urlparse(requests[0].url)
+        parsed_url = urlparse(request.url)
         query_params = parse_qs(parsed_url.query)
         assert query_params["cursor"] == [cursor]
 
@@ -189,16 +188,14 @@ class TestOpenAlexSpider:
                 "count": 2,
             },
         }
-        initial_requests = list(
-            spider._request_author_publications(
-                author_id="A1234567890", searched_author=author.full_name, cursor="*"
-            )
+        initial_request = spider._build_publications_request(
+            author_id="A1234567890", searched_author=author.full_name, cursor="*"
         )
         response = HtmlResponse(
-            url=initial_requests[0].url,
+            url=initial_request.url,
             body=json.dumps(publication_data),
             encoding="utf-8",
-            request=initial_requests[0],
+            request=initial_request,
         )
 
         emitted = list(spider._parse_publications(response, author_id="A1234567890"))
