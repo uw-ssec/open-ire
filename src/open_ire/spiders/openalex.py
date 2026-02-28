@@ -371,7 +371,7 @@ class OpenAlexSpider(AuthorSearchSpider):
         """Build a single CSV row for manual disambiguation review."""
         openalex_id = str(author_record.get("id") or "")
         affiliations = self._extract_affiliations(author_record)
-        institution_years = self._years_at_institution(self.our_institution_id, affiliations)
+        our_institution_years = self._years_at_institution(self.our_institution_id, affiliations)
         last_known_institutions = [
             self._extract_institution(lki).name
             for lki in (author_record.get("last_known_institutions", []) or [])
@@ -390,7 +390,7 @@ class OpenAlexSpider(AuthorSearchSpider):
             "relevance_score": str(author_record.get("relevance_score", -1)),
             "works_count": str(author_record.get("works_count", -1)),
             "cited_by_count": str(author_record.get("cited_by_count", -1)),
-            "years_affiliated": ",".join([str(y) for y in sorted(institution_years)]),
+            "our_institution_years": ",".join([str(y) for y in sorted(our_institution_years)]),
             "last_known_institutions": ";".join(last_known_institutions),
         }
 
