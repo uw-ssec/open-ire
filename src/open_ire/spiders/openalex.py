@@ -327,6 +327,11 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.start_date = start_date
         self.our_institution_id = OPEN_IRE_OPENALEX_INSTITUTION_ID.strip().upper()
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
+
+        self.items_generated = {
+            "ArticleItem": 0,
+            "AuthorItem": 0,
+        }
         self.ambiguous_authors = AmbiguousAuthorList(Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE))
 
     def author_name_for_query(self, record: ParsedAuthor) -> str:
@@ -373,6 +378,12 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     def closed(self, _reason: str | None = None) -> None:
         self.ambiguous_authors.write(self.our_institution_id)
+
+        logger.info(
+            "Generated %s ArticleItem(s) and %s AuthorItem(s)",
+            self.items_generated["ArticleItem"],
+            self.items_generated["AuthorItem"],
+        )
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
@@ -432,6 +443,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 )
                 return
 
+        self.items_generated["AuthorItem"] += 1
         yield self._build_author_item(searched_author, the_author)
         yield self._build_publications_request(the_author.id, searched_author)
 
@@ -447,13 +459,12 @@ class OpenAlexSpider(AuthorSearchSpider):
         }
         url = f"{self.base_url}/works?{urlencode(params)}"
 
-        self.logger.info(
+        self.logger.debug(
             "Requesting %spublications for %s (ID: %s)",
             "" if cursor == "*" else "next page of ",
             searched_author,
             id_from_uri(author_id),
         )
-        self.logger.debug("Publication request URL: %s", url)
 
         return Request(
             url,
@@ -527,12 +538,7 @@ class OpenAlexSpider(AuthorSearchSpider):
                 continue
 
             if item := self._build_article_item(publication, searched_author):
-                self.logger.info(
-                    "%s: '%s' (%s)",
-                    searched_author,
-                    item.title[:50],
-                    item.publication_date,
-                )
+                self.items_generated["ArticleItem"] += 1
                 yield item
 
         if next_cursor := meta.get("next_cursor"):
