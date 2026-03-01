@@ -393,9 +393,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         """Parse author search results and yield AuthorItems and publications requests."""
         searched_author = response.meta["searched_author"]
         raw = json.loads(response.text or "{}")
-        authors = [OpenAlexAuthor.from_api(result) for result in raw.get("results", [])]
+        found_authors = [OpenAlexAuthor.from_api(result) for result in raw.get("results", [])]
 
-        if not authors:
+        if not found_authors:
             self.logger.warning("No authors found matching '%s'", searched_author)
             return
 
@@ -404,14 +404,20 @@ class OpenAlexSpider(AuthorSearchSpider):
             yield from self._resolved_author_search_results(searched_author)
             return
 
-        # Single result or disambiguate among multiple.
-        the_author = self._disambiguate_authors(searched_author, authors)
-        if the_author is None:
+        authors_to_use = self._disambiguated_authors(searched_author, found_authors)
+        if not authors_to_use:
             return
 
+        # Build AuthorItem with identifiers from all the disambiguated candidates.
+        combined_identifiers: list[dict[str, str]] = []
+        for au in authors_to_use:
+            combined_identifiers.extend(au.identifiers())
         self.items_generated["AuthorItem"] += 1
-        yield self._build_author_item(searched_author, the_author)
-        yield self._build_publications_request(the_author.id, searched_author)
+        yield AuthorItem(author=ParsedAuthor(searched_author), identifiers=combined_identifiers)
+
+        # Request publications for each distinct OpenAlex ID.
+        for au in authors_to_use:
+            yield self._build_publications_request(au.id, searched_author)
 
     def _resolved_author_search_results(
         self, searched_author: str
@@ -429,10 +435,10 @@ class OpenAlexSpider(AuthorSearchSpider):
             if openalex_id:
                 yield self._build_publications_request(openalex_id, searched_author)
 
-    def _disambiguate_authors(
-        self, searched_author: str, authors: list[OpenAlexAuthor]
-    ) -> OpenAlexAuthor | None:
-        """Try to identify a single author from multiple OpenAlex results.
+    def _disambiguated_authors(
+        self, searched_author: str, found_authors: list[OpenAlexAuthor]
+    ) -> list[OpenAlexAuthor]:
+        """Try to identify one or more authors from multiple OpenAlex results.
 
         Applies two filters in sequence:
         1. Name match — discard candidates whose display_name doesn't plausibly
@@ -440,18 +446,27 @@ class OpenAlexSpider(AuthorSearchSpider):
         2. Institutional affiliation — among name matches, keep only those
            affiliated with our institution.
 
-        Returns the author if unambiguous, or None if the search is ambiguous
-        (in which case the author is recorded for manual resolution).
+        Returns a non-empty list of authors to use, or an empty list if the
+        search is truly ambiguous (in which case the author is recorded for
+        manual resolution). Multiple results indicate likely-fragmented
+        OpenAlex records for the same person.
         """
-        if len(authors) == 1:
-            return authors[0]
+        if len(found_authors) == 1:
+            return found_authors
 
-        self.logger.info("Found %s authors matching '%s'", len(authors), searched_author)
+        self.logger.info("Found %s authors matching '%s'", len(found_authors), searched_author)
 
         parsed_searched = ParsedAuthor(searched_author)
         name_matches = [
-            au for au in authors if ParsedAuthor(au.display_name).likely_same(parsed_searched)
+            au for au in found_authors if ParsedAuthor(au.display_name).likely_same(parsed_searched)
         ]
+        if not name_matches:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author, found_authors, "no candidates with matching display name"
+                )
+            )
+            return []
         if len(name_matches) == 1:
             self.logger.info(
                 "Disambiguated '%s' to '%s' (ID: %s) based on name match",
@@ -459,16 +474,19 @@ class OpenAlexSpider(AuthorSearchSpider):
                 name_matches[0].display_name,
                 name_matches[0].id,
             )
-            return name_matches[0]
-        if not name_matches:
-            self.ambiguous_authors.append(
-                AmbiguousAuthor(
-                    searched_author, authors, "no candidates with matching display name"
-                )
-            )
-            return None
+            return name_matches
 
         affiliated = [au for au in name_matches if au.years_at_institution(self.our_institution_id)]
+
+        if not affiliated:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author,
+                    name_matches,
+                    "no name-matched authors with institutional affiliation",
+                )
+            )
+            return []
 
         if len(affiliated) == 1:
             self.logger.info(
@@ -477,18 +495,15 @@ class OpenAlexSpider(AuthorSearchSpider):
                 affiliated[0].display_name,
                 affiliated[0].id,
             )
-            return affiliated[0]
-
-        self.ambiguous_authors.append(
-            AmbiguousAuthor(
+        else:
+            self.logger.warning(
+                "Auto-merging %s name-matched, affiliated candidates for '%s' "
+                "(likely fragmented OpenAlex records)",
+                len(affiliated),
                 searched_author,
-                affiliated or name_matches,
-                "no name-matched authors with institutional affiliation"
-                if not affiliated
-                else "multiple name-matched authors with institutional affiliation",
             )
-        )
-        return None
+
+        return affiliated
 
     def _build_publications_request(
         self, author_id: str, searched_author: str, cursor: str = "*"

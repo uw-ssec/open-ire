@@ -330,7 +330,12 @@ class TestAuthorDisambiguation:
             ]
         return OpenAlexAuthor.from_api(raw)
 
-    def _make_response(self, spider: OpenAlexSpider, authors: list[OpenAlexAuthor]) -> HtmlResponse:
+    def _make_response(
+        self,
+        spider: OpenAlexSpider,
+        authors: list[OpenAlexAuthor],
+        searched_author: str = "Eunjung Kim",
+    ) -> HtmlResponse:
         """Build a fake author-search response from a list of OpenAlexAuthor objects."""
         raw_results = []
         for au in authors:
@@ -351,7 +356,7 @@ class TestAuthorDisambiguation:
         request = Request(
             url="https://api.openalex.org/authors?search=test",
             callback=spider._parse_author_search_results,
-            meta={"searched_author": "Eunjung Kim"},
+            meta={"searched_author": searched_author},
         )
         return HtmlResponse(
             url=request.url,
@@ -378,7 +383,7 @@ class TestAuthorDisambiguation:
         assert isinstance(pub_request, Request)
         assert "A2" in pub_request.url
 
-    def test_disambiguate_multiple_affiliations(self, spider: OpenAlexSpider) -> None:
+    def test_disambiguate_multiple_affiliations_auto_merges(self, spider: OpenAlexSpider) -> None:
         authors = [
             self._make_author("A1", "Eunjung Kim", self.INSTITUTION_ID, [2015, 2016]),
             self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2010, 2012]),
@@ -386,9 +391,35 @@ class TestAuthorDisambiguation:
         ]
         response = self._make_response(spider, authors)
         emitted = list(spider._parse_author_search_results(response))
-        # Should yield nothing; authors are ambiguous
-        assert len(emitted) == 0
-        assert len(spider.ambiguous_authors.entries) == 1
+        # A1 and A2 are name-matched and affiliated; A3 is affiliated elsewhere.
+        # Should auto-merge A1+A2: one AuthorItem + two publication Requests.
+        assert len(emitted) == 3
+
+        author_item = emitted[0]
+        assert isinstance(author_item, AuthorItem)
+        assert author_item.author.canonical_name == "Kim, Eunjung"
+
+        pub_requests = [r for r in emitted[1:] if isinstance(r, Request)]
+        assert len(pub_requests) == 2
+        requested_urls = {r.url for r in pub_requests}
+        assert any("A1" in url for url in requested_urls)
+        assert any("A2" in url for url in requested_urls)
+
+    def test_disambiguate_filters_mismatched_display_names(self, spider: OpenAlexSpider) -> None:
+        """Candidates with unrelated display names (composite OpenAlex records) are filtered out."""
+        authors = [
+            self._make_author("A1", "Completely Different Person", self.INSTITUTION_ID, [2019]),
+            self._make_author("A2", "Eunjung Kim", self.INSTITUTION_ID, [2021, 2022]),
+        ]
+        response = self._make_response(spider, authors)
+        emitted = list(spider._parse_author_search_results(response))
+        # Only A2 matches the searched name "Eunjung Kim".
+        assert len(emitted) == 2
+        author_item = emitted[0]
+        assert isinstance(author_item, AuthorItem)
+        pub_request = emitted[1]
+        assert isinstance(pub_request, Request)
+        assert "A2" in pub_request.url
 
     def test_disambiguate_no_affiliation(self, spider: OpenAlexSpider) -> None:
         authors = [
