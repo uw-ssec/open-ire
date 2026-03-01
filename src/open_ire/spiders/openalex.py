@@ -390,6 +390,7 @@ class OpenAlexSpider(AuthorSearchSpider):
     def _parse_author_search_results(
         self, response: Response
     ) -> Generator[Request | AuthorItem, None, None]:
+        """Parse author search results and yield AuthorItems and publications requests."""
         searched_author = response.meta["searched_author"]
         raw = json.loads(response.text or "{}")
         authors = [OpenAlexAuthor.from_api(result) for result in raw.get("results", [])]
@@ -398,9 +399,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             self.logger.warning("No authors found matching '%s'", searched_author)
             return
 
-        # Pre-resolved ambiguous authors take priority.
+        # If ambiguous authors were manually resolved, just go with those results.
         if searched_author in self.ambiguous_authors.resolved_choices:
-            yield from self._items_for_resolved_author(searched_author)
+            yield from self._resolved_author_search_results(searched_author)
             return
 
         # Single result or disambiguate among multiple.
@@ -412,10 +413,10 @@ class OpenAlexSpider(AuthorSearchSpider):
         yield self._build_author_item(searched_author, the_author)
         yield self._build_publications_request(the_author.id, searched_author)
 
-    def _items_for_resolved_author(
+    def _resolved_author_search_results(
         self, searched_author: str
     ) -> Generator[Request | AuthorItem, None, None]:
-        """Yield items for a pre-resolved ambiguous author from the CSV."""
+        """Yield results for a manually resolved ambiguous author from the CSV."""
         chosen = self.ambiguous_authors.resolved_choices[searched_author]
         self.logger.info(
             "Using %s pre-resolved choice(s) for '%s'",
@@ -433,6 +434,12 @@ class OpenAlexSpider(AuthorSearchSpider):
     ) -> OpenAlexAuthor | None:
         """Try to identify a single author from multiple OpenAlex results.
 
+        Applies two filters in sequence:
+        1. Name match — discard candidates whose display_name doesn't plausibly
+           match the searched author (catches composite OpenAlex records).
+        2. Institutional affiliation — among name matches, keep only those
+           affiliated with our institution.
+
         Returns the author if unambiguous, or None if the search is ambiguous
         (in which case the author is recorded for manual resolution).
         """
@@ -440,7 +447,28 @@ class OpenAlexSpider(AuthorSearchSpider):
             return authors[0]
 
         self.logger.info("Found %s authors matching '%s'", len(authors), searched_author)
-        affiliated = [au for au in authors if au.years_at_institution(self.our_institution_id)]
+
+        parsed_searched = ParsedAuthor(searched_author)
+        name_matches = [
+            au for au in authors if ParsedAuthor(au.display_name).likely_same(parsed_searched)
+        ]
+        if len(name_matches) == 1:
+            self.logger.info(
+                "Disambiguated '%s' to '%s' (ID: %s) based on name match",
+                searched_author,
+                name_matches[0].display_name,
+                name_matches[0].id,
+            )
+            return name_matches[0]
+        if not name_matches:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author, authors, "no candidates with matching display name"
+                )
+            )
+            return None
+
+        affiliated = [au for au in name_matches if au.years_at_institution(self.our_institution_id)]
 
         if len(affiliated) == 1:
             self.logger.info(
@@ -454,10 +482,10 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.ambiguous_authors.append(
             AmbiguousAuthor(
                 searched_author,
-                affiliated or authors,
-                "no authors with institutional affiliation"
+                affiliated or name_matches,
+                "no name-matched authors with institutional affiliation"
                 if not affiliated
-                else "multiple authors with institutional affiliation",
+                else "multiple name-matched authors with institutional affiliation",
             )
         )
         return None

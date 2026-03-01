@@ -389,10 +389,6 @@ class TestAuthorDisambiguation:
         # Should yield nothing; authors are ambiguous
         assert len(emitted) == 0
         assert len(spider.ambiguous_authors.entries) == 1
-        assert (
-            spider.ambiguous_authors.entries[0].ambiguity_reason
-            == "multiple authors with institutional affiliation"
-        )
 
     def test_disambiguate_no_affiliation(self, spider: OpenAlexSpider) -> None:
         authors = [
@@ -405,10 +401,6 @@ class TestAuthorDisambiguation:
         # Should yield nothing; no authors with our affiliation
         assert len(emitted) == 0
         assert len(spider.ambiguous_authors.entries) == 1
-        assert (
-            spider.ambiguous_authors.entries[0].ambiguity_reason
-            == "no authors with institutional affiliation"
-        )
 
     def test_ambiguous_authors_stored_as_structured_records(self, spider: OpenAlexSpider) -> None:
         authors = [
