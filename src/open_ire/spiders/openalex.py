@@ -391,7 +391,6 @@ class OpenAlexSpider(AuthorSearchSpider):
         self, response: Response
     ) -> Generator[Request | AuthorItem, None, None]:
         searched_author = response.meta["searched_author"]
-        the_author = None
         raw = json.loads(response.text or "{}")
         authors = [OpenAlexAuthor.from_api(result) for result in raw.get("results", [])]
 
@@ -399,53 +398,69 @@ class OpenAlexSpider(AuthorSearchSpider):
             self.logger.warning("No authors found matching '%s'", searched_author)
             return
 
-        if len(authors) == 1:
-            the_author = authors[0]
-        elif searched_author in self.ambiguous_authors.resolved_choices:
-            # Use pre-resolved choices from the ambiguous authors CSV.
-            chosen = self.ambiguous_authors.resolved_choices[searched_author]
-            self.logger.info(
-                "Using %s pre-resolved choice(s) for '%s'",
-                len(chosen),
-                searched_author,
-            )
-            yield self._build_author_item_from_choices(searched_author, chosen)
-            for choice in chosen:
-                openalex_id = choice[AmbiguousAuthor.FIELD_OPENALEX_ID]
-                if openalex_id:
-                    yield self._build_publications_request(openalex_id, searched_author)
+        # Pre-resolved ambiguous authors take priority.
+        if searched_author in self.ambiguous_authors.resolved_choices:
+            yield from self._items_for_resolved_author(searched_author)
             return
-        else:
-            self.logger.info("Found %s authors matching '%s'", len(authors), searched_author)
-            affiliated = [au for au in authors if au.years_at_institution(self.our_institution_id)]
-            if len(affiliated) == 1:
-                the_author = affiliated[0]
-                self.logger.info(
-                    "Disambiguated '%s' to '%s' (ID: %s) based on institutional affiliation",
-                    searched_author,
-                    the_author.display_name,
-                    the_author.id,
-                )
-            elif not affiliated:
-                self.ambiguous_authors.append(
-                    AmbiguousAuthor(
-                        searched_author, authors, "no authors with institutional affiliation"
-                    )
-                )
-                return
-            else:
-                self.ambiguous_authors.append(
-                    AmbiguousAuthor(
-                        searched_author,
-                        affiliated,
-                        "multiple authors with institutional affiliation",
-                    )
-                )
-                return
+
+        # Single result or disambiguate among multiple.
+        the_author = self._disambiguate_authors(searched_author, authors)
+        if the_author is None:
+            return
 
         self.items_generated["AuthorItem"] += 1
         yield self._build_author_item(searched_author, the_author)
         yield self._build_publications_request(the_author.id, searched_author)
+
+    def _items_for_resolved_author(
+        self, searched_author: str
+    ) -> Generator[Request | AuthorItem, None, None]:
+        """Yield items for a pre-resolved ambiguous author from the CSV."""
+        chosen = self.ambiguous_authors.resolved_choices[searched_author]
+        self.logger.info(
+            "Using %s pre-resolved choice(s) for '%s'",
+            len(chosen),
+            searched_author,
+        )
+        yield self._build_author_item_from_choices(searched_author, chosen)
+        for choice in chosen:
+            openalex_id = choice[AmbiguousAuthor.FIELD_OPENALEX_ID]
+            if openalex_id:
+                yield self._build_publications_request(openalex_id, searched_author)
+
+    def _disambiguate_authors(
+        self, searched_author: str, authors: list[OpenAlexAuthor]
+    ) -> OpenAlexAuthor | None:
+        """Try to identify a single author from multiple OpenAlex results.
+
+        Returns the author if unambiguous, or None if the search is ambiguous
+        (in which case the author is recorded for manual resolution).
+        """
+        if len(authors) == 1:
+            return authors[0]
+
+        self.logger.info("Found %s authors matching '%s'", len(authors), searched_author)
+        affiliated = [au for au in authors if au.years_at_institution(self.our_institution_id)]
+
+        if len(affiliated) == 1:
+            self.logger.info(
+                "Disambiguated '%s' to '%s' (ID: %s) based on institutional affiliation",
+                searched_author,
+                affiliated[0].display_name,
+                affiliated[0].id,
+            )
+            return affiliated[0]
+
+        self.ambiguous_authors.append(
+            AmbiguousAuthor(
+                searched_author,
+                affiliated or authors,
+                "no authors with institutional affiliation"
+                if not affiliated
+                else "multiple authors with institutional affiliation",
+            )
+        )
+        return None
 
     def _build_publications_request(
         self, author_id: str, searched_author: str, cursor: str = "*"
