@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from open_ire.author import ParsedAuthor
 from open_ire.items import AuthorItem
-from open_ire.models import Author, AuthorIdentifier
+from open_ire.models import Article, Author, AuthorIdentifier, Authorship
 from open_ire.pipelines.base_sql_model_pipeline import BaseSQLModelPipeline
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -49,7 +49,8 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
             candidates = [a for a in (by_identifier, by_name) if a is not None]
 
             if not candidates:
-                self._create_author_with_identifiers(session, item)
+                author = self._create_author_with_identifiers(session, item)
+                self._link_author_to_existing_articles(session, author, item.author)
             elif len(candidates) == 1 or (candidates[0].id == candidates[1].id):
                 self._update_author(session, candidates[0], item)
             else:
@@ -124,6 +125,35 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
             )
 
         return author
+
+    @staticmethod
+    def _link_author_to_existing_articles(
+        session: Session, author: Author, parsed: ParsedAuthor
+    ) -> None:
+        """Retroactively link a newly-created author to articles already in the DB.
+
+        When an author is first added to the database, articles that list them
+        may already exist (ingested earlier when this author was not yet a person
+        of interest).  This method finds those articles and creates the missing
+        Authorship links so the relationship is not lost.
+        """
+        articles = session.exec(
+            select(Article).where(Article.authors.contains(parsed.last_name))  # type: ignore[union-attr]
+        ).all()
+
+        for article in articles:
+            article_authors = ParsedAuthor.parse_author_string(article.authors or "")
+            for i, article_author in enumerate(article_authors):
+                if article_author.likely_same(parsed):
+                    existing_link = session.get(Authorship, (article.id, author.id))
+                    if existing_link is None:
+                        session.add(Authorship(article=article, author=author, author_order=i))
+                        logger.info(
+                            "Retroactively linked author '%s' to article '%s'",
+                            author.canonical_name,
+                            article.id,
+                        )
+                    break
 
     @staticmethod
     def _add_missing_identifiers(
