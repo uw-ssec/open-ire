@@ -46,6 +46,36 @@ class GSearchSpider(Spider):
         return response.xpath(f"//meta[@name='{name}']/@content").get()
 
     @staticmethod
+    def _normalize_description_label(label: str) -> str:
+        normalized_label = " ".join(label.split())
+        return normalized_label.rstrip(":").strip().casefold()
+
+    @staticmethod
+    def _normalize_extracted_value(value: str) -> str | None:
+        normalized_value = " ".join(value.split()).strip()
+        return normalized_value or None
+
+    @staticmethod
+    def _extract_from_details_list(response: Response, label: str) -> str | None:
+        expected_label = GSearchSpider._normalize_description_label(label)
+
+        for row in response.xpath("//li[contains(@class, 'bookDetails-row')]"):
+            label_text = " ".join(
+                row.xpath(".//div[contains(@class, 'bookDetailsLabel')]//text()").getall()
+            )
+            normalized_label_text = GSearchSpider._normalize_description_label(label_text)
+            if normalized_label_text != expected_label:
+                continue
+
+            value_text = " ".join(
+                row.xpath(".//div[contains(@class, 'bookDetailsData')]//text()").getall()
+            )
+            if normalized_value := GSearchSpider._normalize_extracted_value(value_text):
+                return normalized_value
+
+        return None
+
+    @staticmethod
     def _extract_file_urls(response: Response) -> list[str]:
         file_hrefs = response.xpath('//meta[@name="citation_pdf_url"]/@content').getall()
 
@@ -82,7 +112,14 @@ class GSearchSpider(Spider):
         if publisher := self._extract_from_meta(response, "citation_publisher"):
             extra["publisher"] = publisher
 
-        if journal_title := self._extract_from_meta(response, "citation_journal_title"):
+        journal_title = self._extract_from_meta(response, "citation_journal_title")
+        if not journal_title:
+            for label in ("Journal Title", "Journal Article", "Source"):
+                journal_title = self._extract_from_details_list(response, label)
+                if journal_title:
+                    break
+
+        if journal_title:
             extra["journal_title"] = journal_title
 
         if conference := self._extract_from_meta(response, "citation_conference"):

@@ -167,3 +167,31 @@ class TestNOAASpider:
         extra = spider._extract_extra_details(response)
 
         assert extra == {}
+
+    def test_extract_journal_title_from_details_list(self) -> None:
+        """Test journal title fallback from details list rows."""
+        html = """
+        <html>
+            <head></head>
+            <body>
+                <ul class="bookDetailsList">
+                    <li class="bookDetails-row">
+                        <div class="bookDetailsLabel">
+                            <b>Journal Title:</b>
+                        </div>
+                        <div class="bookDetailsData pt-3">
+                            <div>NOAA Details Journal</div>
+                        </div>
+                    </li>
+                </ul>
+            </body>
+        </html>
+        """
+        response = HtmlResponse(
+            url="https://repository.library.noaa.gov/", body=html.encode("utf-8")
+        )
+        spider = NOAASpider()
+
+        extra = spider._extract_extra_details(response)
+
+        assert extra["journal_title"] == "NOAA Details Journal"
