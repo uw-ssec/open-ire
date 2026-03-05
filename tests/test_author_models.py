@@ -8,7 +8,7 @@ from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from open_ire.models import Article, ArticleAuthor, Author, AuthorAffiliation, AuthorIdentifier
+from open_ire.models import Article, Author, AuthorAffiliation, AuthorIdentifier, Authorship
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ class TestAuthorModelRelationships:
         """Property 1: Many-to-many relationship integrity.
 
         For any article and author pair, when they are linked through the
-        ArticleAuthor junction table, both the article and author should be
+        Authorship junction table, both the article and author should be
         accessible through their respective relationship properties.
 
         **Feature: author-normalization, Property 1: Many-to-many relationship integrity**
@@ -72,21 +72,21 @@ class TestAuthorModelRelationships:
         session.refresh(author)
 
         # Create junction record
-        article_author = ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1)
+        article_author = Authorship(article_id=article.id, author_id=author.id, author_order=1)
 
         session.add(article_author)
         session.commit()
 
         # Test forward relationship: article -> junction -> author
         session.refresh(article)
-        assert len(article.article_authors) == 1
-        assert article.article_authors[0].author_id == author.id
-        assert article.article_authors[0].author_order == 1
+        assert len(article.authorships) == 1
+        assert article.authorships[0].author_id == author.id
+        assert article.authorships[0].author_order == 1
 
         # Test backward relationship: author -> junction -> article
         session.refresh(author)
-        assert len(author.article_authors) == 1
-        assert author.article_authors[0].article_id == article.id
+        assert len(author.authorships) == 1
+        assert author.authorships[0].article_id == article.id
 
         # Test junction table relationships
         session.refresh(article_author)
@@ -126,16 +126,16 @@ class TestAuthorModelRelationships:
         session.refresh(author2)
 
         # Create junction records
-        junction1 = ArticleAuthor(article_id=article.id, author_id=author1.id, author_order=1)
-        junction2 = ArticleAuthor(article_id=article.id, author_id=author2.id, author_order=2)
+        junction1 = Authorship(article_id=article.id, author_id=author1.id, author_order=1)
+        junction2 = Authorship(article_id=article.id, author_id=author2.id, author_order=2)
 
         session.add_all([junction1, junction2])
         session.commit()
 
         # Verify relationships through junction table
         session.refresh(article)
-        assert len(article.article_authors) == 2
-        author_ids = {junction.author_id for junction in article.article_authors}
+        assert len(article.authorships) == 2
+        author_ids = {junction.author_id for junction in article.authorships}
         assert author_ids == {author1.id, author2.id}
 
     def test_multiple_articles_per_author(self, session: Session):
@@ -172,16 +172,16 @@ class TestAuthorModelRelationships:
         session.refresh(article2)
 
         # Create junction records
-        junction1 = ArticleAuthor(article_id=article1.id, author_id=author.id, author_order=1)
-        junction2 = ArticleAuthor(article_id=article2.id, author_id=author.id, author_order=1)
+        junction1 = Authorship(article_id=article1.id, author_id=author.id, author_order=1)
+        junction2 = Authorship(article_id=article2.id, author_id=author.id, author_order=1)
 
         session.add_all([junction1, junction2])
         session.commit()
 
         # Verify relationships through junction table
         session.refresh(author)
-        assert len(author.article_authors) == 2
-        article_ids = {junction.article_id for junction in author.article_authors}
+        assert len(author.authorships) == 2
+        article_ids = {junction.article_id for junction in author.authorships}
         assert article_ids == {article1.id, article2.id}
 
     def test_author_identifiers_relationship(self, session: Session):
@@ -279,19 +279,19 @@ class TestAuthorModelRelationships:
         session.refresh(author)
 
         # Create junction record
-        junction = ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1)
+        junction = Authorship(article_id=article.id, author_id=author.id, author_order=1)
         session.add(junction)
         session.commit()
 
         # Verify initial state
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
+        assert len(session.exec(select(Authorship)).all()) == 1
 
         # Delete the junction record directly
         session.delete(junction)
         session.commit()
 
         # Verify junction record is gone but article and author remain
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
+        assert len(session.exec(select(Authorship)).all()) == 0
         assert session.get(Article, article.id) is not None
         assert session.get(Author, author.id) is not None
 
@@ -316,14 +316,14 @@ class TestAuthorModelRelationships:
         session.refresh(article)
         session.refresh(author)
 
-        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
+        session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
         session.commit()
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
+        assert len(session.exec(select(Authorship)).all()) == 1
 
         session.delete(article)
         session.commit()
 
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
+        assert len(session.exec(select(Authorship)).all()) == 0
         assert session.get(Author, author.id) is not None
 
     def test_delete_author_removes_junction_records(self, session: Session):
@@ -347,14 +347,14 @@ class TestAuthorModelRelationships:
         session.refresh(article)
         session.refresh(author)
 
-        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
+        session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
         session.commit()
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
+        assert len(session.exec(select(Authorship)).all()) == 1
 
         session.delete(author)
         session.commit()
 
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
+        assert len(session.exec(select(Authorship)).all()) == 0
         assert session.get(Article, article.id) is not None
 
 
