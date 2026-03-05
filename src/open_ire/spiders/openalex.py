@@ -5,10 +5,11 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
 
 from open_ire.author import ParsedAuthor
@@ -17,7 +18,6 @@ from open_ire.items import ArticleItem, AuthorItem
 from open_ire.pipelines.author_identifier_pipeline import find_author_by_name
 from open_ire.settings import (
     OPEN_IRE_CONTACT_EMAIL,
-    OPEN_IRE_DATABASE_FILE,
     OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE,
     OPEN_IRE_OPENALEX_INSTITUTION_ID,
 )
@@ -334,6 +334,19 @@ class OpenAlexSpider(AuthorSearchSpider):
         }
         self.ambiguous_authors = AmbiguousAuthorList(Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE))
 
+        self.db_engine: Engine | None = None
+
+    @classmethod
+    def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> Self:
+        spider = super().from_crawler(crawler, *args, **kwargs)
+
+        db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
+        if db_path and Path(db_path).exists():
+            spider.db_engine = create_engine(
+                f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
+            )
+        return spider
+
     def author_name_for_query(self, record: ParsedAuthor) -> str:
         return " ".join(
             part for part in [record.first_name, record.middle_names, record.last_name] if part
@@ -384,6 +397,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             self.items_generated["ArticleItem"],
             self.items_generated["AuthorItem"],
         )
+
+        if self.db_engine:
+            self.db_engine.dispose()
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
@@ -662,27 +678,21 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     # === AUTHOR DISAMBIGUATION ===
 
-    @staticmethod
-    def _find_known_openalex_ids(author: ParsedAuthor) -> list[str]:
+    def _find_known_openalex_ids(self, author: ParsedAuthor) -> list[str]:
         """Look up existing OpenAlex IDs for an author in the database."""
-        db_path = Path(OPEN_IRE_DATABASE_FILE)
-        if not db_path.exists():
+        if not self.db_engine:
             return []
 
-        engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-        try:
-            with Session(engine) as session:
-                db_author = find_author_by_name(session, author)
-                if not db_author:
-                    return []
+        with Session(self.db_engine) as session:
+            db_author = find_author_by_name(session, author)
+            if not db_author:
+                return []
 
-                openalex_ids = []
-                for ident in db_author.identifiers:
-                    if ident.authority == "openalex":
-                        openalex_ids.append(ident.identifier)
-                return openalex_ids
-        finally:
-            engine.dispose()
+            openalex_ids = []
+            for ident in db_author.identifiers:
+                if ident.authority == "openalex":
+                    openalex_ids.append(ident.identifier)
+            return openalex_ids
 
     # === HELPER METHODS ===
 
