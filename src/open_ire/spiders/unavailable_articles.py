@@ -14,7 +14,7 @@ from sqlmodel import asc, create_engine, select
 from twisted.python.failure import Failure
 
 from open_ire.items import UnavailableArticleItem
-from open_ire.models import Article
+from open_ire.models import Article, ArticleFile
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +22,7 @@ class _CollectedArticleRecord:
     article_id: str
     repository: str
     reference: str
+    kind: str
     url: str
 
 
@@ -97,7 +98,7 @@ class UnavailableArticleExporter:
 
 class UnavailableArticlesSpider(Spider):
     """
-    Track previously collected articles that are no longer available at source URL.
+    Track previously collected article metadata and downloaded-file URLs that are no longer available.
     """
 
     name = "unavailable_articles"
@@ -125,7 +126,7 @@ class UnavailableArticlesSpider(Spider):
         self.db_batch_size = 5000
         self.exporter = UnavailableArticleExporter(self.output_csv)
 
-        self._scheduled_articles = 0
+        self._scheduled_checks = 0
         self._unavailable_items = 0
 
         self.repository_stats: dict[str, _RepositoryAvailabilityStats] = defaultdict(
@@ -153,20 +154,9 @@ class UnavailableArticlesSpider(Spider):
 
         return spider
 
-    def _iter_articles(self) -> Iterator[_CollectedArticleRecord]:
+    def _iter_db_records(self, statement: Any, *, kind: str) -> Iterator[_CollectedArticleRecord]:
         if not self.engine:
             return
-
-        statement = (
-            select(
-                Article.id,
-                Article.repository,
-                Article.reference,
-                Article.url,
-            )
-            .where(Article.url != "")
-            .order_by(asc(Article.created_at))
-        )
 
         with self.engine.connect() as connection:
             result = connection.execution_options(stream_results=True).execute(statement)
@@ -186,8 +176,35 @@ class UnavailableArticlesSpider(Spider):
                         article_id=str(article_id),
                         repository=str(repository),
                         reference=str(reference),
+                        kind=kind,
                         url=normalized_url,
                     )
+
+    def _iter_articles(self) -> Iterator[_CollectedArticleRecord]:
+        article_statement = (
+            select(
+                Article.id,
+                Article.repository,
+                Article.reference,
+                Article.url,
+            )
+            .where(Article.url != "")
+            .order_by(asc(Article.created_at))
+        )
+        file_statement = (
+            select(
+                Article.id,
+                Article.repository,
+                Article.reference,
+                ArticleFile.url,
+            )
+            .join(ArticleFile, cast(Any, ArticleFile.article_id == Article.id))
+            .where(ArticleFile.url != "")
+            .order_by(asc(ArticleFile.created_at))
+        )
+
+        yield from self._iter_db_records(article_statement, kind="article_metadata")
+        yield from self._iter_db_records(file_statement, kind="downloaded_file")
 
     def _build_request(self, article: _CollectedArticleRecord, method: str) -> Request:
         return Request(
@@ -223,6 +240,7 @@ class UnavailableArticlesSpider(Spider):
             article_id=article.article_id,
             repository=article.repository,
             reference=article.reference,
+            kind=article.kind,
             url=article.url,
             status_code=status_code,
             error=error,
@@ -261,14 +279,14 @@ class UnavailableArticlesSpider(Spider):
 
         self.logger.info(
             "Unavailable-article check completed (reason=%s). "
-            "Articles checked=%d, available=%d, unavailable=%d",
+            "URLs checked=%d, available=%d, unavailable=%d",
             reason,
             totals.checked,
             totals.available,
             totals.unavailable,
         )
         self.logger.info(
-            "Unavailable article CSV: %s (%d rows)",
+            "Unavailable URL CSV: %s (%d rows)",
             self.output_csv,
             self._unavailable_items,
         )
@@ -307,7 +325,7 @@ class UnavailableArticlesSpider(Spider):
         self.exporter.open()
 
         for article in self._iter_articles():
-            self._scheduled_articles += 1
+            self._scheduled_checks += 1
 
             try:
                 yield self._build_request(article, method="HEAD")
@@ -321,8 +339,8 @@ class UnavailableArticlesSpider(Spider):
                 )
 
         self.logger.info(
-            "Scheduled availability checks for %d articles",
-            self._scheduled_articles,
+            "Scheduled availability checks for %d URLs",
+            self._scheduled_checks,
         )
 
     def parse_article_availability(
@@ -331,7 +349,7 @@ class UnavailableArticlesSpider(Spider):
         article: _CollectedArticleRecord,
         request_method: str,
     ) -> Request | None:
-        if request_method == "HEAD" and response.status in {405, 501}:
+        if request_method == "HEAD" and response.status in {404, 405, 501}:
             return self._build_request(article, method="GET")
 
         if response.status >= 400:

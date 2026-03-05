@@ -109,6 +109,16 @@ For example:
 pixi run resume eric --skip-existing
 ```
 
+### Tracking Deleted Articles
+
+To detect previously collected article metadata and downloaded files that are no
+longer available, run the `unavailable_articles` spider. It reads from
+`OPEN_IRE_DATABASE_FILE` and writes a CSV report under `output/`.
+
+```bash
+pixi run resume unavailable_articles
+```
+
 ### Search by Keyword
 
 To run a spider with a custom list of search terms, use the `search-terms`

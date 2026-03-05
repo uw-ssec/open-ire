@@ -24,6 +24,7 @@ class UnavailableArticleItem(SQLModel):
     article_id: str
     repository: str
     reference: str
+    kind: str
     url: str
     status_code: int | None = None
     error: str
