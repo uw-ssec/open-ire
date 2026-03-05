@@ -495,14 +495,29 @@ class OpenAlexSpider(AuthorSearchSpider):
                 affiliated[0].display_name,
                 affiliated[0].id,
             )
-        else:
-            self.logger.warning(
-                "Auto-merging %s name-matched, affiliated candidates for '%s' "
-                "(likely fragmented OpenAlex records)",
-                len(affiliated),
-                searched_author,
-            )
+            return affiliated
 
+        # Multiple affiliated, name-matched candidates. Use ORCIDs to decide
+        # whether they are likely different people or fragmented records.
+        distinct_orcids = {au.orcid for au in affiliated if au.orcid}
+
+        if len(distinct_orcids) > 1:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author,
+                    affiliated,
+                    "multiple affiliated authors with different ORCIDs",
+                )
+            )
+            return []
+
+        # Zero or one distinct ORCID → likely fragmented records for one person.
+        self.logger.warning(
+            "Auto-merging %s name-matched, affiliated candidates for '%s' "
+            "(likely fragmented OpenAlex records)",
+            len(affiliated),
+            searched_author,
+        )
         return affiliated
 
     def _build_publications_request(
