@@ -78,12 +78,12 @@ OPEN_IRE_SEARCH_TERMS = [
     "washington sea grant",
     "washington.edu",
 ]
-SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
+OPEN_IRE_SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
-OPENALEX_INSTITUTION_ID = "i201448701"
-OPENALEX_AMBIGUOUS_AUTHORS_FILE = f"{FILES_STORE}/openalex_ambiguous_authors.csv"
-WOS_ORGANIZATION = "University of Washington"
+OPEN_IRE_OPENALEX_INSTITUTION_ID = "i201448701"
+OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE = f"{FILES_STORE}/openalex_ambiguous_authors.csv"
+OPEN_IRE_WOS_ORGANIZATION = "University of Washington"

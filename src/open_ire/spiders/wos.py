@@ -10,7 +10,7 @@ from scrapy.http import Request, Response
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
 from open_ire.items import ArticleItem
-from open_ire.settings import WOS_ORGANIZATION
+from open_ire.settings import OPEN_IRE_WOS_ORGANIZATION
 from open_ire.spiders.search import AuthorSearchSpider
 from open_ire.utils import as_list, parse_date, validate_year
 
@@ -67,7 +67,7 @@ class WoSSpider(AuthorSearchSpider):
         super().__init__(*args, **kwargs)
 
         current_year = datetime.date.today().year
-        self.organization = WOS_ORGANIZATION
+        self.organization = OPEN_IRE_WOS_ORGANIZATION
         self.start_year = validate_year(start_year, "start_year")
 
         if end_year is None:
