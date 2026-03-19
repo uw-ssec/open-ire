@@ -21,8 +21,10 @@ variable and re-exports everything from the matching module:
 - `development.py` — overrides meant for local development
 - `production.py` — overrides meant for deployed runs
 
-> [!NOTE] Project-specific settings use the `OPEN_IRE_` prefix to distinguish
-> them from built-in Scrapy settings.
+> [!NOTE]
+>
+> Project-specific settings use the `OPEN_IRE_` prefix to distinguish them from
+> built-in Scrapy settings.
 
 ![Architecture Diagram](images/architecture.png)
 
@@ -51,9 +53,11 @@ pipelines run early (to discard duplicates and unnecessary work), normalization
 pipelines run in the middle, and file handling and persistence pipelines run
 last.
 
-> [!NOTE] Spiders can bypass the pipeline chain and operate directly on the
-> database when needed. For example, the OA evidence spiders do this to update
-> existing records instead of collecting new data.
+> [!NOTE]
+>
+> Spiders can bypass the pipeline chain and operate directly on the database
+> when needed. For example, the OA evidence spiders do this to update existing
+> records instead of collecting new data.
 
 ## Storage
 

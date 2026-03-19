@@ -5,8 +5,10 @@ snapshots to a SharePoint document library. Authentication uses an Azure AD app
 registration with client credentials, so no interactive user sign-in is
 required.
 
-> [!NOTE] The SharePoint pipeline is environment-aware: disabled in development
-> by default and active in production.
+> [!NOTE]
+>
+> The SharePoint pipeline is environment-aware: disabled in development by
+> default and active in production.
 
 ## Managing the Integration
 
@@ -35,9 +37,11 @@ The integration requires four environment variables (see `.env.example`):
 | `SHAREPOINT_SITE_ID`       | SharePoint site ID      |
 | `SHAREPOINT_CLIENT_SECRET` | Client secret value     |
 
-> [!WARNING] Client secrets have an expiration date. The current secret expires
-> on **2028-02-18**. When a secret expires, the pipeline will fail to
-> authenticate. Rotate secrets through the
+> [!WARNING]
+>
+> Client secrets have an expiration date. The current secret expires on
+> **2028-02-18**. When a secret expires, the pipeline will fail to authenticate.
+> Rotate secrets through the
 > [Credentials](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/1c8e7535-f420-440d-be38-881eff0193a6/isMSAApp~/false)
 > page before they expire.
 
@@ -74,9 +78,11 @@ Reference:
 - Add the `Sites.Selected` permission
 - An admin must grant consent for the tenant
 
-> [!IMPORTANT] > `Sites.Selected` grants access only to specific SharePoint
-> sites that are explicitly authorized, rather than all sites in the tenant.
-> This is the least-privilege approach recommended by Microsoft.
+> [!IMPORTANT]
+>
+> `Sites.Selected` grants access only to specific SharePoint sites that are
+> explicitly authorized, rather than all sites in the tenant. This is the
+> least-privilege approach recommended by Microsoft.
 
 ### 3. Request UW-IT approval
 

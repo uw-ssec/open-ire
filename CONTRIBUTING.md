@@ -44,7 +44,9 @@ Your contributions make this project better—thank you for your support! 🚀
 5. Make your changes and ensure tests and pre-commit checks pass.
 6. Submit a pull request.
 
-> [!NOTE] Feature requests and bug reports are tracked via
+> [!NOTE]
+>
+> Feature requests and bug reports are tracked via
 > [GitHub Issues](https://github.com/uw-ssec/open-ire/issues). Please check for
 > existing issues before starting work, and open a new one if needed.
 
