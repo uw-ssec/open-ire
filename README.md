@@ -164,6 +164,28 @@ authors:
 pixi run search-authors openalex "data/authors.csv"
 ```
 
+### Notebooks
+
+This project includes [marimo](https://marimo.io/) notebooks for data analysis
+under `notebooks/`.
+
+| Notebook                  | Description                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `metadata_analysis.py`    | Collection stats, repository breakdowns, and text analysis                       |
+| `unavailable_articles.py` | Re-checks URLs from an unavailable-articles CSV to identify which have recovered |
+
+To open a notebook in the interactive editor:
+
+```bash
+pixi run -e dev marimo edit notebooks/metadata_analysis.py
+```
+
+To run a notebook as a read-only app:
+
+```bash
+pixi run -e dev marimo run notebooks/metadata_analysis.py
+```
+
 ## Contributing
 
 We welcome contributions! Please see our contribution guidelines:
