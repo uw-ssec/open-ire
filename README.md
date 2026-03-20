@@ -68,7 +68,7 @@ SHAREPOINT_CLIENT_SECRET=<your_application_client_secret>
 ```
 
 Alternatively, you can disable the `SharePointPipeline` in
-`src/open_ire/settings.py`.
+`src/open_ire/settings/`.
 
 ### 2. Activate the Environment
 

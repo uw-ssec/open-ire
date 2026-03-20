@@ -100,7 +100,6 @@ repos:
     hooks:
       - id: check-dependabot
       - id: check-github-workflows
-      - id: check-readthedocs
 
   - repo: https://github.com/scientific-python/cookie
     rev: "2024.08.19"

@@ -40,7 +40,7 @@ file = "LICENSE"
 
 [project.urls]
 Homepage = "https://github.com/uw-ssec/open-ire"
-Documentation = "https://github.com/uw-ssec/open-ire/blob/main/README.md"
+Documentation = "https://github.com/uw-ssec/open-ire/tree/main/docs"
 Repository = "https://github.com/uw-ssec/open-ire.git"
 Issues = "https://github.com/uw-ssec/open-ire/issues"
 
@@ -63,14 +63,6 @@ dev = [
     "types-nameparser",
     "types-python-dateutil",
     "types-requests",
-]
-docs = [
-    "jupyter-book",
-    "numpydoc",
-    "sphinx-automodapi",
-    "sphinx-panels",
-    "sphinx_rtd_theme",
-    "sphinxcontrib-mermaid",
 ]
 
 [tool.hatch.version]
@@ -116,6 +108,9 @@ xfail_strict = false
 filterwarnings = ["error"]
 log_cli_level = "INFO"
 testpaths = ["tests"]
+
+[tool.repo-review.ignore]
+RTD = "Documentation is served as plain Markdown on GitHub"
 
 [tool.ruff]
 line-length = 100
@@ -165,19 +160,16 @@ platforms = ["osx-arm64", "osx-64", "win-64"]
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
-docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.10,<0.0.11"
+python = "3.13.*"
 
 [tool.pixi.pypi-dependencies]
 open_ire = { path = ".", editable = true }
 
 [tool.pixi.feature.dev.pypi-dependencies]
 open_ire = { path = ".", editable = true, extras = ["dev"] }
-
-[tool.pixi.feature.docs.pypi-dependencies]
-open_ire = { path = ".", editable = true, extras = ["docs"] }
 
 [tool.pixi.feature.dev.tasks]
 pre-commit = "pre-commit run"
