@@ -15,8 +15,8 @@ from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem, AuthorItem
 from open_ire.settings import (
     OPEN_IRE_CONTACT_EMAIL,
-    OPENALEX_AMBIGUOUS_AUTHORS_FILE,
-    OPENALEX_INSTITUTION_ID,
+    OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE,
+    OPEN_IRE_OPENALEX_INSTITUTION_ID,
 )
 from open_ire.spiders.search import AuthorSearchSpider
 from open_ire.utils import parse_date
@@ -42,9 +42,9 @@ class OpenAlexSpider(AuthorSearchSpider):
         super().__init__(*args, **kwargs)
 
         self.start_date = start_date
-        self.our_institution_id = OPENALEX_INSTITUTION_ID.strip().upper()
+        self.our_institution_id = OPEN_IRE_OPENALEX_INSTITUTION_ID.strip().upper()
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
-        self.ambiguous_authors_file = Path(OPENALEX_AMBIGUOUS_AUTHORS_FILE)
+        self.ambiguous_authors_file = Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE)
         self._ambiguous_authors: list[dict[str, Any]] = []
 
     def author_name_for_query(self, record: ParsedAuthor) -> str:

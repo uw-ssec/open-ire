@@ -44,6 +44,12 @@ Your contributions make this project better—thank you for your support! 🚀
 5. Make your changes and ensure tests and pre-commit checks pass.
 6. Submit a pull request.
 
+> [!NOTE]
+>
+> Feature requests and bug reports are tracked via
+> [GitHub Issues](https://github.com/uw-ssec/open-ire/issues). Please check for
+> existing issues before starting work, and open a new one if needed.
+
 ### Configuring Pre-commit
 
 PRs will fail style and formatting checks as configured by
@@ -92,7 +98,6 @@ pixi run pre-commit-all
 
 - `default`: Basic execution environment.
 - `dev`: Development environment with testing tools.
-- `docs`: Documentation building environment.
 
 To activate one of these environments, run the following command:
 
@@ -133,13 +138,5 @@ Make sure to activate the `dev` environment before running tests.
 
 ### Project Architecture
 
-Open IRE is built on
-[Scrapy](https://docs.scrapy.org/en/latest/topics/architecture.html) with a
-modular architecture that separates data collection, processing, and storage
-components.
-
-Many system behaviors can be configured through the
-[Scrapy settings](https://docs.scrapy.org/en/latest/topics/settings.html) file
-(`src/open_ire/settings.py`).
-
-![Project Architecture](docs/images/architecture.png)
+See the [Architecture](docs/architecture.md) documentation for an overview of
+the different system components.
