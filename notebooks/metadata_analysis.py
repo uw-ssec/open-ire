@@ -8,19 +8,18 @@ app = marimo.App(width="medium")
 def _():
     import json
     import sqlite3
-    from pathlib import Path
 
     import altair as alt
     import marimo as mo
     import numpy as np
     import pandas as pd
 
-    return Path, alt, json, mo, np, pd, sqlite3
+    return alt, json, mo, np, pd, sqlite3
 
 
 @app.cell
-def _(Path, mo, pd, sqlite3):
-    DB_PATH = Path(__file__).parent.parent / "dbs" / "open_ire.db"
+def _(mo, pd, sqlite3):
+    DB_PATH = mo.notebook_dir() / ".." / "dbs" / "open_ire.db"
     mo.stop(
         not DB_PATH.exists(),
         mo.callout(
@@ -96,7 +95,7 @@ def _(articles_df, json, np):
 @app.cell
 def _(mo):
     mo.md("""
-    ## Collection overview
+    ## Collection Overview
     """)
     return
 
