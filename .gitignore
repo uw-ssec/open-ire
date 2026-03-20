@@ -146,3 +146,6 @@ version.py
 
 # macOS
 .DS_Store
+
+# Marimo specific
+__marimo__
