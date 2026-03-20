@@ -48,10 +48,10 @@ strategy, so adding a new spider for a similar source requires less boilerplate.
 Items yielded by spiders pass through a chain of pipelines that handle
 filtering, normalization, file management, and persistence.
 
-There is no strict ordering requirement, but as a rule of thumb, filtering
-pipelines run early (to discard duplicates and unnecessary work), normalization
-pipelines run in the middle, and file handling and persistence pipelines run
-last.
+Pipeline ordering is defined by the `ITEM_PIPELINES` dict in `settings/base.py`.
+As a rule of thumb, filtering pipelines run early (to discard duplicates and
+unnecessary work), normalization pipelines run in the middle, and file handling
+and persistence pipelines run last.
 
 > [!NOTE]
 >
