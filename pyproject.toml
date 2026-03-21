@@ -46,18 +46,22 @@ Issues = "https://github.com/uw-ssec/open-ire/issues"
 
 [project.optional-dependencies]
 dev = [
-    "mypy",
+    "altair",
     "ipython",
+    "marimo",
+    "mypy",
     "nox",
     "pre-commit",
+    "pyarrow",
+    "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
     "pytest-xdist",
-    "pytest",
     "ruff",
-    "types-python-dateutil",
+    "scikit-learn",
     "types-nameparser",
+    "types-python-dateutil",
     "types-requests",
 ]
 
@@ -144,6 +148,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG001", "ARG002", "ARG003", "T20"]
 "noxfile.py" = ["T20"]
+"notebooks/**" = ["ARG001", "T20", "PLC0415", "PLR1711"]
 
 # ===
 # Pixi environments, dependencies, and tasks
