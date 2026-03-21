@@ -116,8 +116,8 @@ migration:
 pixi run -e dev migration "description of the change"
 ```
 
-This creates a new migration file in `src/migrations/versions/`. Review the
-generated file to ensure it accurately captures your changes, then commit it
+This creates a new migration file in `src/open_ire/migrations/versions/`. Review
+the generated file to ensure it accurately captures your changes, then commit it
 alongside the model changes.
 
 Other useful migration commands:

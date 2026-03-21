@@ -11,7 +11,7 @@ from sqlmodel import SQLModel, create_engine
 
 logger = logging.getLogger(__name__)
 
-_ALEMBIC_DIR = Path(__file__).resolve().parents[1] / "migrations"
+_ALEMBIC_DIR = Path(__file__).resolve().parent / "migrations"
 _migration_lock = threading.Lock()
 _migrated_paths: set[str] = set()
 
