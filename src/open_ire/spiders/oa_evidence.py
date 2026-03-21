@@ -3,8 +3,9 @@ from typing import Any, Self
 
 from scrapy import Spider
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, col, create_engine, select
+from sqlmodel import Session, col, select
 
+from open_ire.db import create_db_engine
 from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
 from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL
@@ -31,10 +32,7 @@ class BaseOAEvidenceSpider(Spider):
         spider = super().from_crawler(crawler, *args, **kwargs)
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         if db_path:
-            spider.engine = create_engine(
-                f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
-            )
-            SQLModel.metadata.create_all(spider.engine)
+            spider.engine = create_db_engine(db_path)
 
         return spider
 

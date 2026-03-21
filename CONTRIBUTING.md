@@ -105,6 +105,28 @@ To activate one of these environments, run the following command:
 pixi shell -e <environment>
 ```
 
+### Database Migrations
+
+Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/).
+Migrations run automatically when spiders start, but when you modify the
+database models in `src/open_ire/models.py`, you must generate a corresponding
+migration:
+
+```bash
+pixi run -e dev migration "description of the change"
+```
+
+This creates a new migration file in `src/migrations/versions/`. Review the
+generated file to ensure it accurately captures your changes, then commit it
+alongside the model changes.
+
+Other useful migration commands:
+
+```bash
+pixi run -e dev migrate          # Apply pending migrations manually
+pixi run -e dev migrate-history  # Show migration history
+```
+
 ### Running Tests
 
 This project uses [pytest](https://pytest.org/) as its testing framework. You

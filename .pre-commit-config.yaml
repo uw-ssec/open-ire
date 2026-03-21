@@ -60,6 +60,7 @@ repos:
         files: src|tests
         args: []
         additional_dependencies:
+          - alembic
           - msgraph-sdk
           - nameparser
           - pytest
