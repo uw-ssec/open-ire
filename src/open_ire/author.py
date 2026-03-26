@@ -31,10 +31,10 @@ class ParsedAuthor:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ParsedAuthor):
             return NotImplemented
-        return self.normalized_name == other.normalized_name and self.email == other.email
+        return self.canonical_name == other.canonical_name and self.email == other.email
 
     def __hash__(self) -> int:
-        return hash((self.normalized_name, self.email))
+        return hash((self.canonical_name, self.email))
 
     @property
     def email(self) -> str | None:
@@ -93,13 +93,13 @@ class ParsedAuthor:
         return str(self._parsed_name)
 
     @property
-    def normalized_name(self) -> str:
-        """Return normalized name in 'Last, First Middle' format for consistent storage."""
+    def canonical_name(self) -> str:
+        """Return the canonical name in 'Last, First Middle' format."""
         last = self.last_name.strip()
         first = self.first_name.strip()
-        middle = self.middle_name.strip()
+        middle = self.middle_names.strip()
 
-        # Build given name (first + middle)
+        # Build the given name (first + middle)
         given_parts = [p for p in [first, middle] if p]
         given_name = " ".join(given_parts) if given_parts else ""
 
@@ -117,7 +117,7 @@ class ParsedAuthor:
         """Normalize string for fuzzy matching: lowercase, remove diacritics and punctuation."""
         if not s:
             return ""
-        # Decompose unicode characters and filter out combining marks (accents)
+        # Decompose Unicode characters and filter out combining marks (accents)
         s = unicodedata.normalize("NFKD", s or "")
         # Keep only alphanumeric and spaces, then collapse whitespace
         s = "".join(c for c in s if c.isalnum() or c.isspace())
@@ -130,7 +130,8 @@ class ParsedAuthor:
             return None
         return email.strip().lower()
 
-    def _names_compatible(self, name1: str, name2: str) -> bool:
+    @staticmethod
+    def _names_compatible(name1: str, name2: str) -> bool:
         """Check if two names are compatible (exact match, initial match, or prefix match)."""
         # If either name is empty, they're compatible (one person may not have that name component)
         if not name1 or not name2:
@@ -222,7 +223,7 @@ class ParsedAuthor:
     @classmethod
     def encode_author_string(cls, authors: list["ParsedAuthor"]) -> str:
         """Encode a list of ParsedAuthor objects back into a semicolon-separated string."""
-        return "; ".join(str(author.normalized_name) for author in authors)
+        return "; ".join(str(author.canonical_name) for author in authors)
 
 
 class AuthorIndex:
@@ -240,7 +241,7 @@ class AuthorIndex:
     # === DATA LOADING AND PROCESSING ===
 
     def _load_records(self) -> list[ParsedAuthor]:
-        """Load and validate author records from CSV file."""
+        """Load and validate author records from the CSV file."""
         if not self.path.exists():
             msg = f"Author file not found: {self.path}"
             raise FileNotFoundError(msg)
@@ -270,8 +271,8 @@ class AuthorIndex:
 
         return records
 
+    @staticmethod
     def _build_record(
-        self,
         first_name: str | None,
         middle_names: str | None,
         last_name: str | None,
@@ -286,6 +287,6 @@ class AuthorIndex:
         if not any((email, first_name, middle_names, last_name)):
             return None
 
-        # Construct full name from components and parse it
-        full_name = f"{first_name} {middle_names} {last_name}"
-        return ParsedAuthor(name=HumanName(full_name), email=email)
+        # Construct a full name from components and parse it
+        full_name = " ".join([first_name, middle_names, last_name])
+        return ParsedAuthor(HumanName(full_name), email)

@@ -103,4 +103,4 @@ class AuthorSearchSpider(SearchSpider[ParsedAuthor], ABC):
     @staticmethod
     def canonical_author_name(record: ParsedAuthor) -> str:
         """Return the canonical name for the author record."""
-        return record.normalized_name
+        return record.canonical_name

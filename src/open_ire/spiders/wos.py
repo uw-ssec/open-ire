@@ -34,28 +34,7 @@ class WoSSpider(AuthorSearchSpider):
         "letter": ArticleType.OTHER,
     }
 
-    @classmethod
-    def _normalize_type(cls, raw_type: Any) -> ArticleType | None:
-        """Normalize WOS document type to ArticleType."""
-        if raw_type is None:
-            return None
-        candidates: list[str] = []
-        if isinstance(raw_type, list):
-            for entry in raw_type:
-                if isinstance(entry, str):
-                    candidates.append(entry)
-                elif isinstance(entry, dict) and "content" in entry:
-                    candidates.append(str(entry["content"]))
-        elif isinstance(raw_type, dict) and "content" in raw_type:
-            candidates.append(str(raw_type["content"]))
-        else:
-            candidates.append(str(raw_type))
-
-        for candidate in candidates:
-            normalized = cls.TYPE_MAP.get(candidate.lower())
-            if normalized is not None:
-                return normalized
-        return None
+    # === SUPERCLASS OVERRIDES ===
 
     def __init__(
         self,
@@ -95,90 +74,20 @@ class WoSSpider(AuthorSearchSpider):
     def build_search_request(self, record: ParsedAuthor) -> Request:
         """Build a search request for a single author record."""
         term = self.author_name_for_query(record)
-        matched_author = self.canonical_author_name(record)
+        searched_author = self.canonical_author_name(record)
         query = self._build_query(term)
         params = self._build_params(query, page=1)
         url = f"{self.base_url}?{urlencode(params)}"
+
+        self.logger.info("Searching WoS for author: '%s'", term)
 
         return Request(
             url,
             headers=self.headers,
             callback=self.parse_publications,
-            meta={"matched_author": matched_author},
+            meta={"searched_author": searched_author},
             cb_kwargs={"query": query, "page": 1},
         )
-
-    def parse_publications(
-        self, response: Response, query: str, page: int
-    ) -> Generator[Request | ArticleItem, None, None]:
-        """Parse WoS publication results and yield ArticleItems, handling pagination."""
-        matched_author = response.meta["matched_author"]
-        raw_text = response.text or ""
-
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError:
-            self.logger.error("WoS returned non-JSON body (first 500 chars): %r", raw_text[:500])
-            return
-
-        if not isinstance(data, dict):
-            self.logger.warning(
-                "Unexpected WoS payload type for query %r: %s",
-                query,
-                type(data).__name__,
-            )
-            return
-
-        records_container = (data.get("Data") or {}).get("Records", {}).get("records")
-
-        # WoS "no results" => records: "" (string). Sometimes errors also show up as strings.
-        if isinstance(records_container, str):
-            if not records_container:
-                self.logger.info("No records found for query: %r", query)
-            else:
-                self.logger.warning(
-                    "Unexpected WoS records payload (string) for query %r: %r",
-                    query,
-                    records_container[:200],
-                )
-            return
-
-        if not isinstance(records_container, dict):
-            self.logger.info(
-                "WoS returned no usable records container for query %r (type=%s)",
-                query,
-                type(records_container).__name__,
-            )
-            return
-
-        records = as_list(records_container.get("REC"))
-
-        try:
-            total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
-        except (TypeError, ValueError):
-            total = 0
-
-        emitted = 0
-        for record in records:
-            if item := self._build_item(record, matched_author):
-                emitted += 1
-                yield item
-
-        if (page - 1) * self.page_size + emitted < total:
-            next_page = page + 1
-            params = self._build_params(query, page=next_page)
-            next_url = f"{self.base_url}?{urlencode(params)}"
-
-            yield Request(
-                next_url,
-                headers=self.headers,
-                callback=self.parse_publications,
-                meta={"matched_author": matched_author},
-                cb_kwargs={"query": query, "page": next_page},
-            )
-
-    # === SUPPORTING WORKFLOW METHODS ===
-    # These methods support the main workflow
 
     def _build_query(self, term: str) -> str:
         """Build WoS query string with author, organization, and date filters."""
@@ -197,7 +106,96 @@ class WoSSpider(AuthorSearchSpider):
             "usrQuery": query,
         }
 
-    def _build_item(self, publication: Any, matched_author: str) -> ArticleItem | None:
+    # === HIGH-LEVEL METHODS ===
+
+    def parse_publications(
+        self, response: Response, query: str, page: int
+    ) -> Generator[Request | ArticleItem, None, None]:
+        """Parse WoS publication results and yield ArticleItems, handling pagination."""
+        searched_author = response.meta["searched_author"]
+
+        data = self._parse_response(response, query)
+        records = self._extract_records(data, query, searched_author)
+
+        try:
+            total = int((data.get("QueryResult") or {}).get("RecordsFound") or 0)
+        except (TypeError, ValueError):
+            total = 0
+
+        if records and page == 1:
+            self.logger.info("Found %s publications for author '%s'", total, searched_author)
+
+        emitted = 0
+        for record in records:
+            if item := self._build_item(record, searched_author):
+                emitted += 1
+                self.logger.info(
+                    "'%s' by %s (%s)", item.title[:50], item.authors, item.publication_date
+                )
+                yield item
+
+        if (page - 1) * self.page_size + emitted < total:
+            next_page = page + 1
+            params = self._build_params(query, page=next_page)
+            next_url = f"{self.base_url}?{urlencode(params)}"
+
+            self.logger.debug("Requesting next page %s for query: %r", next_page, query)
+
+            yield Request(
+                next_url,
+                headers=self.headers,
+                callback=self.parse_publications,
+                meta={"searched_author": searched_author},
+                cb_kwargs={"query": query, "page": next_page},
+            )
+
+    def _parse_response(self, response: Response, query: str) -> dict[str, Any]:
+        """Parse WoS API response and return data."""
+        try:
+            data = json.loads(response.text or "{}")
+        except json.JSONDecodeError:
+            self.logger.exception(
+                "WoS returned non-JSON body (first 500 chars): %r", response.text[:500]
+            )
+            return {}
+
+        if not isinstance(data, dict):
+            self.logger.warning(
+                "Unexpected WoS payload type for query %r: %s",
+                query,
+                type(data).__name__,
+            )
+            return {}
+
+        return data
+
+    def _extract_records(self, data: dict[str, Any], query: str, searched_author: str) -> list[Any]:
+        """Extract records from WoS API response data."""
+        records_container = (data.get("Data") or {}).get("Records", {}).get("records")
+
+        # WoS "no results" => records: "" (string). Sometimes errors also show up as strings.
+        if isinstance(records_container, str):
+            if not records_container:
+                self.logger.info("No records found for query (%s): %r", searched_author, query)
+            else:
+                self.logger.warning(
+                    "Unexpected WoS records payload (string) for query %r: %r",
+                    query,
+                    records_container[:200],
+                )
+            return []
+
+        if not isinstance(records_container, dict):
+            self.logger.info(
+                "WoS returned no usable records container for query %r (type=%s)",
+                query,
+                type(records_container).__name__,
+            )
+            return []
+
+        return as_list(records_container.get("REC"))
+
+    def _build_item(self, publication: Any, searched_author: str) -> ArticleItem | None:
         """Build an ArticleItem from WoS publication data."""
         if not isinstance(publication, dict):
             return None
@@ -208,54 +206,53 @@ class WoSSpider(AuthorSearchSpider):
 
         summary = publication.get("static_data", {}).get("summary", {})
         titles = as_list(summary.get("titles", {}).get("title"))
-        title = next(
-            (t.get("content") for t in titles if isinstance(t, dict) and t.get("type") == "item"),
-            None,
-        )
+
+        title = self._extract_title(titles)
+        if not title:
+            self.logger.warning("Skipping publication without title for WoS UID: %s", external_id)
+            return None
 
         names = as_list(summary.get("names", {}).get("name"))
-        authors = self._extract_authors(names)
-
-        pub_info = summary.get("pub_info", {})
-        publication_date = parse_date(pub_info.get("coverdate") or pub_info.get("sortdate"))
-        if publication_date is None:
-            pub_year = pub_info.get("pubyear")
-            if pub_year:
-                publication_date = parse_date(f"{pub_year}-01-01")
-        cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
-        identifiers = as_list(cluster_related.get("identifiers", {}).get("identifier"))
-        doi = next(
-            (
-                identifier.get("value")
-                for identifier in identifiers
-                if identifier.get("type") == "doi"
-            ),
-            None,
-        )
-
+        doi = self._extract_doi(publication)
         raw_type = summary.get("doctypes", {}).get("doctype")
+
         return ArticleItem(
-            authors=ParsedAuthor.encode_author_string(authors),
+            authors=ParsedAuthor.encode_author_string(self._extract_authors(names)),
             doi=doi,
             extra={
                 "journal_name": self._extract_journal_name(titles),
-                "matched_author": matched_author,
+                "searched_author": searched_author,
                 "wos": {
                     "type": raw_type,
                 },
             },
-            publication_date=publication_date,
+            publication_date=self._extract_publication_date(summary),
             reference=str(external_id),
             repository=self.name,
             title=title,
             type=self._normalize_type(raw_type),
-            url=f"https://doi.org/{doi}"
-            if doi
-            else f"https://www.webofscience.com/wos/woscc/full-record/{external_id}",
+            url=self._build_article_url(doi, external_id),
         )
 
-    # === DATA EXTRACTION UTILITIES ===
-    # These methods extract specific data from WoS API responses
+    # === HELPER METHODS ===
+
+    @staticmethod
+    def _extract_title(titles: list[Any]) -> str | None:
+        """Extract the item title from WoS titles data structure."""
+        return next(
+            (t.get("content") for t in titles if isinstance(t, dict) and t.get("type") == "item"),
+            None,
+        )
+
+    @staticmethod
+    def _extract_doi(publication: dict[str, Any]) -> str | None:
+        """Extract DOI from WoS dynamic_data identifiers."""
+        cluster_related = publication.get("dynamic_data", {}).get("cluster_related", {})
+        identifiers = as_list(cluster_related.get("identifiers", {}).get("identifier"))
+        return next(
+            (i.get("value") for i in identifiers if i.get("type") == "doi"),
+            None,
+        )
 
     @staticmethod
     def _extract_authors(names: list[Any]) -> list[ParsedAuthor]:
@@ -282,4 +279,45 @@ class WoSSpider(AuthorSearchSpider):
             if title.get("type") == "source" and title.get("content"):
                 return str(title["content"])
 
+        return None
+
+    @staticmethod
+    def _extract_publication_date(summary: dict[str, Any]) -> datetime.date | None:
+        """Extract publication date with fallback from coverdate -> sortdate -> pubyear."""
+        pub_info = summary.get("pub_info", {})
+        date = parse_date(pub_info.get("coverdate") or pub_info.get("sortdate"))
+        if date is None:
+            pub_year = pub_info.get("pubyear")
+            if pub_year:
+                date = parse_date(f"{pub_year}-01-01")
+        return date
+
+    @staticmethod
+    def _build_article_url(doi: str | None, external_id: str) -> str:
+        """Build the article URL, preferring DOI link."""
+        if doi:
+            return f"https://doi.org/{doi}"
+        return f"https://www.webofscience.com/wos/woscc/full-record/{external_id}"
+
+    @classmethod
+    def _normalize_type(cls, raw_type: Any) -> ArticleType | None:
+        """Normalize WOS document type to ArticleType."""
+        if raw_type is None:
+            return None
+        candidates: list[str] = []
+        if isinstance(raw_type, list):
+            for entry in raw_type:
+                if isinstance(entry, str):
+                    candidates.append(entry)
+                elif isinstance(entry, dict) and "content" in entry:
+                    candidates.append(str(entry["content"]))
+        elif isinstance(raw_type, dict) and "content" in raw_type:
+            candidates.append(str(raw_type["content"]))
+        else:
+            candidates.append(str(raw_type))
+
+        for candidate in candidates:
+            normalized = cls.TYPE_MAP.get(candidate.lower())
+            if normalized is not None:
+                return normalized
         return None

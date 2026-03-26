@@ -1,5 +1,5 @@
-import copy
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ from open_ire.spiders.wos import WoSSpider
 
 
 @pytest.fixture
-def five_authors() -> list[ParsedAuthor]:
+def sample_authors() -> list[ParsedAuthor]:
     return [
         ParsedAuthor("Luis Manuel Garcia-Mispireta"),
         ParsedAuthor("E.V.S.S.K. Babu"),
@@ -24,120 +24,162 @@ def five_authors() -> list[ParsedAuthor]:
 
 
 @pytest.fixture
-def dummy_csv(tmp_path: Path, five_authors: list[ParsedAuthor]) -> Path:
-    csv_content = f"""Full Name,FirstName,LastName,Email
-{five_authors[4].full_name},{five_authors[4].first_name},{five_authors[4].last_name},{five_authors[4].email}
-"""
-    csv_path = tmp_path / "dummy.csv"
-    csv_path.write_text(csv_content)
-    return csv_path
+def make_csv_for_author(tmp_path: Path) -> Callable[[ParsedAuthor], Path]:
+    def _make(author: ParsedAuthor) -> Path:
+        csv_path = tmp_path / f"{author.last_name}.csv"
+        csv_path.write_text(
+            f"Full Name,FirstName,MiddleNames,LastName,Email\n"
+            f"{author.full_name},{author.first_name},{author.middle_names},{author.last_name},{author.email}\n"
+        )
+        return csv_path
+
+    return _make
 
 
 @pytest.fixture
-def dummy_record(five_authors: list[ParsedAuthor]) -> dict[str, Any]:
-    return {
-        "UID": "WOS:000123456789",
-        "static_data": {
-            "summary": {
-                "pub_info": {
-                    "pubyear": 2020,
-                    "coverdate": "JAN 2020",
-                },
-                "titles": {
-                    "title": [
-                        {"type": "item", "content": "Sample Publication Title"},
-                        {"type": "source", "content": "Journal of Testing"},
-                    ]
-                },
-                "names": {
-                    "name": [
-                        {
-                            "display_name": five_authors[4].normalized_name,
-                            "wos_standard": f"{five_authors[4].last_name}, {five_authors[4].first_initial}",
-                        },
-                        {
-                            "display_name": five_authors[0].normalized_name,
-                            "wos_standard": f"{five_authors[0].last_name}, {five_authors[0].first_initial}",
-                        },
-                    ]
-                },
-                "doctypes": {"doctype": "Article"},
-            }
-        },
-        "dynamic_data": {
-            "cluster_related": {
-                "identifiers": {"identifier": [{"type": "doi", "value": "10.1000/sampledoi"}]}
-            }
-        },
-    }
+def make_spider_from_csv(
+    make_csv_for_author: Callable[[ParsedAuthor], Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[ParsedAuthor], WoSSpider]:
+    def _make(author: ParsedAuthor) -> WoSSpider:
+        monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
+        return WoSSpider(
+            author_csv=str(make_csv_for_author(author)), start_year="2020", end_year="2021"
+        )
+
+    return _make
 
 
 @pytest.fixture
-def dummy_response(dummy_record: dict[str, Any]) -> HtmlResponse:
-    json_body = {
-        "Data": {"Records": {"records": {"REC": [dummy_record]}}},
-        "QueryResult": {"RecordsFound": 1},
-    }
-    body_str = json.dumps(json_body)
-    return HtmlResponse(url="http://example.com/api", body=body_str, encoding="utf-8")
+def make_spider_with_author_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[ParsedAuthor], WoSSpider]:
+    def _make(author: ParsedAuthor) -> WoSSpider:
+        monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
+        return WoSSpider(author_name=author.canonical_name, start_year="2020", end_year="2021")
+
+    return _make
 
 
 @pytest.fixture
-def spider(dummy_csv: Path, monkeypatch: pytest.MonkeyPatch) -> WoSSpider:
-    monkeypatch.setenv("WOS_API_KEY", "dummy_api_key")
-    return WoSSpider(author_csv=str(dummy_csv), start_year="2020", end_year="2021")
+def make_record_data() -> Callable[[list[ParsedAuthor]], dict[str, Any]]:
+    def _make(authors: list[ParsedAuthor]) -> dict[str, Any]:
+        return {
+            "UID": "WOS:000123456789",
+            "static_data": {
+                "summary": {
+                    "pub_info": {
+                        "pubyear": 2020,
+                        "coverdate": "JAN 2020",
+                    },
+                    "titles": {
+                        "title": [
+                            {"type": "item", "content": "Sample Publication Title"},
+                            {"type": "source", "content": "Journal of Testing"},
+                        ]
+                    },
+                    "names": {
+                        "name": [
+                            {
+                                "display_name": author.full_name,
+                                "wos_standard": f"{author.last_name}, {author.first_initial}",
+                            }
+                            for author in authors
+                        ]
+                    },
+                    "doctypes": {"doctype": "Article"},
+                }
+            },
+            "dynamic_data": {
+                "cluster_related": {
+                    "identifiers": {"identifier": [{"type": "doi", "value": "10.1000/sampledoi"}]}
+                }
+            },
+        }
+
+    return _make
 
 
 class TestWoSSpider:
     def test_build_item(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
+        make_record_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        item = spider._build_item(dummy_record, five_authors[4].normalized_name)
+        author = sample_authors[4]
+        spider = make_spider_with_author_name(author)
+        record = make_record_data([sample_authors[4], sample_authors[0]])
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == five_authors[4].normalized_name
+        assert item.extra["searched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == ParsedAuthor.encode_author_string([five_authors[4], five_authors[0]])
+        assert item.authors == ParsedAuthor.encode_author_string(
+            [sample_authors[4], sample_authors[0]]
+        )
         assert item.url == "https://doi.org/10.1000/sampledoi"
 
     def test_build_item_without_doi(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
+        make_record_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        # Remove DOI from the record
-        record_without_doi = copy.deepcopy(dummy_record)
-        record_without_doi["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
+        author = sample_authors[4]
+        spider = make_spider_with_author_name(author)
+        record = make_record_data([author])
+        record["dynamic_data"]["cluster_related"]["identifiers"] = {"identifier": []}
 
-        item = spider._build_item(record_without_doi, five_authors[4].normalized_name)
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
     def test_build_item_missing_identifiers_section(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_record: dict[str, Any]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
+        make_record_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        # Remove entire identifiers section
-        record_no_identifiers = copy.deepcopy(dummy_record)
-        record_no_identifiers["dynamic_data"]["cluster_related"] = {}
+        author = sample_authors[4]
+        spider = make_spider_with_author_name(author)
+        record = make_record_data([author])
+        record["dynamic_data"]["cluster_related"] = {}
 
-        item = spider._build_item(record_no_identifiers, five_authors[4].normalized_name)
+        item = spider._build_item(record, author.canonical_name)
 
         assert isinstance(item, ArticleItem)
         assert item.doi is None
         assert item.url == "https://www.webofscience.com/wos/woscc/full-record/WOS:000123456789"
 
     def test_parse_publications(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor], dummy_response: HtmlResponse
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
+        make_record_data: Callable[[list[ParsedAuthor]], dict[str, Any]],
     ) -> None:
-        query = spider._build_query(spider.author_name_for_query(five_authors[4]))
-        # Create a request with meta to tie to the response
+        author = sample_authors[4]
+        spider = make_spider_with_author_name(author)
+        record = make_record_data([sample_authors[4], sample_authors[0]])
+        json_body = {
+            "Data": {"Records": {"records": {"REC": [record]}}},
+            "QueryResult": {"RecordsFound": 1},
+        }
+        query = spider._build_query(spider.author_name_for_query(sample_authors[4]))
         request = Request(
-            url="http://example.com/api", meta={"matched_author": five_authors[4].normalized_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
-        dummy_response = dummy_response.replace(request=request)
+        response = HtmlResponse(
+            url="http://example.com/api",
+            body=json.dumps(json_body),
+            encoding="utf-8",
+            request=request,
+        )
 
-        results = list(spider.parse_publications(dummy_response, query, page=1))
+        results = list(spider.parse_publications(response, query, page=1))
         items = [res for res in results if isinstance(res, ArticleItem)]
         requests = [res for res in results if isinstance(res, Request)]
 
@@ -147,17 +189,23 @@ class TestWoSSpider:
         item = items[0]
         assert item.reference == "WOS:000123456789"
         assert item.title == "Sample Publication Title"
-        assert item.extra["matched_author"] == five_authors[4].normalized_name
+        assert item.extra["searched_author"] == author.canonical_name
         assert item.doi == "10.1000/sampledoi"
-        assert item.authors == ParsedAuthor.encode_author_string([five_authors[4], five_authors[0]])
+        assert item.authors == ParsedAuthor.encode_author_string(
+            [sample_authors[4], sample_authors[0]]
+        )
 
     def test_build_search_request(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
     ) -> None:
-        request = spider.build_search_request(five_authors[4])
+        author = sample_authors[4]
+        spider = make_spider_with_author_name(author)
+        request = spider.build_search_request(author)
 
         assert request.url.startswith(spider.base_url + "?count=25&databaseId=WOS")
-        assert request.meta["matched_author"] == five_authors[4].normalized_name
+        assert request.meta["searched_author"] == sample_authors[4].canonical_name
 
     def test_build_search_request_with_author_name_normalizes_to_wos_format(
         self, monkeypatch: pytest.MonkeyPatch
@@ -169,25 +217,30 @@ class TestWoSSpider:
 
         assert spider.search_phrases == [ParsedAuthor("John Doe")]
         assert 'AU=("Doe, John")' in request.cb_kwargs["query"]
-        assert request.meta["matched_author"] == "Doe, John"
+        assert request.meta["searched_author"] == "Doe, John"
 
     def test_parse_publications_no_results_records_empty_string(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
     ) -> None:
-        # WoS empty results schema: records is an empty string
+        author = sample_authors[1]
+        spider = make_spider_with_author_name(author)
         json_body = {
             "Data": {"Records": {"records": ""}},
             "QueryResult": {"RecordsFound": 0},
         }
-        body_str = json.dumps(json_body)
         request = Request(
-            url="http://example.com/api", meta={"matched_author": five_authors[1].normalized_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
         response = HtmlResponse(
-            url="http://example.com/api", body=body_str, encoding="utf-8", request=request
+            url="http://example.com/api",
+            body=json.dumps(json_body),
+            encoding="utf-8",
+            request=request,
         )
 
-        query = spider._build_query(spider.author_name_for_query(five_authors[1]))
+        query = spider._build_query(spider.author_name_for_query(author))
         results = list(spider.parse_publications(response, query, page=1))
 
         items = [res for res in results if isinstance(res, ArticleItem)]
@@ -197,22 +250,27 @@ class TestWoSSpider:
         assert requests == []
 
     def test_parse_publications_records_container_string_is_ignored(
-        self, spider: WoSSpider, five_authors: list[ParsedAuthor]
+        self,
+        make_spider_with_author_name: Callable[[ParsedAuthor], WoSSpider],
+        sample_authors: list[ParsedAuthor],
     ) -> None:
-        # Sometimes WoS returns a string in `records` (e.g., error-ish message).
+        author = sample_authors[2]
+        spider = make_spider_with_author_name(author)
         json_body = {
             "Data": {"Records": {"records": "No results found"}},
             "QueryResult": {"RecordsFound": 0},
         }
-        body_str = json.dumps(json_body)
         request = Request(
-            url="http://example.com/api", meta={"matched_author": five_authors[2].normalized_name}
+            url="http://example.com/api", meta={"searched_author": author.canonical_name}
         )
         response = HtmlResponse(
-            url="http://example.com/api", body=body_str, encoding="utf-8", request=request
+            url="http://example.com/api",
+            body=json.dumps(json_body),
+            encoding="utf-8",
+            request=request,
         )
 
-        query = spider._build_query(spider.author_name_for_query(five_authors[2]))
+        query = spider._build_query(spider.author_name_for_query(author))
         results = list(spider.parse_publications(response, query, page=1))
 
         items = [res for res in results if isinstance(res, ArticleItem)]
@@ -237,13 +295,11 @@ class TestWoSSpider:
             ("Letter", ArticleType.OTHER),
         ],
     )
-    def test_normalize_type_known_types(
-        self, spider: WoSSpider, raw_type: str, expected: ArticleType
-    ) -> None:
-        assert spider._normalize_type(raw_type) == expected
+    def test_normalize_type_known_types(self, raw_type: str, expected: ArticleType) -> None:
+        assert WoSSpider._normalize_type(raw_type) == expected
 
-    def test_normalize_type_none(self, spider: WoSSpider) -> None:
-        assert spider._normalize_type(None) is None
+    def test_normalize_type_none(self) -> None:
+        assert WoSSpider._normalize_type(None) is None
 
-    def test_normalize_type_unknown(self, spider: WoSSpider) -> None:
-        assert spider._normalize_type("unknown-type") is None
+    def test_normalize_type_unknown(self) -> None:
+        assert WoSSpider._normalize_type("unknown-type") is None
