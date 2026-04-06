@@ -16,6 +16,9 @@ class GSearchSpider(Spider):
     page_size = 100
     gsearch_url = ""
     view_detail_path = ""
+
+    # Setting USER_AGENT=None is necessary for Scrapy to use the user agent
+    # provided by Chromium when executing requests via Playwright.
     custom_settings = {"DOWNLOAD_DELAY": 10, "USER_AGENT": None}  # noqa: RUF012
 
     def __init__(
