@@ -22,6 +22,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "alembic",
     "msgraph-sdk",
     "nameparser",
     "pandas",
@@ -108,6 +109,10 @@ xfail_strict = false
 filterwarnings = ["error"]
 log_cli_level = "INFO"
 testpaths = ["tests"]
+
+[tool.check-wheel-contents]
+# Alembic migration files use hex revision IDs that conflict with W004
+ignore = ["W004"]
 
 [tool.repo-review.ignore]
 RTD = "Documentation is served as plain Markdown on GitHub"
