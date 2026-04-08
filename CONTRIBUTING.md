@@ -113,18 +113,21 @@ database models in `src/open_ire/models.py`, you must generate a corresponding
 migration:
 
 ```bash
-pixi run -e dev migration "description of the change"
+pixi run -e dev alembic revision --autogenerate -m "brief description"
 ```
 
-This creates a new migration file in `src/open_ire/migrations/versions/`. Review
-the generated file to ensure it accurately captures your changes, then commit it
-alongside the model changes.
+This creates a new migration file
+`src/open_ire/migrations/versions/<hash>_brief_description.py`. Review the
+generated file to ensure it accurately captures your changes, then commit it
+alongside the model changes. See the
+[Alembic documentation](https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script)
+for more information.
 
 Other useful migration commands:
 
 ```bash
-pixi run -e dev migrate          # Apply pending migrations manually
-pixi run -e dev migrate-history  # Show migration history
+pixi run -e dev alembic upgrade head          # Apply pending migrations manually
+pixi run -e dev alembic history --verbose     # Show migration history
 ```
 
 ### Running Tests

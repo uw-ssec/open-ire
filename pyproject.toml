@@ -182,19 +182,6 @@ pre-commit-all = "pre-commit run --all-files"
 pre-commit-install = "pre-commit install"
 test = "python -m pytest -ra --cov=open_ire"
 
-[tool.pixi.feature.dev.tasks.migrate]
-cmd = "alembic upgrade head"
-
-[tool.pixi.feature.dev.tasks.migration]
-args = ["message"]
-cmd = "alembic revision --autogenerate -m \"{{ message }}\""
-
-[tool.pixi.feature.dev.tasks.migrate-stamp]
-cmd = "alembic stamp head"
-
-[tool.pixi.feature.dev.tasks.migrate-history]
-cmd = "alembic history --verbose"
-
 # User-facing tasks
 
 [tool.pixi.tasks.dotenv]
