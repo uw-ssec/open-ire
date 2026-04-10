@@ -85,6 +85,16 @@ OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
+# Default log level for `open_ire` logger
+OPEN_IRE_LOG_LEVEL = "INFO"
+OPEN_IRE_LOG_DROPPED_ITEMS = True
+LOG_FORMATTER = "open_ire.logging.OpenIRELogFormatter"
+# Override log levels for specific modules. For example:
+# OPEN_IRE_LOG_LEVELS = {
+#   "open_ire.pipelines.sharepoint_pipeline": "WARNING"
+# }
+OPEN_IRE_LOG_LEVELS = {}
+
 OPEN_IRE_OPENALEX_INSTITUTION_ID = "i201448701"
 OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE = f"{FILES_STORE}/openalex_ambiguous_authors.csv"
 OPEN_IRE_WOS_ORGANIZATION = "University of Washington"

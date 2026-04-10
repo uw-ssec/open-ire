@@ -81,7 +81,7 @@ class DOIDuplicatesPipeline(BaseSQLModelPipeline):
             cached.reference,
             cached.repository,
         )
-        msg = "Article DOI already exists in database."
+        msg = f"Article with DOI {doi} already exists in database."
         raise DropItem(msg)
 
     @staticmethod

@@ -4,6 +4,7 @@ from .base import ITEM_PIPELINES
 EXTENSIONS = {"open_ire.logging.OpenIRELogger": 100}
 LOG_LEVEL = "WARNING"
 OPEN_IRE_LOG_LEVEL = "DEBUG"
+OPEN_IRE_LOG_DROPPED_ITEMS = False
 
 SHAREPOINT_BASE_PATH = "open_ire_dev"
 
