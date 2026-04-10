@@ -4,8 +4,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sqlalchemy import event
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
+
+from open_ire.db import create_db_engine
 
 # HTTPCACHE_DIR is relative to Scrapy's data dir (.scrapy/), not the project root.
 HTTPCACHE_DIR = "httpcache"
@@ -38,12 +39,7 @@ def db_path(tmp_path: Path) -> Path:
 def db_engine(db_path: Path):
     """Create an SQLite engine with foreign keys enabled."""
     engine = create_engine(f"sqlite:///{db_path}")
-    event.listen(
-        engine,
-        "connect",
-        lambda dbapi_connection, _: dbapi_connection.execute("PRAGMA foreign_keys=ON"),
-    )
-    SQLModel.metadata.create_all(engine)
+    engine = create_db_engine(str(db_path))
     try:
         yield engine
     finally:
