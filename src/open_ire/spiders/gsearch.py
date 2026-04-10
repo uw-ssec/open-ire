@@ -6,6 +6,7 @@ from urllib.parse import urlencode, urlparse
 from scrapy import Spider
 from scrapy.http import Request, Response
 
+from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 from open_ire.utils import parse_date
@@ -91,7 +92,8 @@ class GSearchSpider(Spider):
         if not authors_list:
             return None
 
-        return ", ".join(authors_list)
+        parsed_authors = [ParsedAuthor(a) for a in authors_list]
+        return ParsedAuthor.encode_author_string(parsed_authors)
 
     def _extract_reference(self, response: Response) -> str:
         url = urlparse(response.url)

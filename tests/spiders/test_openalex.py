@@ -15,6 +15,10 @@ from open_ire.items import ArticleItem
 from open_ire.spiders.openalex import OpenAlexSpider
 
 
+def _search_value(req: Request) -> str:
+    return parse_qs(urlparse(req.url).query)["search"][0]
+
+
 @pytest.fixture
 def sample_authors() -> list[ParsedAuthor]:
     return [
@@ -78,77 +82,6 @@ class TestOpenAlexSpider:
     def test_no_arguments_raises_error(self) -> None:
         with pytest.raises(ValueError, match="requires either"):
             OpenAlexSpider()
-
-    @pytest.mark.asyncio
-    async def test_start_with_csv_file(
-        self,
-        make_spider_from_csv: Callable[[ParsedAuthor], OpenAlexSpider],
-        sample_authors: list[ParsedAuthor],
-    ) -> None:
-        requests = []
-        async for req in make_spider_from_csv(sample_authors[4]).start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        query_params = parse_qs(urlparse(requests[0].url).query)
-        assert query_params["search"] == [sample_authors[4].full_name]
-
-    @pytest.mark.asyncio
-    async def test_start_with_author_name(
-        self,
-        make_spider_with_author_name: Callable[[ParsedAuthor], OpenAlexSpider],
-        sample_authors: list[ParsedAuthor],
-    ) -> None:
-        requests = []
-        author = sample_authors[1]
-        async for req in make_spider_with_author_name(author).start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        parsed_url = urlparse(requests[0].url)
-        query_params = parse_qs(parsed_url.query)
-        assert query_params["search"] == [author.full_name]
-
-    @pytest.mark.asyncio
-    async def test_start_with_both_parameters(
-        self,
-        make_csv_for_author: Callable[[ParsedAuthor], Path],
-        sample_authors: list[ParsedAuthor],
-    ) -> None:
-        csv_author = sample_authors[0]
-        name_author = sample_authors[1]
-        spider = OpenAlexSpider(
-            author_csv=str(make_csv_for_author(csv_author)), author_name=name_author.full_name
-        )
-        requests = []
-        async for req in spider.start():
-            requests.append(req)
-        assert len(requests) == 2
-        assert all(isinstance(req, Request) for req in requests)
-        query_params0 = parse_qs(urlparse(requests[0].url).query)
-        assert query_params0["search"] == [csv_author.full_name]
-        query_params1 = parse_qs(urlparse(requests[1].url).query)
-        assert query_params1["search"] == [name_author.full_name]
-
-    @pytest.mark.asyncio
-    async def test_old_csv_format_still_supported(
-        self, tmp_path: Path, sample_authors: list[ParsedAuthor]
-    ) -> None:
-        """CSVs with only FirstName and LastName columns are still supported."""
-        csv_author = sample_authors[0]
-        csv_path = tmp_path / "authors.csv"
-        csv_path.write_text(
-            f"Full Name,FirstName,LastName,Email\n"
-            f"{csv_author.full_name},{csv_author.first_name},{csv_author.last_name},{csv_author.email}\n"
-        )
-        spider = OpenAlexSpider(author_csv=str(csv_path))
-        requests = []
-        async for req in spider.start():
-            requests.append(req)
-        assert len(requests) == 1
-        assert isinstance(requests[0], Request)
-        query_params = parse_qs(urlparse(requests[0].url).query)
-        assert query_params["search"] == [f"{csv_author.first_name} {csv_author.last_name}"]
 
     def test_author_name_parameter(self, sample_authors: list[ParsedAuthor]) -> None:
         author = sample_authors[2]

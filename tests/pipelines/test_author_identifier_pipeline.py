@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlmodel import Session, select
 
+from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem, AuthorItem
 from open_ire.models import Author
 from open_ire.pipelines.author_identifier_pipeline import AuthorIdentifierPipeline
@@ -13,7 +14,7 @@ from open_ire.pipelines.author_identifier_pipeline import AuthorIdentifierPipeli
 
 @pytest.fixture
 def pipeline(temp_db: str) -> Generator[AuthorIdentifierPipeline, None, None]:
-    """Create a pipeline instance with test database."""
+    """Create a pipeline instance with a test database."""
     db_path = temp_db.replace("sqlite:///", "")
     p = AuthorIdentifierPipeline(db_path)
     p.open_spider()
@@ -29,7 +30,7 @@ def mock_spider() -> MagicMock:
 
 
 class TestAuthorIdentifierPipeline:
-    """Tests for author identifier storage pipeline."""
+    """Tests for the author identifier pipeline."""
 
     def test_passes_through_non_author_items(self, pipeline) -> None:
         """Non-AuthorItem items are passed through unchanged."""
@@ -42,9 +43,7 @@ class TestAuthorIdentifierPipeline:
     def test_creates_author_with_identifiers(self, pipeline) -> None:
         """New author and identifiers are created."""
         item = AuthorItem(
-            full_name="Eunjung Kim",
-            first_name="Eunjung",
-            last_name="Kim",
+            author=ParsedAuthor("Eunjung Kim"),
             identifiers=[
                 {"authority": "openalex", "identifier": "A5073669402"},
                 {"authority": "orcid", "identifier": "0000-0002-4664-9847"},
@@ -69,18 +68,16 @@ class TestAuthorIdentifierPipeline:
 
     def test_finds_existing_author_by_identifier(self, pipeline) -> None:
         """Existing author is found by identifier, not duplicated."""
-        # Create author with first item
+        # Create an author with the first item
         item1 = AuthorItem(
-            full_name="Eunjung Kim",
-            first_name="Eunjung",
-            last_name="Kim",
+            author=ParsedAuthor("Eunjung Kim"),
             identifiers=[{"authority": "openalex", "identifier": "A5073669402"}],
         )
         pipeline.process_item(item1)
 
-        # Process second item with same OpenAlex ID but different name variant
+        # Process the second item with same OpenAlex ID but different name variant
         item2 = AuthorItem(
-            full_name="Eun-Jung Kim",  # Different name variant
+            author=ParsedAuthor("Eun-Jung Kim"),  # Different name variant
             identifiers=[
                 {"authority": "openalex", "identifier": "A5073669402"},
                 {"authority": "orcid", "identifier": "0000-0002-4664-9847"},
@@ -98,10 +95,16 @@ class TestAuthorIdentifierPipeline:
 
     def test_finds_existing_author_by_name(self, pipeline) -> None:
         """Existing author is found by name, not duplicated."""
-        item = AuthorItem(full_name="Test Author", identifiers=[])
+        item = AuthorItem(
+            author=ParsedAuthor("Test Author"),
+            identifiers=[],
+        )
         pipeline.process_item(item)
 
-        item = AuthorItem(full_name="Test Author", identifiers=[])
+        item = AuthorItem(
+            author=ParsedAuthor("Test Author"),
+            identifiers=[],
+        )
         pipeline.process_item(item)
 
         with Session(pipeline.engine) as session:

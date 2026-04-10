@@ -1,6 +1,7 @@
 """Tests for author normalization models."""
 
 from datetime import date
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -8,7 +9,7 @@ from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from open_ire.models import Article, ArticleAuthor, Author, AuthorAffiliation, AuthorIdentifier
+from open_ire.models import Article, Author, AuthorAffiliation, AuthorIdentifier, Authorship
 
 
 @pytest.fixture
@@ -34,14 +35,14 @@ def session(engine):
         yield session
 
 
-class TestAuthorModelRelationships:
-    """Test the many-to-many relationship integrity between articles and authors."""
+class TestAuthorship:
+    """Tests for article-author junction relationships and constraints."""
 
     def test_many_to_many_relationship_integrity(self, session: Session):
         """Property 1: Many-to-many relationship integrity.
 
         For any article and author pair, when they are linked through the
-        ArticleAuthor junction table, both the article and author should be
+        Authorship junction table, both the article and author should be
         accessible through their respective relationship properties.
 
         **Feature: author-normalization, Property 1: Many-to-many relationship integrity**
@@ -72,21 +73,21 @@ class TestAuthorModelRelationships:
         session.refresh(author)
 
         # Create junction record
-        article_author = ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1)
+        article_author = Authorship(article_id=article.id, author_id=author.id, author_order=1)
 
         session.add(article_author)
         session.commit()
 
         # Test forward relationship: article -> junction -> author
         session.refresh(article)
-        assert len(article.article_authors) == 1
-        assert article.article_authors[0].author_id == author.id
-        assert article.article_authors[0].author_order == 1
+        assert len(article.authorships) == 1
+        assert article.authorships[0].author_id == author.id
+        assert article.authorships[0].author_order == 1
 
         # Test backward relationship: author -> junction -> article
         session.refresh(author)
-        assert len(author.article_authors) == 1
-        assert author.article_authors[0].article_id == article.id
+        assert len(author.authorships) == 1
+        assert author.authorships[0].article_id == article.id
 
         # Test junction table relationships
         session.refresh(article_author)
@@ -126,16 +127,16 @@ class TestAuthorModelRelationships:
         session.refresh(author2)
 
         # Create junction records
-        junction1 = ArticleAuthor(article_id=article.id, author_id=author1.id, author_order=1)
-        junction2 = ArticleAuthor(article_id=article.id, author_id=author2.id, author_order=2)
+        junction1 = Authorship(article_id=article.id, author_id=author1.id, author_order=1)
+        junction2 = Authorship(article_id=article.id, author_id=author2.id, author_order=2)
 
         session.add_all([junction1, junction2])
         session.commit()
 
         # Verify relationships through junction table
         session.refresh(article)
-        assert len(article.article_authors) == 2
-        author_ids = {junction.author_id for junction in article.article_authors}
+        assert len(article.authorships) == 2
+        author_ids = {junction.author_id for junction in article.authorships}
         assert author_ids == {author1.id, author2.id}
 
     def test_multiple_articles_per_author(self, session: Session):
@@ -172,17 +173,141 @@ class TestAuthorModelRelationships:
         session.refresh(article2)
 
         # Create junction records
-        junction1 = ArticleAuthor(article_id=article1.id, author_id=author.id, author_order=1)
-        junction2 = ArticleAuthor(article_id=article2.id, author_id=author.id, author_order=1)
+        junction1 = Authorship(article_id=article1.id, author_id=author.id, author_order=1)
+        junction2 = Authorship(article_id=article2.id, author_id=author.id, author_order=1)
 
         session.add_all([junction1, junction2])
         session.commit()
 
         # Verify relationships through junction table
         session.refresh(author)
-        assert len(author.article_authors) == 2
-        article_ids = {junction.article_id for junction in author.article_authors}
+        assert len(author.authorships) == 2
+        article_ids = {junction.article_id for junction in author.authorships}
         assert article_ids == {article1.id, article2.id}
+
+    def test_delete_junction_keeps_article_and_author(self, session: Session):
+        """Test that relationships are maintained when objects are deleted."""
+        # Create test data
+        article = Article(
+            title="Cascade Test Article",
+            authors="Cascade Author",
+            publication_date=date(2025, 1, 8),
+            repository="test_repo",
+            reference="test_ref_005",
+            url="https://example.com/test5",
+        )
+
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
+
+        session.add_all([article, author])
+        session.commit()
+        session.refresh(article)
+        session.refresh(author)
+
+        # Create junction record
+        junction = Authorship(article_id=article.id, author_id=author.id, author_order=1)
+        session.add(junction)
+        session.commit()
+
+        # Verify initial state
+        assert len(session.exec(select(Authorship)).all()) == 1
+
+        # Delete the junction record directly
+        session.delete(junction)
+        session.commit()
+
+        # Verify junction record is gone but article and author remain
+        assert len(session.exec(select(Authorship)).all()) == 0
+        assert session.get(Article, article.id) is not None
+        assert session.get(Author, author.id) is not None
+
+    def test_delete_article_removes_junction_records(self, session: Session):
+        """Deleting an article should remove related article-author junction rows."""
+        article = Article(
+            title="Delete Article Cascade",
+            authors="Cascade Author",
+            publication_date=date(2025, 1, 8),
+            repository="test_repo",
+            reference="test_ref_006",
+            url="https://example.com/test6",
+        )
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
+        session.add_all([article, author])
+        session.commit()
+        session.refresh(article)
+        session.refresh(author)
+
+        session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
+        session.commit()
+        assert len(session.exec(select(Authorship)).all()) == 1
+
+        session.delete(article)
+        session.commit()
+
+        assert len(session.exec(select(Authorship)).all()) == 0
+        assert session.get(Author, author.id) is not None
+
+    def test_delete_author_removes_junction_records(self, session: Session):
+        """Deleting an author should remove related article-author junction rows."""
+        article = Article(
+            title="Delete Author Cascade",
+            authors="Cascade Author",
+            publication_date=date(2025, 1, 8),
+            repository="test_repo",
+            reference="test_ref_007",
+            url="https://example.com/test7",
+        )
+        author = Author(
+            full_name="Cascade Author",
+            first_name="Cascade",
+            last_name="Author",
+            canonical_name="Author, Cascade",
+        )
+        session.add_all([article, author])
+        session.commit()
+        session.refresh(article)
+        session.refresh(author)
+
+        session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
+        session.commit()
+        assert len(session.exec(select(Authorship)).all()) == 1
+
+        session.delete(author)
+        session.commit()
+
+        assert len(session.exec(select(Authorship)).all()) == 0
+        assert session.get(Article, article.id) is not None
+
+    def test_authorship_rejects_missing_article(self, session: Session):
+        """Verify SQLite foreign key constraints are active (PRAGMA foreign_keys=ON)."""
+        author = Author(
+            full_name="Test Author",
+            first_name="Test",
+            last_name="Author",
+            canonical_name="Author, Test",
+        )
+        session.add(author)
+        session.commit()
+        session.refresh(author)
+
+        session.add(Authorship(article_id=uuid4(), author_id=author.id, author_order=1))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+class TestAuthorIdentifiers:
+    """Tests for author identifier relationships and constraints."""
 
     def test_author_identifiers_relationship(self, session: Session):
         """Test that author identifiers are properly linked to authors."""
@@ -245,6 +370,10 @@ class TestAuthorModelRelationships:
 
         assert len(session.exec(select(AuthorIdentifier)).all()) == 0
 
+
+class TestAuthorConstraints:
+    """Tests for constraints on the Author model itself."""
+
     def test_author_requires_canonical_name(self, session: Session):
         """Creating an author without canonical_name should fail at commit time."""
         author = Author(full_name="Missing Canonical", first_name="Missing", last_name="Canonical")
@@ -253,109 +382,6 @@ class TestAuthorModelRelationships:
         with pytest.raises(IntegrityError):
             session.commit()
         session.rollback()
-
-    def test_delete_junction_keeps_article_and_author(self, session: Session):
-        """Test that relationships are maintained when objects are deleted."""
-        # Create test data
-        article = Article(
-            title="Cascade Test Article",
-            authors="Cascade Author",
-            publication_date=date(2025, 1, 8),
-            repository="test_repo",
-            reference="test_ref_005",
-            url="https://example.com/test5",
-        )
-
-        author = Author(
-            full_name="Cascade Author",
-            first_name="Cascade",
-            last_name="Author",
-            canonical_name="Author, Cascade",
-        )
-
-        session.add_all([article, author])
-        session.commit()
-        session.refresh(article)
-        session.refresh(author)
-
-        # Create junction record
-        junction = ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1)
-        session.add(junction)
-        session.commit()
-
-        # Verify initial state
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
-
-        # Delete the junction record directly
-        session.delete(junction)
-        session.commit()
-
-        # Verify junction record is gone but article and author remain
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
-        assert session.get(Article, article.id) is not None
-        assert session.get(Author, author.id) is not None
-
-    def test_delete_article_removes_junction_records(self, session: Session):
-        """Deleting an article should remove related article-author junction rows."""
-        article = Article(
-            title="Delete Article Cascade",
-            authors="Cascade Author",
-            publication_date=date(2025, 1, 8),
-            repository="test_repo",
-            reference="test_ref_006",
-            url="https://example.com/test6",
-        )
-        author = Author(
-            full_name="Cascade Author",
-            first_name="Cascade",
-            last_name="Author",
-            canonical_name="Author, Cascade",
-        )
-        session.add_all([article, author])
-        session.commit()
-        session.refresh(article)
-        session.refresh(author)
-
-        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
-        session.commit()
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
-
-        session.delete(article)
-        session.commit()
-
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
-        assert session.get(Author, author.id) is not None
-
-    def test_delete_author_removes_junction_records(self, session: Session):
-        """Deleting an author should remove related article-author junction rows."""
-        article = Article(
-            title="Delete Author Cascade",
-            authors="Cascade Author",
-            publication_date=date(2025, 1, 8),
-            repository="test_repo",
-            reference="test_ref_007",
-            url="https://example.com/test7",
-        )
-        author = Author(
-            full_name="Cascade Author",
-            first_name="Cascade",
-            last_name="Author",
-            canonical_name="Author, Cascade",
-        )
-        session.add_all([article, author])
-        session.commit()
-        session.refresh(article)
-        session.refresh(author)
-
-        session.add(ArticleAuthor(article_id=article.id, author_id=author.id, author_order=1))
-        session.commit()
-        assert len(session.exec(select(ArticleAuthor)).all()) == 1
-
-        session.delete(author)
-        session.commit()
-
-        assert len(session.exec(select(ArticleAuthor)).all()) == 0
-        assert session.get(Article, article.id) is not None
 
 
 class TestAuthorAffiliations:

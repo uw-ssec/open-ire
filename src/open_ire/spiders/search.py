@@ -8,7 +8,10 @@ from scrapy import Spider
 from scrapy.http import Request
 
 from open_ire.author import AuthorIndex, ParsedAuthor
+from open_ire.items import AuthorItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
+
+type StartItem = Request | AuthorItem
 
 
 class SearchSpider[TSearchPhrase](Spider, metaclass=abc.ABCMeta):
@@ -21,11 +24,11 @@ class SearchSpider[TSearchPhrase](Spider, metaclass=abc.ABCMeta):
 
     search_phrases: list[TSearchPhrase]
 
-    async def start(self) -> AsyncIterator[Request]:
-        for term in self.search_phrases:
-            if not term:
+    async def start(self) -> AsyncIterator[StartItem]:
+        for phrase in self.search_phrases:
+            if not phrase:
                 continue
-            yield self.build_search_request(term)
+            yield self.build_search_request(phrase)
 
     @abc.abstractmethod
     def build_search_request(self, phrase: TSearchPhrase) -> Request:
@@ -89,6 +92,19 @@ class AuthorSearchSpider(SearchSpider[ParsedAuthor], ABC):
 
         if author_name:
             self.search_phrases.append(ParsedAuthor(author_name))
+
+    async def start(self) -> AsyncIterator[Request | AuthorItem]:
+        for author in self.search_phrases:
+            yield AuthorItem(
+                author=author,
+                identifiers=[{"authority": "email", "identifier": author.email}]
+                if author.email
+                else [],
+            )
+        for author in self.search_phrases:
+            if not author:
+                continue
+            yield self.build_search_request(author)
 
     @abc.abstractmethod
     def build_search_request(self, record: ParsedAuthor) -> Request:

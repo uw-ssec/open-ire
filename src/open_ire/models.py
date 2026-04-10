@@ -63,7 +63,7 @@ class Article(ArticleBase, table=True):
     )
 
     # New author relationships
-    article_authors: list["ArticleAuthor"] = Relationship(
+    authorships: list["Authorship"] = Relationship(
         back_populates="article", sa_relationship_kwargs={"passive_deletes": True}
     )
 
@@ -245,7 +245,7 @@ class Author(AuthorBase, table=True):
     id: int = Field(primary_key=True)
 
     # Relationships
-    article_authors: list["ArticleAuthor"] = Relationship(
+    authorships: list["Authorship"] = Relationship(
         back_populates="author", sa_relationship_kwargs={"passive_deletes": True}
     )
     identifiers: list["AuthorIdentifier"] = Relationship(
@@ -290,44 +290,6 @@ class AuthorAffiliation(AuthorAffiliationBase, table=True):
     )
 
 
-class ArticleAuthorBase(SQLModel):
-    """Base SQLModel for article-author relationship attributes.
-
-    Attributes
-    ----------
-    article_id: Foreign key to the Article table.
-    author_id: Foreign key to the Author table.
-    author_order: Position of author in the publication's author list.
-    created_at: Datetime when the relationship was created.
-    """
-
-    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    author_order: int | None = None
-    created_at: datetime = Field(default_factory=datetime.now)
-
-
-class ArticleAuthor(ArticleAuthorBase, table=True):
-    """SQLModel to store many-to-many relationships between articles and authors."""
-
-    article_id: uuid.UUID = Field(
-        sa_column=Column(
-            ForeignKey("article.id", ondelete="CASCADE"),
-            primary_key=True,
-        ),
-    )
-    author_id: int = Field(
-        sa_column=Column(
-            ForeignKey("author.id", ondelete="CASCADE"),
-            primary_key=True,
-        ),
-    )
-
-    # Relationships
-    article: "Article" = Relationship(back_populates="article_authors")
-    author: "Author" = Relationship(back_populates="article_authors")
-
-
 class AuthorIdentifierBase(SQLModel):
     """Base SQLModel for author identifier attributes.
 
@@ -360,3 +322,42 @@ class AuthorIdentifier(AuthorIdentifierBase, table=True):
     author: "Author" = Relationship(back_populates="identifiers")
 
     __table_args__ = (UniqueConstraint("authority", "identifier", name="uq_author_identifier"),)
+
+
+class AuthorshipBase(SQLModel):
+    """Base SQLModel to define common authorship attributes.
+
+    Attributes
+    ----------
+    article_id: Foreign key to the Article table.
+    author_id: Foreign key to the Author table.
+    author_order: Position of author in the publication's author list.
+    created_at: Datetime when the relationship was created.
+    """
+
+    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
+    author_id: int | None = Field(default=None, foreign_key="author.id")
+    author_order: int | None = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class Authorship(AuthorshipBase, table=True):
+    """SQLModel to store many-to-many relationships between authors and articles."""
+
+    article_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("article.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+    author_id: int = Field(
+        sa_column=Column(
+            ForeignKey("author.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+
+    # Relationships
+    article: "Article" = Relationship(back_populates="authorships")
+    author: "Author" = Relationship(back_populates="authorships")

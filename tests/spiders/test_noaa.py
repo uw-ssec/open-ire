@@ -67,8 +67,8 @@ class TestNOAASpider:
                 <meta name="citation_title" content="Unit Test Title">
                 <meta name="citation_abstract" content="Unit Test Abstract">
                 <meta name="citation_doi" content="10.1000/1234">
-                <meta name="citation_author" content="Unit Test Author 1">
-                <meta name="citation_author" content="Unit Test Author 2">
+                <meta name="citation_author" content="M. Rebecca O'Connor">
+                <meta name="citation_author" content="Kaboni Whitney Gondwe">
                 <meta name="citation_publication_date" content="2025-07-25">
                 <meta name="citation_issn" content="1234-5678">
                 <meta name="citation_pdf_url" content="/documents/test.pdf">
@@ -90,7 +90,7 @@ class TestNOAASpider:
         assert item.title == "Unit Test Title"
         assert item.abstract == "Unit Test Abstract"
         assert item.doi == "10.1000/1234"
-        assert item.authors == "Unit Test Author 1, Unit Test Author 2"
+        assert item.authors == "O'Connor, M. Rebecca; Gondwe, Kaboni Whitney"
         assert str(item.publication_date) == "2025-07-25"
         assert item.issn == "1234-5678"
         assert item.reference == "1234"

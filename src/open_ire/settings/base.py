@@ -36,6 +36,7 @@ ITEM_PIPELINES = {
     "open_ire.pipelines.FileReferencePipeline": 200,
     "open_ire.pipelines.SharePointPipeline": 300,
     "open_ire.pipelines.SQLModelPipeline": 400,
+    "open_ire.pipelines.AuthorshipPipeline": 410,
 }
 DOWNLOAD_HANDLERS = {
     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",

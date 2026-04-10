@@ -162,13 +162,8 @@ class OpenAlexSpider(AuthorSearchSpider):
 
         # OpenAlex sometimes provides "parsed_longest_name", but that can
         # introduce surprises, so rely on "our" name.
-        parsed_name = ParsedAuthor(searched_author)
-
         return AuthorItem(
-            full_name=parsed_name.full_name,
-            first_name=parsed_name.first_name,
-            middle_names=parsed_name.middle_names,
-            last_name=parsed_name.last_name,
+            author=ParsedAuthor(searched_author),
             identifiers=identifiers,
         )
 
