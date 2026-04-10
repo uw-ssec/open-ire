@@ -37,7 +37,7 @@ class ParsedAuthor:
         return hash((self.canonical_name, self.email))
 
     def __bool__(self) -> bool:
-        return bool(self.canonical_name)
+        return bool(str(self._parsed_name).strip())
 
     @property
     def email(self) -> str | None:
