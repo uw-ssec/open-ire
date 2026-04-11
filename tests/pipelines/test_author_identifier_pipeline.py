@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem, AuthorItem
-from open_ire.models import Author
+from open_ire.models import Article, Author, Authorship
 from open_ire.pipelines.author_identifier_pipeline import AuthorIdentifierPipeline
 
 
@@ -110,3 +110,34 @@ class TestAuthorIdentifierPipeline:
         with Session(pipeline.engine) as session:
             authors = session.exec(select(Author)).all()
             assert len(authors) == 1
+
+    def test_links_new_author_to_existing_articles(self, pipeline) -> None:
+        """A newly-created author is retroactively linked to articles already in the DB."""
+        # Pre-populate an article that lists "Hsieh" among its authors.
+        with Session(pipeline.engine) as session:
+            article = Article(
+                title="Existing Article",
+                authors="Smith, John; Hsieh, Wei-Lin",
+                repository="test_repo",
+                reference="EXIST001",
+                url="https://example.com/article/exist001",
+            )
+            session.add(article)
+            session.commit()
+            article_id = article.id
+
+        # Now create the author Hsieh via the pipeline.
+        item = AuthorItem(
+            author=ParsedAuthor("Wei-Lin Hsieh"),
+            identifiers=[{"authority": "openalex", "identifier": "A9999999999"}],
+        )
+        pipeline.process_item(item)
+
+        # The pipeline should have retroactively created an Authorship link.
+        with Session(pipeline.engine) as session:
+            author = session.exec(select(Author).where(Author.last_name == "Hsieh")).first()
+            assert author is not None
+
+            link = session.get(Authorship, (article_id, author.id))
+            assert link is not None
+            assert link.author_order == 1  # second author (0-indexed)
