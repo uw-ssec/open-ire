@@ -563,15 +563,9 @@ class OpenAlexSpider(AuthorSearchSpider):
             cb_kwargs={"author_id": author_id},
         )
 
-    def _build_author_item(self, searched_author: str, author: OpenAlexAuthor) -> AuthorItem:
-        """Build an AuthorItem from our data and OpenAlex author data."""
-        return AuthorItem(
-            author=ParsedAuthor(searched_author),
-            identifiers=author.identifiers(),
-        )
-
+    @staticmethod
     def _build_author_item_from_choices(
-        self, searched_author: str, choices: list[dict[str, str]]
+        searched_author: str, choices: list[dict[str, str]]
     ) -> AuthorItem:
         """Build an AuthorItem from pre-resolved CSV choices (may include multiple OpenAlex IDs)."""
         identifiers: list[dict[str, str]] = []
