@@ -1,18 +1,21 @@
 import csv
 import json
-from collections import namedtuple
+import logging
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, create_engine
 
 from open_ire.author import ParsedAuthor
 from open_ire.enums import ArticleType
-from open_ire.errors import AmbiguousAuthorError
 from open_ire.items import ArticleItem, AuthorItem
+from open_ire.pipelines.author_identifier_pipeline import find_author_by_name
 from open_ire.settings import (
     OPEN_IRE_CONTACT_EMAIL,
     OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE,
@@ -20,6 +23,286 @@ from open_ire.settings import (
 )
 from open_ire.spiders.search import AuthorSearchSpider
 from open_ire.utils import parse_date
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+# === MODULE-LEVEL UTILITIES ===
+
+
+def id_from_uri(uri: str) -> str:
+    """Extract the ID part from a full URI (e.g., OpenAlex or ORCID).
+
+    Examples:
+        https://openalex.org/A5077779935 => A5077779935
+        https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
+
+    Returns:
+         Upcased ID string, or input string if the string is not a URI."""
+    if not uri.startswith(("https://", "http://")):
+        return uri
+    return uri.split("/")[-1].upper()
+
+
+# === OPENALEX API DATACLASSES ===
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexInstitution:
+    """
+    Institution object from OpenAlex API.
+
+    See https://docs.openalex.org/api-entities/institutions/institution-object
+    """
+
+    id: str
+    display_name: str
+    raw: dict[str, Any]
+
+    @classmethod
+    def from_api(cls, record: dict[str, Any]) -> "OpenAlexInstitution":
+        return cls(
+            id=record["id"],
+            display_name=record["display_name"],
+            raw=record,
+        )
+
+    def matches_institution(self, institution_id: str) -> bool:
+        """Check if this institution matches the given ID (case-insensitive, URI-tolerant)."""
+        return id_from_uri(self.id).casefold() == id_from_uri(institution_id).casefold()
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexAffiliation:
+    """
+    Affiliation dictionary from OpenAlex API.
+
+    See https://docs.openalex.org/api-entities/authors/author-object#affiliations
+    """
+
+    institution: OpenAlexInstitution
+    years: list[int]
+    raw: dict[str, Any]
+
+    @classmethod
+    def from_api(cls, record: dict[str, Any]) -> "OpenAlexAffiliation":
+        return cls(
+            institution=OpenAlexInstitution.from_api(record["institution"]),
+            years=record["years"],
+            raw=record,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexAuthor:
+    """
+    Author object from OpenAlex API.
+
+    See https://docs.openalex.org/api-entities/authors/author-object
+    """
+
+    id: str
+    display_name: str
+    orcid: str | None
+    relevance_score: float
+    works_count: int
+    cited_by_count: int
+    last_known_institutions: list[OpenAlexInstitution]
+    affiliations: list[OpenAlexAffiliation]
+    raw: dict[str, Any]
+
+    @classmethod
+    def from_api(cls, record: dict[str, Any]) -> "OpenAlexAuthor":
+        return cls(
+            id=record["id"],
+            display_name=record["display_name"],
+            orcid=record.get("orcid") or None,
+            relevance_score=record.get("relevance_score") or 0.0,
+            works_count=record.get("works_count") or 0,
+            cited_by_count=record.get("cited_by_count") or 0,
+            last_known_institutions=[
+                OpenAlexInstitution.from_api(inst)
+                for inst in record.get("last_known_institutions") or []
+            ],
+            affiliations=[
+                OpenAlexAffiliation.from_api(affiliation)
+                for affiliation in record.get("affiliations") or []
+            ],
+            raw=record,
+        )
+
+    def years_at_institution(self, institution_id: str) -> set[int]:
+        """Extract the years of affiliation with an institution."""
+        years: set[int] = set()
+        for affiliation in self.affiliations:
+            if not affiliation.institution.matches_institution(institution_id):
+                continue
+            years.update(affiliation.years)
+        return years
+
+    def identifiers(self) -> list[dict[str, str]]:
+        """Return all known identifiers for this author from the OpenAlex `ids` dict."""
+        result: list[dict[str, str]] = []
+        for authority, identifier in (self.raw.get("ids") or {}).items():
+            if identifier:
+                result.append({"authority": authority, "identifier": identifier})
+        return result
+
+
+# === AMBIGUOUS AUTHOR TRACKING ===
+
+
+@dataclass(frozen=True, slots=True)
+class AmbiguousAuthor:
+    """An author search that returned multiple candidates requiring manual disambiguation."""
+
+    searched_author: str
+    candidates: list[OpenAlexAuthor]
+    ambiguity_reason: str
+
+    FIELD_CHOICE: ClassVar[str] = "choice"
+    FIELD_SEARCHED_AUTHOR: ClassVar[str] = "searched_author_name"
+    FIELD_OPENALEX_ID: ClassVar[str] = "openalex_id"
+    FIELD_ORCID: ClassVar[str] = "orcid"
+
+    CSV_FIELDNAMES: ClassVar[list[str]] = [
+        "choice",
+        "timestamp",
+        "searched_author_name",
+        "candidate_rank",
+        "candidate_count",
+        "display_name",
+        "openalex_id",
+        "orcid",
+        "relevance_score",
+        "works_count",
+        "cited_by_count",
+        "years_affiliated_with_us",
+        "last_known_institutions",
+    ]
+
+    def to_csv_rows(self, institution_id: str) -> list[dict[str, str]]:
+        """Build CSV rows for all candidates."""
+        rows: list[dict[str, str]] = []
+        for rank, candidate in enumerate(self.candidates, start=1):
+            our_years = candidate.years_at_institution(institution_id)
+            row = {
+                self.FIELD_CHOICE: "",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                self.FIELD_SEARCHED_AUTHOR: self.searched_author,
+                "candidate_rank": str(rank),
+                "candidate_count": str(len(self.candidates)),
+                "display_name": candidate.display_name,
+                self.FIELD_OPENALEX_ID: candidate.id,
+                self.FIELD_ORCID: candidate.orcid or "",
+                "relevance_score": str(candidate.relevance_score),
+                "works_count": str(candidate.works_count),
+                "cited_by_count": str(candidate.cited_by_count),
+                "years_affiliated_with_us": ",".join([str(y) for y in sorted(our_years)]),
+                "last_known_institutions": ";".join(
+                    inst.display_name for inst in candidate.last_known_institutions
+                ),
+            }
+            rows.append(row)
+        return rows
+
+
+class AmbiguousAuthorList:
+    """Manages the list of ambiguous authors and their CSV persistence."""
+
+    TRUTHY_CHOICES: ClassVar[frozenset[str]] = frozenset({"yes", "y", "1", "true"})
+
+    def __init__(self, file_path: Path) -> None:
+        self.file_path = file_path
+        self.entries: list[AmbiguousAuthor] = []
+        self.existing_csv_entries: set[tuple[str, str]] = set()
+        self.resolved_choices: dict[str, list[dict[str, str]]] = {}
+        self._load_resolved_choices()
+
+    def append(self, entry: AmbiguousAuthor) -> None:
+        self.entries.append(entry)
+
+    def write(self, institution_id: str) -> None:
+        """Append new ambiguous author rows to the CSV file."""
+        unresolved = [aa for aa in self.entries if aa.searched_author not in self.resolved_choices]
+        if not unresolved:
+            self.entries.clear()
+            return
+
+        rows: list[dict[str, str]] = []
+        for aa in unresolved:
+            for row in aa.to_csv_rows(institution_id):
+                key = (
+                    row[AmbiguousAuthor.FIELD_SEARCHED_AUTHOR],
+                    row[AmbiguousAuthor.FIELD_OPENALEX_ID],
+                )
+                if key in self.existing_csv_entries:
+                    continue
+                rows.append(row)
+
+        if not rows:
+            self.entries.clear()
+            return
+
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_exists = self.file_path.exists()
+
+        with self.file_path.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, AmbiguousAuthor.CSV_FIELDNAMES)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerows(rows)
+
+        unique_searched_authors = {
+            row[AmbiguousAuthor.FIELD_SEARCHED_AUTHOR]
+            for row in rows
+            if row.get(AmbiguousAuthor.FIELD_SEARCHED_AUTHOR)
+        }
+        logger.warning(
+            "Added %s ambiguous OpenAlex author(s) to %s",
+            len(unique_searched_authors),
+            self.file_path,
+        )
+        self.entries.clear()
+
+    def _load_resolved_choices(self) -> None:
+        """Read the ambiguous authors CSV and extract rows where the user filled in a choice."""
+        if not self.file_path.exists():
+            return
+
+        with self.file_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                searched_author = row.get(AmbiguousAuthor.FIELD_SEARCHED_AUTHOR, "")
+                openalex_id = row.get(AmbiguousAuthor.FIELD_OPENALEX_ID, "")
+                if not searched_author:
+                    continue
+
+                self.existing_csv_entries.add((searched_author, openalex_id))
+
+                choice = (row.get(AmbiguousAuthor.FIELD_CHOICE) or "").strip().lower()
+                if choice not in self.TRUTHY_CHOICES:
+                    continue
+
+                if searched_author not in self.resolved_choices:
+                    self.resolved_choices[searched_author] = []
+
+                self.resolved_choices[searched_author].append(
+                    {
+                        AmbiguousAuthor.FIELD_OPENALEX_ID: openalex_id,
+                        AmbiguousAuthor.FIELD_ORCID: row.get(AmbiguousAuthor.FIELD_ORCID, ""),
+                    }
+                )
+
+        if self.resolved_choices:
+            logger.info(
+                "Loaded pre-resolved choices for %s author(s) from %s",
+                len(self.resolved_choices),
+                self.file_path,
+            )
+
+
+# === SPIDER ===
 
 
 class OpenAlexSpider(AuthorSearchSpider):
@@ -44,8 +327,25 @@ class OpenAlexSpider(AuthorSearchSpider):
         self.start_date = start_date
         self.our_institution_id = OPEN_IRE_OPENALEX_INSTITUTION_ID.strip().upper()
         self.request_headers: dict[str, str] = {"User-Agent": f"mailto:{OPEN_IRE_CONTACT_EMAIL}"}
-        self.ambiguous_authors_file = Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE)
-        self._ambiguous_authors: list[dict[str, Any]] = []
+
+        self.items_generated = {
+            "ArticleItem": 0,
+            "AuthorItem": 0,
+        }
+        self.ambiguous_authors = AmbiguousAuthorList(Path(OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE))
+
+        self.db_engine: Engine | None = None
+
+    @classmethod
+    def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> Self:
+        spider = super().from_crawler(crawler, *args, **kwargs)
+
+        db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
+        if db_path and Path(db_path).exists():
+            spider.db_engine = create_engine(
+                f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
+            )
+        return spider
 
     def author_name_for_query(self, record: ParsedAuthor) -> str:
         return " ".join(
@@ -53,9 +353,25 @@ class OpenAlexSpider(AuthorSearchSpider):
         )
 
     def build_search_request(self, record: ParsedAuthor) -> Request:
-        """Build the initial search request for a given author record."""
-        term = self.author_name_for_query(record)
+        """Build a request for a given author record.
+
+        If the author already has known OpenAlex IDs in the database, skip the
+        author search and go straight to fetching publications. Otherwise, search
+        for the author via the OpenAlex API.
+        """
         searched_author = self.canonical_author_name(record)
+
+        known_ids = self._find_known_openalex_ids(record)
+        if known_ids:
+            author_id_filter = "|".join(known_ids)
+            self.logger.info(
+                "Found %s known OpenAlex ID(s) for '%s'; skipping author search",
+                len(known_ids),
+                searched_author,
+            )
+            return self._build_publications_request(author_id_filter, searched_author)
+
+        term = self.author_name_for_query(record)
         params = {
             "search": term,
             "filter": f"affiliations.institution.id:{self.our_institution_id}",
@@ -69,58 +385,161 @@ class OpenAlexSpider(AuthorSearchSpider):
         return Request(
             url,
             headers=self.request_headers,
-            callback=self._search_for_authors,
+            callback=self._parse_author_search_results,
             meta={"searched_author": searched_author},
         )
 
     def closed(self, _reason: str | None = None) -> None:
-        self._write_ambiguous_authors_file()
+        self.ambiguous_authors.write(self.our_institution_id)
+
+        logger.info(
+            "Generated %s ArticleItem(s) and %s AuthorItem(s)",
+            self.items_generated["ArticleItem"],
+            self.items_generated["AuthorItem"],
+        )
+
+        if self.db_engine:
+            self.db_engine.dispose()
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
-    def _search_for_authors(
+    def _parse_author_search_results(
         self, response: Response
     ) -> Generator[Request | AuthorItem, None, None]:
-        """Parse author search results and generate publication requests."""
+        """Parse author search results and yield AuthorItems and publications requests."""
         searched_author = response.meta["searched_author"]
-        data = json.loads(response.text or "{}")
-        authors = data.get("results", [])
+        raw = json.loads(response.text or "{}")
+        found_authors = [OpenAlexAuthor.from_api(result) for result in raw.get("results", [])]
 
-        if not authors:
-            self.logger.info("No authors found matching '%s'", searched_author)
+        if not found_authors:
+            self.logger.warning("No authors found matching '%s'", searched_author)
             return
 
-        self.logger.info("Found %s authors matching '%s':", len(authors), searched_author)
-        for i, author in enumerate(authors):
-            author_id = self._extract_author_id(author, searched_author)
+        # If ambiguous authors were manually resolved, just go with those results.
+        if searched_author in self.ambiguous_authors.resolved_choices:
+            yield from self._resolved_author_search_results(searched_author)
+            return
 
-            self.logger.info(
-                "%s) '%s' (ID: %s, ORCID: %s, relevance: %s)",
-                f"{i + 1:2d}",
-                author.get("display_name"),
-                self._id_from_uri(author_id),
-                author.get("orcid"),
-                author.get("relevance_score"),
+        authors_to_use = self._disambiguated_authors(searched_author, found_authors)
+        if not authors_to_use:
+            return
+
+        # Build AuthorItem with identifiers from all the disambiguated candidates.
+        combined_identifiers: list[dict[str, str]] = []
+        for au in authors_to_use:
+            combined_identifiers.extend(au.identifiers())
+        self.items_generated["AuthorItem"] += 1
+        yield AuthorItem(author=ParsedAuthor(searched_author), identifiers=combined_identifiers)
+
+        # Request publications for each distinct OpenAlex ID.
+        for au in authors_to_use:
+            yield self._build_publications_request(au.id, searched_author)
+
+    def _resolved_author_search_results(
+        self, searched_author: str
+    ) -> Generator[Request | AuthorItem, None, None]:
+        """Yield results for a manually resolved ambiguous author from the CSV."""
+        chosen = self.ambiguous_authors.resolved_choices[searched_author]
+        self.logger.info(
+            "Using %s pre-resolved choice(s) for '%s'",
+            len(chosen),
+            searched_author,
+        )
+        yield self._build_author_item_from_choices(searched_author, chosen)
+        for choice in chosen:
+            openalex_id = choice[AmbiguousAuthor.FIELD_OPENALEX_ID]
+            if openalex_id:
+                yield self._build_publications_request(openalex_id, searched_author)
+
+    def _disambiguated_authors(
+        self, searched_author: str, found_authors: list[OpenAlexAuthor]
+    ) -> list[OpenAlexAuthor]:
+        """Try to identify one or more authors from multiple OpenAlex results.
+
+        Applies two filters in sequence:
+        1. Name match — discard candidates whose display_name doesn't plausibly
+           match the searched author (catches composite OpenAlex records).
+        2. Institutional affiliation — among name matches, keep only those
+           affiliated with our institution.
+
+        Returns a non-empty list of authors to use, or an empty list if the
+        search is truly ambiguous (in which case the author is recorded for
+        manual resolution). Multiple results indicate likely-fragmented
+        OpenAlex records for the same person.
+        """
+        if len(found_authors) == 1:
+            return found_authors
+
+        self.logger.info("Found %s authors matching '%s'", len(found_authors), searched_author)
+
+        parsed_searched = ParsedAuthor(searched_author)
+        name_matches = [
+            au for au in found_authors if ParsedAuthor(au.display_name).likely_same(parsed_searched)
+        ]
+        if not name_matches:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author, found_authors, "no candidates with matching display name"
+                )
             )
+            return []
+        if len(name_matches) == 1:
+            self.logger.info(
+                "Disambiguated '%s' to '%s' (ID: %s) based on name match",
+                searched_author,
+                name_matches[0].display_name,
+                name_matches[0].id,
+            )
+            return name_matches
 
-        the_author = authors[0] if len(authors) == 1 else None
-        if not the_author:
-            try:
-                the_author = self._disambiguate_authors(authors, searched_author)
-            except AmbiguousAuthorError as e:
-                self.logger.warning("%s", e)
-                self._add_to_ambiguous_authors(searched_author, e.candidates, e.reason)
-                return
+        affiliated = [au for au in name_matches if au.years_at_institution(self.our_institution_id)]
 
-        yield self._build_author_item(searched_author, the_author)
+        if not affiliated:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author,
+                    name_matches,
+                    "no name-matched authors with institutional affiliation",
+                )
+            )
+            return []
 
-        author_id = self._extract_author_id(the_author, searched_author)
-        yield from self._request_author_publications(author_id, searched_author)
+        if len(affiliated) == 1:
+            self.logger.info(
+                "Disambiguated '%s' to '%s' (ID: %s) based on institutional affiliation",
+                searched_author,
+                affiliated[0].display_name,
+                affiliated[0].id,
+            )
+            return affiliated
 
-    def _request_author_publications(
+        # Multiple affiliated, name-matched candidates. Use ORCIDs to decide
+        # whether they are likely different people or fragmented records.
+        distinct_orcids = {au.orcid for au in affiliated if au.orcid}
+
+        if len(distinct_orcids) > 1:
+            self.ambiguous_authors.append(
+                AmbiguousAuthor(
+                    searched_author,
+                    affiliated,
+                    "multiple affiliated authors with different ORCIDs",
+                )
+            )
+            return []
+
+        # Zero or one distinct ORCID → likely fragmented records for one person.
+        self.logger.warning(
+            "Auto-merging %s name-matched, affiliated candidates for '%s' "
+            "(likely fragmented OpenAlex records)",
+            len(affiliated),
+            searched_author,
+        )
+        return affiliated
+
+    def _build_publications_request(
         self, author_id: str, searched_author: str, cursor: str = "*"
-    ) -> Generator[Request, None, None]:
-        """Generate a request for an author's publications with pagination support."""
+    ) -> Request:
+        """Build a request for an author's publications."""
         params = {
             "filter": f"author.id:{author_id},from_publication_date:{self.start_date}",
             "per_page": str(self.page_size),
@@ -129,15 +548,14 @@ class OpenAlexSpider(AuthorSearchSpider):
         }
         url = f"{self.base_url}/works?{urlencode(params)}"
 
-        self.logger.info(
+        self.logger.debug(
             "Requesting %spublications for %s (ID: %s)",
             "" if cursor == "*" else "next page of ",
             searched_author,
-            self._id_from_uri(author_id),
+            id_from_uri(author_id),
         )
-        self.logger.debug("Publication request URL: %s", url)
 
-        yield Request(
+        return Request(
             url,
             headers=self.request_headers,
             callback=self._parse_publications,
@@ -145,23 +563,25 @@ class OpenAlexSpider(AuthorSearchSpider):
             cb_kwargs={"author_id": author_id},
         )
 
-    def _build_author_item(self, searched_author: str, author_record: dict[str, Any]) -> AuthorItem:
-        """Build an AuthorItem from our data and OpenAlex author data."""
-        identifiers = []
+    @staticmethod
+    def _build_author_item_from_choices(
+        searched_author: str, choices: list[dict[str, str]]
+    ) -> AuthorItem:
+        """Build an AuthorItem from pre-resolved CSV choices (may include multiple OpenAlex IDs)."""
+        identifiers: list[dict[str, str]] = []
+        seen: set[str] = set()
 
-        if openalex_id := author_record.get("id"):
-            identifiers.append(
-                {
-                    "authority": "openalex",
-                    "identifier": self._id_from_uri(openalex_id),
-                }
-            )
+        for choice in choices:
+            openalex_id = id_from_uri(choice.get(AmbiguousAuthor.FIELD_OPENALEX_ID, ""))
+            if openalex_id and openalex_id not in seen:
+                identifiers.append({"authority": "openalex", "identifier": openalex_id})
+                seen.add(openalex_id)
 
-        if orcid_url := author_record.get("orcid"):
-            identifiers.append({"authority": "orcid", "identifier": self._id_from_uri(orcid_url)})
+            orcid = id_from_uri(choice.get(AmbiguousAuthor.FIELD_ORCID, ""))
+            if orcid and orcid not in seen:
+                identifiers.append({"authority": "orcid", "identifier": orcid})
+                seen.add(orcid)
 
-        # OpenAlex sometimes provides "parsed_longest_name", but that can
-        # introduce surprises, so rely on "our" name.
         return AuthorItem(
             author=ParsedAuthor(searched_author),
             identifiers=identifiers,
@@ -186,14 +606,14 @@ class OpenAlexSpider(AuthorSearchSpider):
                 self.logger.info(
                     "No publications found for %s (ID: %s)",
                     searched_author,
-                    self._id_from_uri(author_id),
+                    id_from_uri(author_id),
                 )
             else:
                 self.logger.info(
                     "Found %s publications for %s (ID: %s):",
                     total_count,
                     searched_author,
-                    self._id_from_uri(author_id),
+                    id_from_uri(author_id),
                 )
 
         for _i, publication in enumerate(results):
@@ -201,18 +621,11 @@ class OpenAlexSpider(AuthorSearchSpider):
                 continue
 
             if item := self._build_article_item(publication, searched_author):
-                self.logger.info(
-                    "%s: '%s' (%s)",
-                    searched_author,
-                    item.title[:50],
-                    item.publication_date,
-                )
+                self.items_generated["ArticleItem"] += 1
                 yield item
 
         if next_cursor := meta.get("next_cursor"):
-            yield from self._request_author_publications(
-                author_id, searched_author, cursor=next_cursor
-            )
+            yield self._build_publications_request(author_id, searched_author, cursor=next_cursor)
 
     def _build_article_item(
         self, publication_record: dict[str, Any], searched_author: str
@@ -259,179 +672,21 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     # === AUTHOR DISAMBIGUATION ===
 
-    Institution = namedtuple("Institution", ["id", "name"])
-    Affiliation = namedtuple("Affiliation", ["institution", "years"])
+    def _find_known_openalex_ids(self, author: ParsedAuthor) -> list[str]:
+        """Look up existing OpenAlex IDs for an author in the database."""
+        if not self.db_engine:
+            return []
 
-    def _disambiguate_authors(
-        self, author_records: list[dict[str, Any]], searched_author: str
-    ) -> dict[str, Any]:
-        """Attempt to disambiguate multiple author matches by recent institutional affiliation.
+        with Session(self.db_engine) as session:
+            db_author = find_author_by_name(session, author)
+            if not db_author:
+                return []
 
-        Returns a single-element list if disambiguation succeeds.
-        Raises AmbiguousAuthorError if disambiguation fails.
-        """
-        affiliated_authors = []
-
-        for author_record in author_records:
-            affiliations = self._extract_affiliations(author_record)
-            institution_years = self._years_at_institution(self.our_institution_id, affiliations)
-            if not institution_years:
-                continue
-            affiliated_authors.append(author_record)
-
-        if not affiliated_authors or len(affiliated_authors) > 1:
-            rough_number = "no" if not affiliated_authors else "multiple"
-            raise AmbiguousAuthorError(
-                author_name=searched_author,
-                candidates=affiliated_authors,
-                reason=f"{rough_number} authors with institutional affiliation",
-            )
-
-        the_author = affiliated_authors[0]
-        self.logger.info(
-            "Disambiguated '%s' to '%s' (ID: %s) based on recent institutional affiliation",
-            searched_author,
-            the_author.get("display_name"),
-            self._id_from_uri(self._extract_author_id(the_author, searched_author)),
-        )
-        return the_author
-
-    def _add_to_ambiguous_authors(
-        self,
-        searched_author: str,
-        author_records: list[dict[str, Any]],
-        reason: str,
-    ) -> None:
-        """Store one structured ambiguous-author record for the matched author."""
-        self._ambiguous_authors.append(
-            {
-                "searched_author": searched_author,
-                "reason": reason,
-                "start_year": int(self.start_date.split("-")[0]),
-                "candidates": author_records,
-            }
-        )
-
-    def _write_ambiguous_authors_file(self) -> None:
-        """Write a CSV file of ambiguous author records to disk."""
-        if not self._ambiguous_authors:
-            return
-
-        rows: list[dict[str, str]] = []
-        for ambiguous_author in self._ambiguous_authors:
-            searched_author = str(ambiguous_author.get("searched_author") or "")
-            reason = str(ambiguous_author.get("reason") or "")
-
-            raw_candidates = ambiguous_author.get("candidates") or []
-            candidates = [c for c in raw_candidates if isinstance(c, dict)]
-            candidate_count = len(candidates)
-
-            for rank, author in enumerate(candidates, start=1):
-                row = self._build_ambiguous_authors_file_row(
-                    searched_author=searched_author,
-                    author_record=author,
-                    rank=rank,
-                    candidate_count=candidate_count,
-                    ambiguity_reason=reason,
-                )
-                rows.append(row)
-
-        if not rows:
-            self._ambiguous_authors.clear()
-            return
-
-        fieldnames = list(rows[0].keys())
-        self.ambiguous_authors_file.parent.mkdir(parents=True, exist_ok=True)
-        file_exists = self.ambiguous_authors_file.exists()
-
-        with self.ambiguous_authors_file.open("a", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerows(rows)
-
-        unique_searched_authors = {
-            row["searched_author"] for row in rows if row.get("searched_author")
-        }
-        self.logger.warning(
-            "Added %s ambiguous OpenAlex author(s) to %s",
-            len(unique_searched_authors),
-            self.ambiguous_authors_file,
-        )
-        self._ambiguous_authors.clear()
-
-    def _build_ambiguous_authors_file_row(
-        self,
-        searched_author: str,
-        author_record: dict[str, Any],
-        rank: int,
-        candidate_count: int,
-        ambiguity_reason: str,
-    ) -> dict[str, str]:
-        """Build a single CSV row for manual disambiguation review."""
-        openalex_id = str(author_record.get("id") or "")
-        affiliations = self._extract_affiliations(author_record)
-        institution_years = self._years_at_institution(self.our_institution_id, affiliations)
-        last_known_institutions = [
-            self._extract_institution(lki).name
-            for lki in (author_record.get("last_known_institutions", []) or [])
-            if lki is not None
-        ]
-
-        return {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "searched_author": searched_author,
-            "candidate_rank": str(rank),
-            "candidate_count": str(candidate_count),
-            "ambiguity_reason": ambiguity_reason,
-            "openalex_id": openalex_id,
-            "display_name": str(author_record.get("display_name", "")),
-            "orcid": self._id_from_uri(str(author_record.get("orcid", ""))),
-            "relevance_score": str(author_record.get("relevance_score", -1)),
-            "works_count": str(author_record.get("works_count", -1)),
-            "cited_by_count": str(author_record.get("cited_by_count", -1)),
-            "years_affiliated": ",".join([str(y) for y in sorted(institution_years)]),
-            "last_known_institutions": ";".join(last_known_institutions),
-        }
-
-    @staticmethod
-    def _years_at_institution(institution_id: str, affiliations: list[Affiliation]) -> set[int]:
-        """Extract the years of affiliation with an institution."""
-        years: set[int] = set()
-        for affiliation in affiliations:
-            if not OpenAlexSpider._same_institution(affiliation.institution.id, institution_id):
-                continue
-            years.update(affiliation.years)
-        return years
-
-    @staticmethod
-    def _extract_affiliations(author_record: dict[str, Any]) -> list[Affiliation]:
-        """Extract institutional affiliation details from an author record."""
-        affiliations: list[OpenAlexSpider.Affiliation] = []
-
-        affiliation_records = author_record.get("affiliations") or []
-        for record in affiliation_records:
-            if not isinstance(record, dict):
-                continue
-
-            institution_record = record.get("institution") or {}
-            if not isinstance(institution_record, dict):
-                continue
-
-            affiliations.append(
-                OpenAlexSpider.Affiliation(
-                    OpenAlexSpider._extract_institution(institution_record), record.get("years", [])
-                )
-            )
-
-        return affiliations
-
-    @staticmethod
-    def _extract_institution(institution_record: dict[str, Any]) -> Institution:
-        """Extract Institution from the institution record."""
-        institution_id = institution_record.get("id", "")
-        institution_name = institution_record.get("display_name", "")
-        return OpenAlexSpider.Institution(institution_id, institution_name)
+            openalex_ids = []
+            for ident in db_author.identifiers:
+                if ident.authority == "openalex":
+                    openalex_ids.append(ident.identifier)
+            return openalex_ids
 
     # === HELPER METHODS ===
 
@@ -449,16 +704,6 @@ class OpenAlexSpider(AuthorSearchSpider):
                 authors.append(ParsedAuthor(display_name))
 
         return authors
-
-    @staticmethod
-    def _extract_author_id(author_record: dict[str, Any], searched_author: str) -> str:
-        """Ensure that the author record has an ID and return it."""
-        author_id = author_record.get("id")
-        if not author_id:
-            msg = f"Author match for '{searched_author}' has no ID: {author_record}"
-            raise ValueError(msg)
-        assert isinstance(author_id, str)
-        return author_id
 
     @staticmethod
     def _extract_journal_name(publication_record: dict[str, Any]) -> str | None:
@@ -479,35 +724,6 @@ class OpenAlexSpider(AuthorSearchSpider):
                 return str(display_name)
 
         return None
-
-    @staticmethod
-    def _id_from_uri(uri: str) -> str:
-        """Extract the ID part from a full URI (e.g., OpenAlex or ORCID).
-
-        Examples:
-            https://openalex.org/A5077779935 => A5077779935
-            https://orcid.org/0000-0002-4664-9847 => 0000-0002-4664-9847
-
-        Returns:
-             Upcased ID string, or input string if the string is not a URI."""
-        if not uri.startswith(("https://", "http://")):
-            return uri
-        return uri.split("/")[-1].upper()
-
-    @staticmethod
-    def _same_institution(id_a: str | None, id_b: str | None) -> bool:
-        """Check if two institution IDs are the same.
-
-        Returns:
-            True if the institution IDs are the same, False otherwise. If either ID is None,
-            returns False.
-        """
-        if not id_a or not id_b:
-            return False
-        return (
-            OpenAlexSpider._id_from_uri(id_a).casefold()
-            == OpenAlexSpider._id_from_uri(id_b).casefold()
-        )
 
     # OpenAlex publication type mappings
     # See https://docs.openalex.org/api-entities/works/work-object#type
