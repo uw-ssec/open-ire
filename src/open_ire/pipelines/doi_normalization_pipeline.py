@@ -32,7 +32,8 @@ class DOINormalizationPipeline:
             while doi.lower().startswith(prefix.lower()):
                 doi = doi[len(prefix) :].strip()
 
-        doi = doi.strip().lstrip("/")
+        # DOIs are case-insensitive, so might as well keep them uniform
+        doi = doi.strip().lstrip("/").lower()
 
         if doi.startswith("10.") and "/" in doi:
             return doi

@@ -101,7 +101,7 @@ class TestDOINormalizationPipeline:
 
         result = pipeline.process_item(item)
 
-        assert result.doi == "10.1214/17-BA1056R"
+        assert result.doi == "10.1214/17-ba1056r"
 
     def test_normalize_embedded_doi_with_leading_slash(
         self, pipeline: DOINormalizationPipeline, item: ArticleItem
