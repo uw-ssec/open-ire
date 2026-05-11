@@ -99,10 +99,7 @@ class DatamartSpider(Spider):
 
         logger.info("Connecting to Datamart at %s:%s/%s", db_host, db_port, db_name)
 
-        db_url = (
-            f"postgresql+psycopg2://{db_user}:{db_password}"
-            f"@{db_host}:{db_port}/{db_name}"
-        )
+        db_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
         return sa_create_engine(
             db_url,
             connect_args={"sslmode": "require"},
@@ -121,9 +118,12 @@ class DatamartSpider(Spider):
             return []
 
         query = text("""
-            SELECT display_first_name, display_last_name, uw_netid
-            FROM uw_employees
-            WHERE current_faculty_ind = 'Y'
+            SELECT e.display_first_name, e.display_last_name, e.uw_netid,
+                   o.orcid_id
+            FROM uw_employees e
+            LEFT OUTER JOIN oris_orcids o
+              ON e.uw_netid = o.uwnetid
+            WHERE e.current_faculty_ind = 'Y'
         """)
 
         records: list[dict[str, str]] = []
@@ -132,13 +132,17 @@ class DatamartSpider(Spider):
                 first = (row.display_first_name or "").strip()
                 last = (row.display_last_name or "").strip()
                 netid = (row.uw_netid or "").strip()
+                orcid_id = (row.orcid_id or "").strip()
                 if not first or not last or not netid:
                     continue
-                records.append({
-                    "first_name": first,
-                    "last_name": last,
-                    "uw_netid": netid,
-                })
+                records.append(
+                    {
+                        "first_name": first,
+                        "last_name": last,
+                        "uw_netid": netid,
+                        "orcid_id": orcid_id,
+                    }
+                )
 
         self.logger.info("Loaded %d current faculty records from Datamart", len(records))
         return records
@@ -158,14 +162,14 @@ class DatamartSpider(Spider):
 
         for row in faculty_rows:
             name = f"{row['first_name']} {row['last_name']}"
+            identifiers = [
+                {"authority": "uw_netid", "identifier": row["uw_netid"]},
+            ]
+            if row["orcid_id"]:
+                identifiers.append({"authority": "orcid", "identifier": row["orcid_id"]})
             yield AuthorItem(
                 author=ParsedAuthor(name),
-                identifiers=[
-                    {"authority": "uw_netid", "identifier": row["uw_netid"]},
-                ],
+                identifiers=identifiers,
             )
 
         self.logger.info("Yielded %d AuthorItem(s)", len(faculty_rows))
-
-        return  # noqa: RET504 — trailing yield makes this a valid AsyncIterator
-        yield  # type: ignore[misc]
