@@ -1,28 +1,25 @@
-"""Spider to collect UW faculty author records from the Datamart.
+"""Spider to collect UW faculty author records from the UW Libraries data mart.
 
-This spider queries the UW Datamart PostgreSQL database for current faculty
-records and yields one :class:`~open_ire.items.AuthorItem` per faculty row.
-The :class:`~open_ire.pipelines.AuthorIdentifierPipeline` then handles
-persisting each author to the local database — creating new records,
-updating existing ones, and retroactively linking authors to articles
-already collected by other spiders.
+This spider queries the UW Libraries data mart PostgreSQL database for current
+faculty records and yields one :class:`~open_ire.items.AuthorItem` per faculty
+row.
 
 This spider does not make any HTTP requests. It connects directly to the
 Datamart via a PostgreSQL engine and iterates over the result set locally.
 
 Environment variables required in ``.env``::
 
-    DB_USERNAME=<datamart_username>
-    DB_PASSWORD=<datamart_password>
-    DB_SERVER=<datamart_host>
-    DB_PORT=<datamart_port>
-    DB_DATABASE=<datamart_database>
+    DATAMART_USER=<datamart_username>
+    DATAMART_PASS=<datamart_password>
+    DATAMART_HOST=<datamart_host>
+    DATAMART_PORT=<datamart_port>
+    DATAMART_DB=<datamart_database>
 """
 
 import logging
 import os
 from collections.abc import AsyncIterator
-from typing import Any, Self
+from typing import Any
 
 from scrapy import Spider
 from sqlalchemy import create_engine as sa_create_engine
@@ -36,70 +33,41 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 class DatamartSpider(Spider):
-    """Collect current UW faculty from the Datamart ``uw_employees`` table.
-
-    For each faculty row where ``current_faculty_ind = 'Y'``, the spider
-    yields an :class:`AuthorItem` with a ``uw_netid`` identifier.  The
-    standard :class:`AuthorIdentifierPipeline` handles deduplication,
-    creation, and retroactive article linking.
-
-    Usage::
-
-        pixi run scrapy crawl datamart
-    """
+    """Collect information about current UW faculty from the UW Libraries data mart."""
 
     name = "datamart"
 
-    # This spider makes no HTTP requests — disable download-related features.
-    custom_settings = {  # noqa: RUF012
-        "AUTOTHROTTLE_ENABLED": False,
-        "DOWNLOAD_DELAY": 0,
-        "ROBOTSTXT_OBEY": False,
-    }
-
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.datamart_engine: Engine | None = None
-
-    # === LIFECYCLE ===
-
-    @classmethod
-    def from_crawler(cls, crawler: Any, *args: Any, **kwargs: Any) -> Self:
-        """Create the spider and attach a Datamart PostgreSQL engine."""
-        spider = super().from_crawler(crawler, *args, **kwargs)
-        spider.datamart_engine = cls._create_datamart_engine()
-        return spider
+        self.datamart_engine: Engine = self._create_datamart_engine()
 
     def closed(self, reason: str) -> None:  # noqa: ARG002
-        """Dispose of the Datamart engine when the spider shuts down."""
-        if self.datamart_engine:
-            self.datamart_engine.dispose()
+        """Dispose of the datamart engine when the spider shuts down."""
+        self.datamart_engine.dispose()
 
     # === DATAMART CONNECTION ===
 
     @staticmethod
-    def _create_datamart_engine() -> Engine | None:
-        """Build a SQLAlchemy engine for the UW Datamart PostgreSQL database.
+    def _create_datamart_engine() -> Engine:
+        """Build a SQLAlchemy engine for the data mart PostgreSQL database.
 
-        Reads connection parameters from environment variables. Returns
-        ``None`` if required credentials are missing.
+        Reads connection parameters from environment variables. Raises
+        RuntimeError if required credentials are missing.
         """
-        db_user = os.getenv("DB_USERNAME")
-        db_password = os.getenv("DB_PASSWORD")
-        db_host = os.getenv("DB_SERVER")
-        db_port = os.getenv("DB_PORT", "5432")
-        db_name = os.getenv("DB_DATABASE")
+        dm_user = os.getenv("DATAMART_USER")
+        dm_pass = os.getenv("DATAMART_PASS")
+        dm_host = os.getenv("DATAMART_HOST")
+        dm_port = os.getenv("DATAMART_PORT", "5432")
+        dm_name = os.getenv("DATAMART_DB")
 
-        if not all([db_user, db_password, db_host, db_name]):
-            logger.warning(
-                "Missing Datamart credentials. Set DB_USERNAME, DB_PASSWORD, "
-                "DB_SERVER, DB_PORT, and DB_DATABASE in .env"
-            )
-            return None
+        if not all([dm_user, dm_pass, dm_host, dm_name]):
+            msg = """Missing data mart credentials. Set DATAMART_USER, DATAMART_PASS,
+                  DATAMART_HOST, DATAMART_PORT (if not 5432), and DATAMART_DB in .env"""
+            raise RuntimeError(msg)
 
-        logger.info("Connecting to Datamart at %s:%s/%s", db_host, db_port, db_name)
+        logger.info("Connecting to %s:%s/%s", dm_host, dm_port, dm_name)
 
-        db_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        db_url = f"postgresql+psycopg2://{dm_user}:{dm_pass}@{dm_host}:{dm_port}/{dm_name}"
         return sa_create_engine(
             db_url,
             connect_args={"sslmode": "require"},
@@ -109,14 +77,10 @@ class DatamartSpider(Spider):
     # === FACULTY DATA LOADING ===
 
     def _load_faculty(self) -> list[dict[str, str]]:
-        """Query current faculty from the Datamart ``uw_employees`` table.
+        """Query current faculty from the data mart.
 
         Returns a list of dicts with keys ``first_name``, ``last_name``,
-        and ``uw_netid`` for employees where ``current_faculty_ind = 'Y'``.
-        """
-        if not self.datamart_engine:
-            return []
-
+        ``uw_netid``, and (if available) ``orcid_id``."""
         query = text("""
             SELECT e.display_first_name, e.display_last_name, e.uw_netid,
                    o.orcid_id
@@ -144,7 +108,7 @@ class DatamartSpider(Spider):
                     }
                 )
 
-        self.logger.info("Loaded %d current faculty records from Datamart", len(records))
+        self.logger.info("Loaded %d current faculty records", len(records))
         return records
 
     # === MAIN WORKFLOW ===
@@ -157,7 +121,7 @@ class DatamartSpider(Spider):
         """
         faculty_rows = self._load_faculty()
         if not faculty_rows:
-            self.logger.warning("No faculty records loaded — nothing to yield")
+            self.logger.warning("No faculty records loaded")
             return
 
         for row in faculty_rows:
