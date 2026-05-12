@@ -27,6 +27,7 @@ dependencies = [
     "nameparser",
     "pandas",
     "playwright",
+    "psycopg2-binary",
     "python-dateutil",
     "python-dotenv",
     "rapidfuzz",
