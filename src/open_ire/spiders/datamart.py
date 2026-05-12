@@ -83,10 +83,10 @@ class DatamartSpider(Spider):
         ``uw_netid``, and (if available) ``orcid_id``."""
         query = text("""
             SELECT e.display_first_name, e.display_last_name, e.uw_netid,
-                   o.orcid_id
+                   o."ORCID_ID" AS orcid_id
             FROM uw_employees e
             LEFT OUTER JOIN oris_orcids o
-              ON e.uw_netid = o.uwnetid
+              ON e.uw_netid = o."UWNetID"
             WHERE e.current_faculty_ind = 'Y'
         """)
 
