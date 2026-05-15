@@ -65,7 +65,7 @@ db.sqlite3-journal
 instance/
 .webassets-cache
 
-# Scrapy stuff:
+# Project stuff:
 .scrapy
 output/
 dbs/
@@ -76,8 +76,12 @@ docs/_build/
 # PyBuilder
 target/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Notebooks
+notebooks/*.ipynb
+notebooks/*.ipynb_checkpoints
+notebooks/*.csv
+notebooks/*.xlsx
+__marimo__
 
 # IPython
 profile_default/
@@ -106,6 +110,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.envrc
 env/
 venv/
 ENV/
@@ -131,10 +136,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Code Editors
-.vscode
-.idea
-
 # Local Package
 data/
 logs/*.txt
@@ -143,9 +144,3 @@ version.py
 # pixi environments
 .pixi
 *.egg-info
-
-# macOS
-.DS_Store
-
-# Marimo specific
-__marimo__
