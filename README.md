@@ -12,15 +12,27 @@
 </div>
 
 <div align="center">
-Open Institutional Repository Expansion (IRE) is a configurable crawler for collecting articles from open-access research repositories.
+Open Institutional Repository Expansion (IRE) is a configurable crawler for
+collecting articles from open-access research repositories.
 </div>
 
 ## Installation
 
-### 1. Prerequisites
+### 1. Clone the Git Repository
 
-First, install the [Pixi](https://pixi.sh/latest/#getting-started) package
-manager:
+This repository contains everything needed to run the software, so you just need
+to clone it to somewhere in your file system:
+
+```bash
+git clone https://github.com/uw-ssec/open-ire.git
+```
+
+### 2. Install Package Manager
+
+This project uses the [Pixi](https://pixi.sh/latest/#getting-started) package
+manager to install and manage other prerequisites, including a compatible
+version of Python. The easiest way to install Pixi is with one of these
+commands:
 
 **macOS/Linux:**
 
@@ -34,20 +46,24 @@ curl -fsSL https://pixi.sh/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm -useb https://pixi.sh/install.ps1 | iex"
 ```
 
-For more installation options, visit the
+For other installation options, visit the
 [Pixi installation guide](https://pixi.sh/latest/#installation).
 
-### 2. Installation from Source
+### 3. Install the Prerequisites
+
+To install the default Pixi environment, which will allow running all of the
+provided web-crawling spiders, execute the following command in the directory
+where you cloned the `open-ire` repository:
 
 ```bash
-git clone https://github.com/uw-ssec/open-ire.git
 cd open-ire
 pixi install
 ```
 
-## Getting Started
+Once the installation finishes, you can then run several pre-defined tasks using
+the `pixi run <task>` command in the `open-ire` directory.
 
-### 1. Environment Setup
+### 4. Configure the Execution Environment
 
 ```bash
 pixi run dotenv
@@ -70,54 +86,10 @@ SHAREPOINT_CLIENT_SECRET=<your_application_client_secret>
 Alternatively, you can disable the `SharePointPipeline` in
 `src/open_ire/settings/`.
 
-### 2. Activate the Environment
-
-Activate the Pixi environment:
-
-```bash
-pixi shell
-```
-
-Or run commands directly with:
-
-```bash
-pixi run <command>
-```
-
-### 3. Development Setup
-
-For detailed development setup, including pre-commit hooks, please see
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Running
+## Crawling the Repositories
 
 This project includes spiders for crawling repositories using two main methods:
 a list of keywords or a CSV file of author names.
-
-### Crawl and Resume
-
-To run a spider with a persistent crawl state (Scrapy `JOBDIR`) and optionally
-skip already-known files, use the `resume` command:
-
-```bash
-pixi run resume <spider_name> [--skip-existing]
-```
-
-For example:
-
-```bash
-pixi run resume eric --skip-existing
-```
-
-### Tracking Deleted Articles
-
-To detect previously collected article metadata and downloaded files that are no
-longer available, run the `unavailable_articles` spider. It reads from
-`OPEN_IRE_DATABASE_FILE` and writes a CSV report under `output/`.
-
-```bash
-pixi run resume unavailable_articles
-```
 
 ### Search by Keyword
 
@@ -164,7 +136,32 @@ authors:
 pixi run search-authors openalex "data/authors.csv"
 ```
 
-### Notebooks
+### Crawl and Resume
+
+To run a spider with a persistent crawl state (Scrapy `JOBDIR`) and optionally
+skip already-known files, use the `resume` command:
+
+```bash
+pixi run resume <spider_name> [--skip-existing]
+```
+
+For example:
+
+```bash
+pixi run resume eric --skip-existing
+```
+
+### Tracking Deleted Articles
+
+To detect previously collected article metadata and downloaded files that are no
+longer available, run the `unavailable_articles` spider. It reads from
+`OPEN_IRE_DATABASE_FILE` and writes a CSV report under `output/`.
+
+```bash
+pixi run resume unavailable_articles
+```
+
+## Notebooks
 
 This project includes [marimo](https://marimo.io/) notebooks for data analysis
 under `notebooks/`.
@@ -173,6 +170,12 @@ under `notebooks/`.
 | ------------------------- | -------------------------------------------------------------------------------- |
 | `metadata_analysis.py`    | Collection stats, repository breakdowns, and text analysis                       |
 | `unavailable_articles.py` | Re-checks URLs from an unavailable-articles CSV to identify which have recovered |
+
+To install the additional libraries needed for the notebooks:
+
+```bash
+pixi install -e notebooks
+```
 
 To open a notebook in the interactive editor:
 
@@ -188,8 +191,9 @@ pixi run -e dev marimo run notebooks/metadata_analysis.py
 
 ## Contributing
 
-We welcome contributions! Please see our contribution guidelines:
+We welcome contributions! For detailed development setup, including pre-commit
+hooks, please see [CONTRIBUTING.md](CONTRIBUTING.md) and our contribution
+guidelines:
 
-- [CONTRIBUTING.md](CONTRIBUTING.md)
 - [RSE Guidelines](https://rse-guidelines.readthedocs.io/en/latest/)
 - [Scientific Python Development Guide](https://learn.scientific-python.org/development/)

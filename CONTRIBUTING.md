@@ -98,6 +98,8 @@ pixi run pre-commit-all
 
 - `default`: Basic execution environment.
 - `dev`: Development environment with testing tools.
+- `notebooks`: Environment for interactive work in Marimo and Jupyter.
+- `all`: Combination of `default`, `dev`, and `notebooks`.
 
 To activate one of these environments, run the following command:
 
