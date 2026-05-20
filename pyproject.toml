@@ -25,12 +25,10 @@ dependencies = [
     "alembic",
     "msgraph-sdk",
     "nameparser",
-    "pandas",
     "playwright",
-    "python-dateutil",
     "psycopg2-binary",
+    "python-dateutil",
     "python-dotenv",
-    "rapidfuzz",
     "requests",
     "scrapy",
     "scrapy-playwright",
@@ -48,23 +46,32 @@ Issues = "https://github.com/uw-ssec/open-ire/issues"
 
 [project.optional-dependencies]
 dev = [
-    "altair",
-    "ipython",
-    "marimo",
     "mypy",
     "nox",
     "pre-commit",
-    "pyarrow",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
     "pytest-xdist",
     "ruff",
-    "scikit-learn",
     "types-nameparser",
     "types-python-dateutil",
     "types-requests",
+]
+notebooks = [
+    "altair",
+    "bs4",
+    "ipykernel",
+    "ipython",
+    "marimo",
+    "notebook",
+    "openpyxl",
+    "pandas",
+    "pandas-stubs",
+    "pyarrow",
+    "rapidfuzz",
+    "scikit-learn",
 ]
 
 [tool.hatch.version]
@@ -171,6 +178,8 @@ platforms = ["osx-arm64", "osx-64", "win-64"]
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+notebooks = { features = ["notebooks"], solve-group = "default" }
+all = { features = ["dev", "notebooks"], solve-group = "default" }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.10,<0.0.11"
@@ -181,6 +190,9 @@ open_ire = { path = ".", editable = true }
 
 [tool.pixi.feature.dev.pypi-dependencies]
 open_ire = { path = ".", editable = true, extras = ["dev"] }
+
+[tool.pixi.feature.notebooks.pypi-dependencies]
+open_ire = { path = ".", editable = true, extras = ["notebooks"] }
 
 [tool.pixi.feature.dev.tasks]
 pre-commit = "pre-commit run"
