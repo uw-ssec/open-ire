@@ -57,31 +57,52 @@ class OstiSpider(TermSearchSpider):
             "page": "1",
         }
         url = f"{self.api_url}?{urlencode(params)}"
+
+        self.logger.info("Searching OSTI for %r (page_size=%d)", term, self.page_size)
+
         return Request(
             url,
             callback=self.parse,
             headers={"Accept": "application/json"},
-            meta={"search_term": term},
+            meta={"search_term": term, "page": 1},
         )
 
     # === RESPONSE PARSING ===
 
     def parse(self, response: Response, **kwargs: Any) -> Generator[Request | ArticleItem]:  # noqa: ARG002
         """Parse a page of JSON results and follow pagination."""
+        search_term = response.meta.get("search_term", "")
+        current_page = response.meta.get("page", self._current_page(response))
         records: list[dict[str, Any]] = json.loads(response.text or "[]")
+
+        self.logger.info(
+            "OSTI returned %d record(s) for %r (page %d)",
+            len(records),
+            search_term,
+            current_page,
+        )
 
         if not records:
             return
 
+        yielded = 0
         for record in records:
             item = self._parse_record(record)
             if item is not None:
+                yielded += 1
                 yield item
+
+        if yielded < len(records):
+            self.logger.info(
+                "Skipped %d record(s) on page %d for %r (missing title/id or fulltext)",
+                len(records) - yielded,
+                current_page,
+                search_term,
+            )
 
         # Follow pagination: if we got a full page, request the next one.
         if len(records) >= self.page_size:
-            search_term = response.meta.get("search_term", "")
-            next_page = self._current_page(response) + 1
+            next_page = current_page + 1
             params = {
                 "q": f'"{search_term}"',
                 "has_fulltext": "true",
@@ -89,11 +110,14 @@ class OstiSpider(TermSearchSpider):
                 "page": str(next_page),
             }
             url = f"{self.api_url}?{urlencode(params)}"
+
+            self.logger.debug("Requesting next page %d for %r", next_page, search_term)
+
             yield Request(
                 url,
                 callback=self.parse,
                 headers={"Accept": "application/json"},
-                meta={"search_term": search_term},
+                meta={"search_term": search_term, "page": next_page},
             )
 
     # === RECORD PARSING ===
@@ -104,6 +128,10 @@ class OstiSpider(TermSearchSpider):
         osti_id = str(record.get("osti_id", "")).strip()
 
         if not title or not osti_id:
+            self.logger.debug(
+                "Skipping record with missing title or osti_id: %s",
+                record.get("osti_id", "<unknown>"),
+            )
             return None
 
         return ArticleItem(
@@ -196,12 +224,9 @@ class OstiSpider(TermSearchSpider):
             if value := (record.get(key) or "").strip():
                 extra[key] = value
 
-        if subjects := record.get("subjects"):
-            extra["subjects"] = subjects
-        if sponsor_orgs := record.get("sponsor_orgs"):
-            extra["sponsor_orgs"] = sponsor_orgs
-        if research_orgs := record.get("research_orgs"):
-            extra["research_orgs"] = research_orgs
+        for key in ("subjects", "sponsor_orgs", "research_orgs"):
+            if value := record.get(key):
+                extra[key] = value
 
         return extra
 
