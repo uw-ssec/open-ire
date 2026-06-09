@@ -46,6 +46,11 @@ class OstiSpider(TermSearchSpider):
     custom_settings = {  # noqa: RUF012
         "DOWNLOAD_DELAY": 1,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
+        # OSTI's robots.txt only restricts Googlebot; /servlets/purl/ (fulltext
+        # PDFs) is unrestricted for all other user-agents. Scrapy's global
+        # ROBOTSTXT_OBEY=True was incorrectly applying Googlebot rules as a
+        # fallback and blocking PDF downloads that OSTI explicitly allows.
+        "ROBOTSTXT_OBEY": False,
     }
 
     def build_search_request(self, term: str) -> Request:
