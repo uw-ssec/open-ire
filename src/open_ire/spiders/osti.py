@@ -50,29 +50,31 @@ class OstiSpider(TermSearchSpider):
 
     def build_search_request(self, term: str) -> Request:
         """Build the first-page API request for *term*."""
+        self.logger.info("Searching OSTI for %r (page_size=%d)", term, self.page_size)
+        return self._build_page_request(term, page=1)
+
+    def _build_page_request(self, term: str, page: int) -> Request:
+        """Build an API request for *term* at the given *page*."""
         params = {
             "q": f'"{term}"',
             "has_fulltext": "true",
             "rows": str(self.page_size),
-            "page": "1",
+            "page": str(page),
         }
         url = f"{self.api_url}?{urlencode(params)}"
-
-        self.logger.info("Searching OSTI for %r (page_size=%d)", term, self.page_size)
-
         return Request(
             url,
             callback=self.parse,
             headers={"Accept": "application/json"},
-            meta={"search_term": term, "page": 1},
+            meta={"search_term": term, "page": page},
         )
 
     # === RESPONSE PARSING ===
 
     def parse(self, response: Response, **kwargs: Any) -> Generator[Request | ArticleItem]:  # noqa: ARG002
         """Parse a page of JSON results and follow pagination."""
-        search_term = response.meta.get("search_term", "")
-        current_page = response.meta.get("page", self._current_page(response))
+        search_term: str = response.meta["search_term"]
+        current_page: int = response.meta["page"]
         records: list[dict[str, Any]] = json.loads(response.text or "[]")
 
         self.logger.info(
@@ -103,22 +105,8 @@ class OstiSpider(TermSearchSpider):
         # Follow pagination: if we got a full page, request the next one.
         if len(records) >= self.page_size:
             next_page = current_page + 1
-            params = {
-                "q": f'"{search_term}"',
-                "has_fulltext": "true",
-                "rows": str(self.page_size),
-                "page": str(next_page),
-            }
-            url = f"{self.api_url}?{urlencode(params)}"
-
             self.logger.debug("Requesting next page %d for %r", next_page, search_term)
-
-            yield Request(
-                url,
-                callback=self.parse,
-                headers={"Accept": "application/json"},
-                meta={"search_term": search_term, "page": next_page},
-            )
+            yield self._build_page_request(search_term, page=next_page)
 
     # === RECORD PARSING ===
 
@@ -229,18 +217,3 @@ class OstiSpider(TermSearchSpider):
                 extra[key] = value
 
         return extra
-
-    # === UTILITIES ===
-
-    @staticmethod
-    def _current_page(response: Response) -> int:
-        """Extract the current page number from the request URL."""
-        url = response.url
-        if "page=" in url:
-            for part in url.split("&"):
-                if part.startswith("page=") or part.split("?")[-1].startswith("page="):
-                    try:
-                        return int(part.split("=")[-1])
-                    except ValueError:
-                        pass
-        return 1
