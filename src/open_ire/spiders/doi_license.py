@@ -7,10 +7,10 @@ from urllib.parse import quote
 from scrapy.http import Request, Response
 from sqlmodel import Session, col, select
 
-from open_ire.enums import DepositTransitionReason, OAEvidenceKind
+from open_ire.enums import DepositTransitionReason, DepositWarrant
 from open_ire.models import Article
 from open_ire.pipelines import DOINormalizationPipeline
-from open_ire.spiders.oa_evidence import BaseOAEvidenceSpider
+from open_ire.spiders.deposit_warrant import BaseDepositWarrantSpider
 
 
 class LogMessages:
@@ -19,25 +19,26 @@ class LogMessages:
     ARTICLES_FOUND = "Found %d articles with DOIs"
     FALLBACK_TO_DATACITE = "Crossref lookup failed for DOI %s, trying DataCite: %s"
     INVALID_JSON = "Invalid JSON from %s for DOI %s"
-    LICENSE_EVIDENCE_SAVED = "Saved license evidence for article %s from %s (supports_oa=%s)"
+    LICENSE_WARRANT_SAVED = "Saved license warrant for article %s from %s (supports_oa=%s)"
     NO_DATABASE_ENGINE = "No database engine available"
     NO_LICENSE_FOUND = "No license information found for DOI %s"
     NO_LICENSE_FOUND_WITH_DETAILS = "No license information found for DOI %s (%s)"
     NO_LICENSE_IN_CROSSREF = "No license info in Crossref for DOI %s, trying DataCite"
-    SKIPPING_ARTICLE = "Skipping article %s - already has license evidence"
+    SKIPPING_ARTICLE = "Skipping article %s - already has a license warrant"
 
 
-class OALicenseSpider(BaseOAEvidenceSpider):
+class DOILicenseSpider(BaseDepositWarrantSpider):
     """
-    Fetch license information from Crossref and DataCite APIs.
+    Establish a LICENSE deposit warrant from Crossref and DataCite license metadata.
+
     This spider queries the database for articles with DOIs, then:
     1. Requests license info from Crossref API.
     2. Falls back to DataCite API if Crossref has no license info.
-    3. Saves evidence to ArticleOAEvidence.
-    4. Creates ArticleOAStatusTransition if license indicates open access.
+    3. Saves an ArticleDepositWarrant row capturing what was found.
+    4. Creates an ArticleDepositStatusTransition if the license is OA-permitting.
     """
 
-    name = "oa_license"
+    name = "doi_license"
     crossref_base_url = "https://api.crossref.org/works"
     datacite_base_url = "https://api.datacite.org/dois"
 
@@ -86,7 +87,7 @@ class OALicenseSpider(BaseOAEvidenceSpider):
                 }
             )
 
-        supports_oa = any(OALicenseSpider.is_oa_license(url) for url in license_urls)
+        supports_oa = any(DOILicenseSpider.is_oa_license(url) for url in license_urls)
 
         return {
             "license_details": license_details,
@@ -124,7 +125,7 @@ class OALicenseSpider(BaseOAEvidenceSpider):
                 }
             )
 
-        supports_oa = any(OALicenseSpider.is_oa_license(url) for url in license_urls)
+        supports_oa = any(DOILicenseSpider.is_oa_license(url) for url in license_urls)
 
         return {
             "license_details": license_details,
@@ -144,10 +145,10 @@ class OALicenseSpider(BaseOAEvidenceSpider):
             results = session.exec(statement).all()
             return [(row[0], row[1]) for row in results if row[1]]
 
-    def has_license_evidence(self, article_id: uuid.UUID) -> bool:
-        return self.has_oa_evidence(
+    def has_license_warrant(self, article_id: uuid.UUID) -> bool:
+        return self.has_deposit_warrant(
             article_id,
-            kind=OAEvidenceKind.LICENSE,
+            kind=DepositWarrant.LICENSE,
             sources=["crossref", "datacite"],
         )
 
@@ -196,7 +197,7 @@ class OALicenseSpider(BaseOAEvidenceSpider):
             return self.build_datacite_request(article_id, doi)
 
         license_data = self.extract_crossref_license(licenses)
-        self.save_license_evidence(article_id, doi, "crossref", license_data)
+        self.save_license_warrant(article_id, doi, "crossref", license_data)
 
         return None
 
@@ -235,7 +236,7 @@ class OALicenseSpider(BaseOAEvidenceSpider):
             return
 
         license_data = self.extract_datacite_license(rights_list)
-        self.save_license_evidence(article_id, doi, "datacite", license_data)
+        self.save_license_warrant(article_id, doi, "datacite", license_data)
 
     def handle_datacite_error(self, failure: Any) -> None:
         request = failure.request
@@ -245,7 +246,7 @@ class OALicenseSpider(BaseOAEvidenceSpider):
             LogMessages.NO_LICENSE_FOUND_WITH_DETAILS, doi, f"DataCite error: {failure.value}"
         )
 
-    def save_license_evidence(
+    def save_license_warrant(
         self,
         article_id: uuid.UUID,
         doi: str,
@@ -253,9 +254,9 @@ class OALicenseSpider(BaseOAEvidenceSpider):
         license_data: dict[str, Any],
     ) -> None:
         supports_oa = license_data.get("supports_oa", False)
-        self.save_oa_evidence(
+        self.save_deposit_warrant(
             article_id,
-            kind=OAEvidenceKind.LICENSE,
+            kind=DepositWarrant.LICENSE,
             source=source,
             supports_oa=supports_oa,
             data={
@@ -265,14 +266,14 @@ class OALicenseSpider(BaseOAEvidenceSpider):
             },
             transition_reason=DepositTransitionReason.LICENSE_OA,
         )
-        self.logger.info(LogMessages.LICENSE_EVIDENCE_SAVED, article_id, source, supports_oa)
+        self.logger.info(LogMessages.LICENSE_WARRANT_SAVED, article_id, source, supports_oa)
 
     async def start(self) -> AsyncIterator[Request]:
         articles = self.query_articles_with_doi()
         self.logger.info(LogMessages.ARTICLES_FOUND, len(articles))
 
         for article_id, doi in articles:
-            if self.has_license_evidence(article_id):
+            if self.has_license_warrant(article_id):
                 self.logger.debug(LogMessages.SKIPPING_ARTICLE, article_id)
                 continue
 

@@ -8,19 +8,19 @@ from urllib.parse import quote
 from scrapy.http import Request, Response
 from sqlmodel import Session, col, select
 
-from open_ire.enums import DepositTransitionReason, OAEvidenceKind
+from open_ire.enums import DepositTransitionReason, DepositWarrant
 from open_ire.models import Article
 from open_ire.pipelines import DOINormalizationPipeline
-from open_ire.spiders.oa_evidence import BaseOAEvidenceSpider
+from open_ire.spiders.deposit_warrant import BaseDepositWarrantSpider
 
 
 class LogMessages:
     ARTICLES_FOUND = "Found %d candidate articles for DOAJ lookup"
-    EVIDENCE_SAVED = "Saved DOAJ evidence for article %s (supports_oa=%s, strategy=%s)"
+    WARRANT_SAVED = "Saved DOAJ warrant for article %s (supports_oa=%s, strategy=%s)"
     SEARCH_ERROR = "DOAJ lookup failed for article %s (%s)"
     SEARCH_STATUS_ERROR = "DOAJ returned status %s for article %s"
     SEARCH_INVALID_JSON = "DOAJ returned invalid JSON for article %s"
-    SKIPPING_ARTICLE = "Skipping article %s - already has evidence"
+    SKIPPING_ARTICLE = "Skipping article %s with existing deposit warrant"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,10 +29,10 @@ class _ArticleCandidate:
     doi: str
 
 
-class OADOAJSpider(BaseOAEvidenceSpider):
-    """Fetch OA evidence from DOAJ using DOI article matching."""
+class DOAJSpider(BaseDepositWarrantSpider):
+    """Establish an EXTERNAL_OA deposit warrant from DOAJ using DOI article matching."""
 
-    name = "oa_doaj"
+    name = "doaj"
     base_url = "https://doaj.org/api"
     search_endpoint = "articles"
     match_strategy = "article_doi"
@@ -46,8 +46,8 @@ class OADOAJSpider(BaseOAEvidenceSpider):
         bibjson = result.get("bibjson", {})
         return bibjson if isinstance(bibjson, dict) else None
 
-    def has_existing_evidence(self, article_id: uuid.UUID) -> bool:
-        return self.has_any_oa_evidence(article_id)
+    def has_existing_warrant(self, article_id: uuid.UUID) -> bool:
+        return self.has_any_deposit_warrant(article_id)
 
     def query_article_candidates(self) -> list[_ArticleCandidate]:
         if not self.engine:
@@ -139,26 +139,26 @@ class OADOAJSpider(BaseOAEvidenceSpider):
             },
         }
 
-    def save_doaj_evidence(
+    def save_doaj_warrant(
         self,
         article_id: uuid.UUID,
         *,
         supports_oa: bool,
         allow_transition: bool,
-        evidence_data: dict[str, Any],
+        warrant_data: dict[str, Any],
     ) -> None:
-        self.save_oa_evidence(
+        self.save_deposit_warrant(
             article_id,
-            kind=OAEvidenceKind.EXTERNAL_OA,
+            kind=DepositWarrant.EXTERNAL_OA,
             source="doaj",
             supports_oa=supports_oa,
-            data=evidence_data,
+            data=warrant_data,
             transition_reason=DepositTransitionReason.EXTERNAL_OA,
             allow_transition=allow_transition,
         )
 
     @classmethod
-    def build_evidence_data(
+    def build_warrant_data(
         cls,
         candidate: _ArticleCandidate,
         attempts: list[dict[str, Any]],
@@ -213,14 +213,14 @@ class OADOAJSpider(BaseOAEvidenceSpider):
 
         supports_oa = bool(match_data.get("supports_oa"))
         allow_transition = bool(match_data.get("allow_transition"))
-        self.save_doaj_evidence(
+        self.save_doaj_warrant(
             candidate.article_id,
             supports_oa=supports_oa,
             allow_transition=allow_transition,
-            evidence_data=self.build_evidence_data(candidate, attempts, match_data),
+            warrant_data=self.build_warrant_data(candidate, attempts, match_data),
         )
         self.logger.info(
-            LogMessages.EVIDENCE_SAVED, candidate.article_id, supports_oa, self.match_strategy
+            LogMessages.WARRANT_SAVED, candidate.article_id, supports_oa, self.match_strategy
         )
         return None
 
@@ -234,8 +234,9 @@ class OADOAJSpider(BaseOAEvidenceSpider):
         self.logger.info(LogMessages.ARTICLES_FOUND, len(candidates))
 
         for candidate in candidates:
-            if self.has_existing_evidence(candidate.article_id):
-                self.logger.debug(LogMessages.SKIPPING_ARTICLE, candidate.article_id)
+            if self.has_existing_warrant(candidate.article_id):
+                identifier = candidate.doi if candidate.doi else candidate.article_id
+                self.logger.debug(LogMessages.SKIPPING_ARTICLE, identifier)
                 continue
 
             yield self.build_search_request(candidate)

@@ -8,15 +8,15 @@ import pytest
 from scrapy.http import HtmlResponse, Request
 from sqlmodel import Session, select
 
-from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
-from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
-from open_ire.spiders.oa_license import OALicenseSpider
+from open_ire.enums import DepositStatus, DepositTransitionReason, DepositWarrant
+from open_ire.models import Article, ArticleDepositStatusTransition, ArticleDepositWarrant
+from open_ire.spiders.doi_license import DOILicenseSpider
 
 
 @pytest.fixture
-def spider() -> Generator[OALicenseSpider, None, None]:
-    with patch.object(OALicenseSpider, "logger", new_callable=MagicMock):
-        spider_instance = OALicenseSpider()
+def spider() -> Generator[DOILicenseSpider, None, None]:
+    with patch.object(DOILicenseSpider, "logger", new_callable=MagicMock):
+        spider_instance = DOILicenseSpider()
         yield spider_instance
 
 
@@ -66,7 +66,7 @@ class TestIsOALicense:
         ],
     )
     def test_is_oa_license(self, license_url: str | None, expected: bool) -> None:
-        assert OALicenseSpider.is_oa_license(license_url) == expected
+        assert DOILicenseSpider.is_oa_license(license_url) == expected
 
 
 class TestExtractCrossrefLicense:
@@ -79,7 +79,7 @@ class TestExtractCrossrefLicense:
             }
         ]
 
-        result = OALicenseSpider.extract_crossref_license(licenses)
+        result = DOILicenseSpider.extract_crossref_license(licenses)
 
         assert result["supports_oa"] is True
         assert result["license_urls"] == ["https://creativecommons.org/licenses/by/4.0/"]
@@ -93,7 +93,7 @@ class TestExtractCrossrefLicense:
             }
         ]
 
-        result = OALicenseSpider.extract_crossref_license(licenses)
+        result = DOILicenseSpider.extract_crossref_license(licenses)
 
         assert result["supports_oa"] is False
 
@@ -109,7 +109,7 @@ class TestExtractDataciteLicense:
             }
         ]
 
-        result = OALicenseSpider.extract_datacite_license(rights_list)
+        result = DOILicenseSpider.extract_datacite_license(rights_list)
 
         assert result["supports_oa"] is True
         assert (
@@ -125,7 +125,7 @@ class TestExtractDataciteLicense:
             }
         ]
 
-        result = OALicenseSpider.extract_datacite_license(rights_list)
+        result = DOILicenseSpider.extract_datacite_license(rights_list)
 
         assert result["supports_oa"] is False
 
@@ -140,19 +140,23 @@ class TestLicenseSchemaConsistency:
             {"rightsUri": "https://creativecommons.org/licenses/by/4.0/", "rights": "CC BY 4.0"}
         ]
 
-        crossref_result = OALicenseSpider.extract_crossref_license(crossref_licenses)
-        datacite_result = OALicenseSpider.extract_datacite_license(datacite_rights)
+        crossref_result = DOILicenseSpider.extract_crossref_license(crossref_licenses)
+        datacite_result = DOILicenseSpider.extract_datacite_license(datacite_rights)
 
         assert set(crossref_result.keys()) == set(datacite_result.keys())
-        assert set(crossref_result.keys()) == {"license_details", "license_urls", "supports_oa"}
+        assert set(crossref_result.keys()) == {
+            "license_details",
+            "license_urls",
+            "supports_oa",
+        }
         assert crossref_result["supports_oa"] == datacite_result["supports_oa"]
 
 
 class TestParseCrossrefLicense:
     def test_parse_crossref_with_license(
-        self, spider: OALicenseSpider, article_id: uuid.UUID, crossref_oa_response: dict[str, Any]
+        self, spider: DOILicenseSpider, article_id: uuid.UUID, crossref_oa_response: dict[str, Any]
     ) -> None:
-        spider.save_license_evidence = MagicMock()  # type: ignore[method-assign]
+        spider.save_license_warrant = MagicMock()  # type: ignore[method-assign]
 
         response = HtmlResponse(
             url="https://api.crossref.org/works/10.1234/test",
@@ -163,13 +167,13 @@ class TestParseCrossrefLicense:
         result = spider.parse_crossref(response, article_id, "10.1234/test")
 
         assert result is None
-        spider.save_license_evidence.assert_called_once()
-        call_args = spider.save_license_evidence.call_args
+        spider.save_license_warrant.assert_called_once()
+        call_args = spider.save_license_warrant.call_args
         assert call_args[0][0] == article_id
         assert call_args[0][2] == "crossref"
 
     def test_parse_crossref_falls_back_to_datacite(
-        self, spider: OALicenseSpider, article_id: uuid.UUID
+        self, spider: DOILicenseSpider, article_id: uuid.UUID
     ) -> None:
         """Test fallback to DataCite when Crossref has no license."""
         response_data: dict[str, Any] = {"message": {"license": []}}
@@ -187,9 +191,9 @@ class TestParseCrossrefLicense:
 
 class TestParseDataciteLicense:
     def test_parse_datacite_with_license(
-        self, spider: OALicenseSpider, article_id: uuid.UUID, datacite_oa_response: dict[str, Any]
+        self, spider: DOILicenseSpider, article_id: uuid.UUID, datacite_oa_response: dict[str, Any]
     ) -> None:
-        spider.save_license_evidence = MagicMock()  # type: ignore[method-assign]
+        spider.save_license_warrant = MagicMock()  # type: ignore[method-assign]
 
         response = HtmlResponse(
             url="https://api.datacite.org/dois/10.1234/test",
@@ -199,14 +203,14 @@ class TestParseDataciteLicense:
 
         spider.parse_datacite(response, article_id, "10.1234/test")
 
-        spider.save_license_evidence.assert_called_once()
-        call_args = spider.save_license_evidence.call_args
+        spider.save_license_warrant.assert_called_once()
+        call_args = spider.save_license_warrant.call_args
         assert call_args[0][2] == "datacite"
 
     def test_parse_datacite_no_license(
-        self, spider: OALicenseSpider, article_id: uuid.UUID
+        self, spider: DOILicenseSpider, article_id: uuid.UUID
     ) -> None:
-        spider.save_license_evidence = MagicMock()  # type: ignore[method-assign]
+        spider.save_license_warrant = MagicMock()  # type: ignore[method-assign]
         response_data: dict[str, Any] = {"data": {"attributes": {"rightsList": []}}}
 
         response = HtmlResponse(
@@ -217,12 +221,12 @@ class TestParseDataciteLicense:
 
         spider.parse_datacite(response, article_id, "10.1234/test")
 
-        spider.save_license_evidence.assert_not_called()
+        spider.save_license_warrant.assert_not_called()
 
 
-class TestSaveLicenseEvidence:
+class TestSaveLicenseWarrant:
     def test_save_oa_license_creates_transition(
-        self, spider_with_db: OALicenseSpider, sample_article: Article
+        self, spider_with_db: DOILicenseSpider, sample_article: Article
     ) -> None:
         license_data = {
             "supports_oa": True,
@@ -230,21 +234,21 @@ class TestSaveLicenseEvidence:
             "license_details": [{"url": "https://creativecommons.org/licenses/by/4.0/"}],
         }
 
-        spider_with_db.save_license_evidence(
+        spider_with_db.save_license_warrant(
             sample_article.id, "10.1234/test", "crossref", license_data
         )
 
         with Session(spider_with_db.engine) as session:
-            # Check evidence was saved
-            evidence = session.exec(
-                select(ArticleOAEvidence).where(ArticleOAEvidence.article_id == sample_article.id)
+            warrant = session.exec(
+                select(ArticleDepositWarrant).where(
+                    ArticleDepositWarrant.article_id == sample_article.id
+                )
             ).first()
-            assert evidence is not None
-            assert evidence.kind == OAEvidenceKind.LICENSE
-            assert evidence.supports_oa is True
-            assert evidence.source == "crossref"
+            assert warrant is not None
+            assert warrant.kind == DepositWarrant.LICENSE
+            assert warrant.supports_oa is True
+            assert warrant.source == "crossref"
 
-            # Check transition was created
             transition = session.exec(
                 select(ArticleDepositStatusTransition).where(
                     ArticleDepositStatusTransition.article_id == sample_article.id
@@ -255,29 +259,29 @@ class TestSaveLicenseEvidence:
             assert DepositTransitionReason.LICENSE_OA in transition.reasons
 
     def test_save_non_oa_license_no_transition(
-        self, spider_with_db: OALicenseSpider, sample_article: Article
+        self, spider_with_db: DOILicenseSpider, sample_article: Article
     ) -> None:
-        """Test that non-OA license creates evidence but NO transition."""
+        """Test that non-OA license creates a warrant row but NO transition."""
         license_data = {
             "supports_oa": False,
             "license_urls": ["https://example.com/proprietary"],
             "license_details": [{"url": "https://example.com/proprietary"}],
         }
 
-        spider_with_db.save_license_evidence(
+        spider_with_db.save_license_warrant(
             sample_article.id, "10.1234/test", "datacite", license_data
         )
 
         with Session(spider_with_db.engine) as session:
-            # Check evidence was saved
-            evidence = session.exec(
-                select(ArticleOAEvidence).where(ArticleOAEvidence.article_id == sample_article.id)
+            warrant = session.exec(
+                select(ArticleDepositWarrant).where(
+                    ArticleDepositWarrant.article_id == sample_article.id
+                )
             ).first()
-            assert evidence is not None
-            assert evidence.supports_oa is False
-            assert evidence.source == "datacite"
+            assert warrant is not None
+            assert warrant.supports_oa is False
+            assert warrant.source == "datacite"
 
-            # Check NO transition was created
             transition = session.exec(
                 select(ArticleDepositStatusTransition).where(
                     ArticleDepositStatusTransition.article_id == sample_article.id
