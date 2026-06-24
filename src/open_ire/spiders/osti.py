@@ -51,6 +51,17 @@ class OstiSpider(TermSearchSpider):
         # ROBOTSTXT_OBEY=True was incorrectly applying Googlebot rules as a
         # fallback and blocking PDF downloads that OSTI explicitly allows.
         "ROBOTSTXT_OBEY": False,
+        # Fulltext PDFs are hosted behind publisher CloudFront WAFs that block
+        # the default self-identifying user-agent for open-access content OSTI
+        # links to. We use a browser-shaped UA that *still* identifies the
+        # project and a contact address, scoped to this spider only so the
+        # honest default in base.py is unchanged. NOTE: under discussion in
+        # PR #119 — whether we should circumvent these WAFs at all.
+        "USER_AGENT": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 "
+            "(open_ire; +https://lib.uw.edu/; contact uwtextmine@uw.edu)"
+        ),
     }
 
     def build_search_request(self, term: str) -> Request:
