@@ -6,12 +6,12 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
 from open_ire.db import create_db_engine
-from open_ire.enums import DepositStatus, DepositTransitionReason, OAEvidenceKind
-from open_ire.models import Article, ArticleDepositStatusTransition, ArticleOAEvidence
+from open_ire.enums import DepositStatus, DepositTransitionReason, DepositWarrant
+from open_ire.models import Article, ArticleDepositStatusTransition, ArticleDepositWarrant
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL
 
 
-class BaseOAEvidenceSpider(Spider):
+class BaseDepositWarrantSpider(Spider):
     custom_settings = {  # noqa: RUF012
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 2.0,
         "DOWNLOAD_DELAY": 1,
@@ -40,39 +40,41 @@ class BaseOAEvidenceSpider(Spider):
         if self.engine:
             self.engine.dispose()
 
-    def has_oa_evidence(
+    def has_deposit_warrant(
         self,
         article_id: uuid.UUID,
         *,
-        kind: OAEvidenceKind,
+        kind: DepositWarrant,
         sources: list[str] | None = None,
     ) -> bool:
         if not self.engine:
             return False
 
         with Session(self.engine) as session:
-            statement = select(ArticleOAEvidence).where(
-                ArticleOAEvidence.article_id == article_id,
-                ArticleOAEvidence.kind == kind,
+            statement = select(ArticleDepositWarrant).where(
+                ArticleDepositWarrant.article_id == article_id,
+                ArticleDepositWarrant.kind == kind,
             )
             if sources:
-                statement = statement.where(col(ArticleOAEvidence.source).in_(sources))
+                statement = statement.where(col(ArticleDepositWarrant.source).in_(sources))
 
             return session.exec(statement).first() is not None
 
-    def has_any_oa_evidence(self, article_id: uuid.UUID) -> bool:
+    def has_any_deposit_warrant(self, article_id: uuid.UUID) -> bool:
         if not self.engine:
             return False
 
         with Session(self.engine) as session:
-            statement = select(ArticleOAEvidence).where(ArticleOAEvidence.article_id == article_id)
+            statement = select(ArticleDepositWarrant).where(
+                ArticleDepositWarrant.article_id == article_id
+            )
             return session.exec(statement).first() is not None
 
-    def save_oa_evidence(
+    def save_deposit_warrant(
         self,
         article_id: uuid.UUID,
         *,
-        kind: OAEvidenceKind,
+        kind: DepositWarrant,
         source: str,
         supports_oa: bool,
         data: dict[str, Any] | None = None,
@@ -91,14 +93,14 @@ class BaseOAEvidenceSpider(Spider):
 
             current_status = article.deposit_status
 
-            evidence = ArticleOAEvidence(
+            warrant = ArticleDepositWarrant(
                 article_id=article_id,
                 kind=kind,
                 supports_oa=supports_oa,
                 source=source,
                 data=data or {},
             )
-            session.add(evidence)
+            session.add(warrant)
 
             if (
                 supports_oa
@@ -114,7 +116,7 @@ class BaseOAEvidenceSpider(Spider):
                 )
                 session.add(transition)
                 self.logger.info(
-                    "Article %s transitioned to READY based on %s evidence from %s",
+                    "Article %s transitioned to READY based on %s warrant from %s",
                     article_id,
                     kind,
                     source,

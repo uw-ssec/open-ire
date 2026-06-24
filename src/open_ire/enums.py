@@ -15,15 +15,15 @@ class DepositStatus(StrEnum):
     PARTIAL = "partial"
 
 
-class OAEvidenceKind(StrEnum):
-    """Categories of evidence used to determine Open Access (OA) compliance status.
+class DepositWarrant(StrEnum):
+    """Kinds of warrant that can support depositing an article in ResearchWorks.
 
-    Each kind represents a different source or method of establishing OA eligibility:
-    - LICENSE: Evidence from license information (e.g., Creative Commons licenses).
-    - EXTERNAL_OA: Evidence from external OA availability checks.
-    - VERSION: Evidence based on article version (e.g., accepted manuscript).
-    - MANUAL: Evidence from manual review processes.
-    - FACULTY_AUTHOR: Evidence based on faculty authorship status.
+    Each kind names a different source or method of establishing deposit eligibility:
+    - LICENSE: A redistribution-permitting license (e.g., Creative Commons).
+    - EXTERNAL_OA: External open-access availability checks.
+    - VERSION: Article version (e.g., accepted manuscript).
+    - MANUAL: Manual review.
+    - FACULTY_AUTHOR: Faculty authorship status.
     """
 
     LICENSE = "license"
@@ -36,12 +36,12 @@ class OAEvidenceKind(StrEnum):
 class DepositTransitionReason(StrEnum):
     """Standardized reasons for article deposit status transitions.
 
-    These values correspond logically to OAEvidenceKind:
-    - LICENSE_OA: Transition based on open access license evidence (OAEvidenceKind.LICENSE)
-    - EXTERNAL_OA: Transition based on external OA availability (OAEvidenceKind.EXTERNAL_OA)
-    - VERSION_AVAILABLE: Transition based on version evidence (OAEvidenceKind.VERSION)
-    - MANUAL_REVIEW: Transition based on manual review (OAEvidenceKind.MANUAL)
-    - FACULTY_AUTHOR: Transition based on faculty authorship (OAEvidenceKind.FACULTY_AUTHOR)
+    These values correspond logically to DepositWarrant:
+    - LICENSE_OA: Transition based on license warrant (DepositWarrant.LICENSE)
+    - EXTERNAL_OA: Transition based on external OA availability (DepositWarrant.EXTERNAL_OA)
+    - VERSION_AVAILABLE: Transition based on version warrant (DepositWarrant.VERSION)
+    - MANUAL_REVIEW: Transition based on manual review (DepositWarrant.MANUAL)
+    - FACULTY_AUTHOR: Transition based on faculty authorship (DepositWarrant.FACULTY_AUTHOR)
     """
 
     LICENSE_OA = "license_oa"

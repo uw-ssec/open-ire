@@ -6,7 +6,7 @@ from sqlalchemy import JSON, CheckConstraint, Column, ForeignKey, UniqueConstrai
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from open_ire.enums import ArticleType, DepositStatus, OAEvidenceKind
+from open_ire.enums import ArticleType, DepositStatus, DepositWarrant
 
 
 class ArticleBase(SQLModel):
@@ -57,7 +57,7 @@ class Article(ArticleBase, table=True):
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
     file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
-    oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
+    deposit_warrants: list["ArticleDepositWarrant"] = Relationship(back_populates="article")
     deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
         back_populates="article"
     )
@@ -159,30 +159,34 @@ class ArticleFileReference(ArticleFileBase, table=True):
     article: Article | None = Relationship(back_populates="file_references")
 
 
-class ArticleOAEvidence(SQLModel, table=True):
-    """SQLModel to store evidence used to determine OA status.
+class ArticleDepositWarrant(SQLModel, table=True):
+    """SQLModel to store warrants supporting an article's deposit eligibility.
 
     Attributes
     ----------
     id: Primary key for the database.
     article_id: Foreign key to the Article table.
-    created_at: Datetime when the evidence was recorded.
-    kind: Evidence category (license, external_oa, version, manual, faculty_author).
-    supports_oa: Whether this evidence supports OA status.
-    source: Origin of the evidence (e.g., "crossref", "openalex", "manual").
-    data: Source-specific payload for evidence details.
+    created_at: Datetime when the warrant was recorded.
+    kind: Which warrant this row pertains to (license, external_oa, version, manual, faculty_author).
+    supports_oa: Whether this warrant supports depositing the article.
+    source: Origin of the warrant (e.g., "crossref", "datacite", "doaj", "manual").
+    data: Source-specific payload for warrant details.
     """
+
+    # Table renaming is deferred to a follow-up PR; pin the existing name so the
+    # class rename is purely a code-level rename.
+    __tablename__ = "articleoaevidence"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
     created_at: datetime = Field(default_factory=datetime.now, index=True)
 
-    kind: OAEvidenceKind = Field(index=True)
+    kind: DepositWarrant = Field(index=True)
     supports_oa: bool
     source: str | None = None
     data: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
 
-    article: Article | None = Relationship(back_populates="oa_evidence")
+    article: Article | None = Relationship(back_populates="deposit_warrants")
 
 
 class ArticleDepositStatusTransition(SQLModel, table=True):
