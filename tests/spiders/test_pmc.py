@@ -119,18 +119,26 @@ class TestRequestBuilding:
         request = spider.build_search_request("x")
         assert parse_qs(urlparse(request.url).query)["api_key"] == ["secret-key"]
 
-    def test_esummary_request_batches_uids(self, spider: PMCSpider) -> None:
-        request = spider._build_esummary_request("term", ["111", "222", "333"])
-        parsed = urlparse(request.url)
-        query = parse_qs(parsed.query)
-
-        assert parsed.path.endswith("/esummary.fcgi")
-        assert query["id"] == ["111,222,333"]
-        assert request.callback == spider.parse_summary
-        assert request.meta == {"search_term": "term"}
-
 
 class TestParseEsearch:
+    def test_one_esummary_request_per_esearch_page(self, spider: PMCSpider) -> None:
+        # A whole page of UIDs must collapse into a single esummary request;
+        # one-request-per-UID would blow the NCBI rate limit. That decision lives
+        # in ``parse``, so drive it there rather than calling the helper directly.
+        esearch = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            {"esearchresult": {"count": "3", "idlist": ["111", "222", "333"]}},
+            meta={"search_term": "term", "retstart": 0},
+        )
+
+        requests = list(spider.parse(esearch))
+
+        summary_requests = [r for r in requests if r.callback == spider.parse_summary]
+        assert len(summary_requests) == 1
+        parsed = urlparse(summary_requests[0].url)
+        assert parsed.path.endswith("/esummary.fcgi")
+        assert parse_qs(parsed.query)["id"] == ["111,222,333"]
+
     def test_yields_summary_request_and_pagination(self, spider: PMCSpider) -> None:
         payload = {"esearchresult": {"count": "250", "idlist": ["1", "2", "3"]}}
         response = _json_response(
@@ -252,6 +260,35 @@ class TestParseSummary:
             meta={"search_term": "uw"},
         )
         assert list(spider.parse_summary(response)) == []
+
+    def test_collective_authors_routed_to_extra(self, spider: PMCSpider) -> None:
+        # Organizational authors must not leak into the personal-author string
+        # (HumanName would mangle "GeKeR Study Group" into a bogus person row);
+        # they are preserved verbatim under extra instead. See issue #125.
+        record = {
+            **SAMPLE_RECORD,
+            "authors": [
+                {"name": "Smith JA", "authtype": "Author"},
+                {"name": "GeKeR Study Group", "authtype": "CollectiveName"},
+            ],
+        }
+        item = self._single_item(spider, record, "9876543")
+
+        assert item.authors == "Smith, JA"
+        assert "GeKeR" not in (item.authors or "")
+        assert item.extra["collective_authors"] == ["GeKeR Study Group"]
+
+    @pytest.mark.xfail(reason="#125: consortium authors not yet first-class")
+    def test_collective_authors_are_preserved(self, spider: PMCSpider) -> None:
+        record = {
+            **SAMPLE_RECORD,
+            "authors": [
+                {"name": "Smith JA", "authtype": "Author"},
+                {"name": "GeKeR Study Group", "authtype": "CollectiveName"},
+            ],
+        }
+        item = self._single_item(spider, record, "9876543")
+        assert "GeKeR Study Group" in (item.authors or "")
 
 
 class TestParseOAListing:

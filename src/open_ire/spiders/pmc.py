@@ -283,8 +283,8 @@ class PMCSpider(TermSearchSpider):
             )
             return None
 
-        # ``file_urls`` is populated later from the OA Web Service (see parse_oa);
-        # the esummary payload does not include a downloadable full-text link.
+        # ``file_urls`` is populated later from the OA Subset bucket listing (see
+        # parse_oa_listing); esummary does not include a downloadable full-text link.
         return ArticleItem(
             authors=self._extract_authors(record),
             doi=self._extract_article_id(record, "doi"),
@@ -344,16 +344,34 @@ class PMCSpider(TermSearchSpider):
 
     @classmethod
     def _extract_authors(cls, record: dict[str, Any]) -> str | None:
-        """Encode the author list from an esummary record."""
+        """Encode the personal-author list from an esummary record.
+
+        Organizational authors (``authtype == "CollectiveName"``) are excluded:
+        their multi-word names are not personal names and :class:`ParsedAuthor`
+        (backed by ``HumanName``) mangles them into bogus person rows. They are
+        preserved separately via :meth:`_extract_collective_authors`. Properly
+        modelling consortium authors is tracked in issue #125.
+        """
         cleaned: list[ParsedAuthor] = []
         for entry in record.get("authors") or []:
-            if not isinstance(entry, dict):
+            if not isinstance(entry, dict) or entry.get("authtype") == "CollectiveName":
                 continue
             name = (entry.get("name") or "").strip()
             if name:
                 cleaned.append(ParsedAuthor(cls._format_author_name(name)))
 
         return ParsedAuthor.encode_author_string(cleaned) if cleaned else None
+
+    @staticmethod
+    def _extract_collective_authors(record: dict[str, Any]) -> list[str]:
+        """Return the verbatim names of organizational/consortium authors."""
+        return [
+            name
+            for entry in record.get("authors") or []
+            if isinstance(entry, dict)
+            and entry.get("authtype") == "CollectiveName"
+            and (name := (entry.get("name") or "").strip())
+        ]
 
     @classmethod
     def _build_extra(cls, record: dict[str, Any]) -> dict[str, Any]:
@@ -370,5 +388,8 @@ class PMCSpider(TermSearchSpider):
 
         if pmid := cls._extract_article_id(record, "pmid"):
             extra["pmid"] = pmid
+
+        if collective_authors := cls._extract_collective_authors(record):
+            extra["collective_authors"] = collective_authors
 
         return extra
