@@ -8,7 +8,7 @@ from scrapy.exceptions import DropItem
 from sqlmodel import Session
 
 from open_ire.items import ArticleItem
-from open_ire.models import Article
+from open_ire.models import Article, ArticleFile
 from open_ire.pipelines import SkipExistingPipeline
 
 
@@ -76,6 +76,58 @@ class TestSkipExistingPipeline:
                 url=item.url,
             )
             session.add(article)
+            session.commit()
+
+        with pytest.raises(DropItem):
+            pipeline_enabled.process_item(item)
+
+    @staticmethod
+    def _save_article(pipeline: SkipExistingPipeline, item: ArticleItem) -> Article:
+        assert pipeline.engine is not None
+        with Session(pipeline.engine) as session:
+            article = Article(
+                title=item.title,
+                authors=item.authors,
+                publication_date=item.publication_date,
+                repository=item.repository,
+                reference=item.reference,
+                url=item.url,
+            )
+            session.add(article)
+            session.commit()
+            session.refresh(article)
+
+        return article
+
+    def test_requires_files_passes_existing_article_without_files(
+        self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
+    ) -> None:
+        """With the opt-in flag, a known article whose file download failed is re-processed."""
+        assert pipeline_enabled.crawler is not None
+        pipeline_enabled.crawler.settings.set("OPEN_IRE_SKIP_EXISTING_REQUIRES_FILES", True)
+        self._save_article(pipeline_enabled, item)
+
+        result = pipeline_enabled.process_item(item)
+
+        assert result is item
+
+    def test_requires_files_skips_existing_article_with_files(
+        self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
+    ) -> None:
+        assert pipeline_enabled.crawler is not None
+        pipeline_enabled.crawler.settings.set("OPEN_IRE_SKIP_EXISTING_REQUIRES_FILES", True)
+        article = self._save_article(pipeline_enabled, item)
+
+        assert pipeline_enabled.engine is not None
+        with Session(pipeline_enabled.engine) as session:
+            session.add(
+                ArticleFile(
+                    article_id=article.id,
+                    url="https://example.com/article/001.pdf",
+                    path="test_repo/001.pdf",
+                    checksum="abcde12345",
+                )
+            )
             session.commit()
 
         with pytest.raises(DropItem):
