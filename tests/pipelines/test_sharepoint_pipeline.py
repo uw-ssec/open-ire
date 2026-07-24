@@ -153,9 +153,11 @@ class TestSharePointPipeline:
         assert pipeline.db_path == Path("dbs/open_ire.db")
 
         connect = cast(Any, crawler.signals.connect)
-        connect.assert_called_once()
-        assert connect.call_args.kwargs["signal"] == signals.spider_closed
-        assert connect.call_args.args[0] == pipeline._upload_database_backup
+        connected = [call.args[0] for call in connect.call_args_list]
+        assert connected == [pipeline._upload_database_backup, pipeline._upload_log_file]
+        assert all(
+            call.kwargs["signal"] == signals.spider_closed for call in connect.call_args_list
+        )
 
     def test_build_db_sharepoint_path(self, pipeline: SharePointPipeline) -> None:
         db_path = Path("dbs/open_ire.db")
@@ -258,6 +260,56 @@ class TestSharePointPipeline:
         assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
         assert not snapshot_path.exists(), "staging directory should be cleaned up"
         sharepoint.get_item.assert_awaited_once_with(backup_path)
+
+    @pytest.mark.asyncio
+    async def test_upload_log_file(self, pipeline: SharePointPipeline, tmp_path: Path) -> None:
+        """The run log should be gzipped and uploaded under the logs directory."""
+        log_path = tmp_path / "open_ire__2026-01-27_09-30-00.log"
+        log_path.write_text("INFO: crawl finished\n" * 100)
+        pipeline.log_path = log_path
+
+        mock_upload_result = MagicMock()
+        mock_upload_result.location = "https://sharepoint.com/uploaded-log"
+        uploaded_bytes: list[bytes] = []
+
+        async def capture_upload(local_path: Path, _remote_path: str) -> MagicMock:
+            uploaded_bytes.append(local_path.read_bytes())
+            return mock_upload_result
+
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
+
+        await pipeline._upload_log_file()
+
+        sharepoint.upload_file.assert_awaited_once()
+        compressed_path, remote_path = sharepoint.upload_file.await_args.args
+        assert remote_path == "logs/open_ire__2026-01-27_09-30-00.log.gz"
+        assert gzip.decompress(uploaded_bytes[0]) == log_path.read_bytes()
+        assert not compressed_path.exists(), "staging directory should be cleaned up"
+
+    @pytest.mark.asyncio
+    async def test_upload_log_file_not_configured(self, pipeline: SharePointPipeline) -> None:
+        """No LOG_FILE setting should skip the upload rather than fail."""
+        pipeline.log_path = None
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.upload_file = AsyncMock()
+
+        await pipeline._upload_log_file()
+
+        sharepoint.upload_file.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_upload_log_file_missing(
+        self, pipeline: SharePointPipeline, tmp_path: Path
+    ) -> None:
+        """A configured but absent log file should skip the upload."""
+        pipeline.log_path = tmp_path / "absent.log"
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.upload_file = AsyncMock()
+
+        await pipeline._upload_log_file()
+
+        sharepoint.upload_file.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_upload_database_backup_snapshot_failure(

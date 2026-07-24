@@ -18,6 +18,8 @@ from open_ire.sharepoint import SharePoint
 
 logger = logging.getLogger(__name__)
 
+LOG_BACKUP_DIR = "logs"
+
 
 class SharePointPipeline:
     """
@@ -34,6 +36,7 @@ class SharePointPipeline:
         self.base_path = Path(local_base_path)
         self.crawler = crawler
         self.db_path: Path | None = None
+        self.log_path: Path | None = None
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
@@ -43,9 +46,12 @@ class SharePointPipeline:
 
         sharepoint_base_path = crawler.settings.get("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
+        log_file = crawler.settings.get("LOG_FILE")
         pipeline = cls(sharepoint_base_path, local_base_path, crawler)
         pipeline.db_path = Path(db_path) if db_path else None
+        pipeline.log_path = Path(log_file) if log_file else None
         crawler.signals.connect(pipeline._upload_database_backup, signal=signals.spider_closed)
+        crawler.signals.connect(pipeline._upload_log_file, signal=signals.spider_closed)
 
         return pipeline
 
@@ -61,6 +67,15 @@ class SharePointPipeline:
     def _backup_filename(db_path: Path, run_at: datetime) -> str:
         date_stamp = run_at.strftime("%Y-%m-%d")
         return f"{db_path.stem}__{date_stamp}{db_path.suffix}.gz"
+
+    @staticmethod
+    def _gzip_file(source: Path, dest_dir: Path) -> Path:
+        """Write a gzipped copy of ``source`` into ``dest_dir``."""
+        compressed = dest_dir / f"{source.name}.gz"
+        with source.open("rb") as raw, gzip.open(compressed, "wb") as gz:
+            shutil.copyfileobj(raw, gz)
+
+        return compressed
 
     @staticmethod
     def _create_snapshot(db_path: Path, dest_dir: Path) -> Path:
@@ -88,9 +103,7 @@ class SharePointPipeline:
         finally:
             connection.close()
 
-        compressed = dest_dir / f"{db_path.name}.gz"
-        with vacuumed.open("rb") as raw, gzip.open(compressed, "wb") as gz:
-            shutil.copyfileobj(raw, gz)
+        compressed = SharePointPipeline._gzip_file(vacuumed, dest_dir)
         vacuumed.unlink()
 
         return compressed
@@ -156,6 +169,48 @@ class SharePointPipeline:
             "Database snapshot uploaded successfully: %s",
             drive_item.web_url or sharepoint_path,
         )
+
+    async def _upload_log_file(
+        self,
+        spider: Spider | None = None,
+        reason: str = "completed",
+    ) -> None:
+        if not self.log_path:
+            logger.debug("LOG_FILE is not configured; skipping log upload.")
+            return
+
+        if not self.log_path.exists():
+            logger.warning("Log file not found: %s", self.log_path)
+            return
+
+        # Scrapy tears down its log handlers only after spider_closed, so flush
+        # them here to avoid uploading a truncated log.
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        sharepoint_path = posix_join(LOG_BACKUP_DIR, f"{self.log_path.name}.gz")
+
+        with tempfile.TemporaryDirectory(prefix="open_ire_log_") as staging_dir:
+            try:
+                compressed_log = self._gzip_file(self.log_path, Path(staging_dir))
+            except OSError as e:
+                logger.error("Failed to compress log file %s: %s", self.log_path, e)
+                return
+
+            logger.info("Uploading run log to SharePoint: %s -> %s", self.log_path, sharepoint_path)
+            upload_result = await self.sharepoint.upload_file(compressed_log, sharepoint_path)
+
+        if not upload_result.location:
+            spider_name = spider.name if spider else "unknown"
+            logger.error(
+                "Failed to upload run log for spider '%s' (reason=%s): %s",
+                spider_name,
+                reason,
+                self.log_path,
+            )
+            return
+
+        logger.info("Run log uploaded successfully: %s", sharepoint_path)
 
     async def _save_file(self, file_data: dict[str, str | int | None]) -> str:
         sharepoint_path = str(file_data.get("path") or "")
