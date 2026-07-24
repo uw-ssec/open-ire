@@ -49,9 +49,10 @@ The integration requires four environment variables (see `.env.example`):
 
 Files are uploaded to the
 [Shared Documents](https://uwnetid.sharepoint.com/sites/uw-scholarship-archiving/Shared%20Documents/Forms/AllItems.aspx)
-library, organized under a base path controlled by the `SHAREPOINT_BASE_PATH`
-setting (defaults to `open_ire_dev` in development and `open_ire` in
-production).
+library, organized under a base path controlled by the
+`OPEN_IRE_SHAREPOINT_BASE_PATH` setting, which reads the `SHAREPOINT_BASE_PATH`
+environment variable (defaults to `open_ire_dev` in development and `open_ire`
+in production).
 
 ## Requesting a New Integration
 
