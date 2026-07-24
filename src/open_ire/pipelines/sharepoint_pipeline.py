@@ -1,5 +1,9 @@
+import gzip
 import logging
 import math
+import shutil
+import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from posixpath import join as posix_join
@@ -56,7 +60,40 @@ class SharePointPipeline:
     @staticmethod
     def _backup_filename(db_path: Path, run_at: datetime) -> str:
         date_stamp = run_at.strftime("%Y-%m-%d")
-        return f"{db_path.stem}__{date_stamp}{db_path.suffix}"
+        return f"{db_path.stem}__{date_stamp}{db_path.suffix}.gz"
+
+    @staticmethod
+    def _create_snapshot(db_path: Path, dest_dir: Path) -> Path:
+        """Write a compacted, gzipped copy of the database into ``dest_dir``.
+
+        ``VACUUM INTO`` reads through a read-only connection and produces a
+        transactionally consistent copy, so the live database is never held
+        open for writing and free pages are dropped from the result.
+
+        Parameters
+        ----------
+        db_path
+            Path to the live SQLite database.
+        dest_dir
+            Directory to write the snapshot into; must already exist.
+
+        Returns
+        -------
+        Path to the gzipped snapshot.
+        """
+        vacuumed = dest_dir / db_path.name
+        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            connection.execute("VACUUM INTO ?", (str(vacuumed),))
+        finally:
+            connection.close()
+
+        compressed = dest_dir / f"{db_path.name}.gz"
+        with vacuumed.open("rb") as raw, gzip.open(compressed, "wb") as gz:
+            shutil.copyfileobj(raw, gz)
+        vacuumed.unlink()
+
+        return compressed
 
     @staticmethod
     def _build_db_sharepoint_path(db_path: Path, run_at: datetime) -> str:
@@ -83,13 +120,23 @@ class SharePointPipeline:
 
         backup_time = datetime.now()
         sharepoint_path = self._build_db_sharepoint_path(local_db_path, backup_time)
-        logger.info(
-            "Uploading database snapshot to SharePoint: %s -> %s",
-            local_db_path,
-            sharepoint_path,
-        )
 
-        upload_result = await self.sharepoint.upload_file(local_db_path, sharepoint_path)
+        with tempfile.TemporaryDirectory(prefix="open_ire_backup_") as staging_dir:
+            try:
+                snapshot_path = self._create_snapshot(local_db_path, Path(staging_dir))
+            except (OSError, sqlite3.Error) as e:
+                logger.error("Failed to snapshot database %s: %s", local_db_path, e)
+                return
+
+            logger.info(
+                "Uploading database snapshot to SharePoint: %s (%d bytes) -> %s",
+                local_db_path,
+                snapshot_path.stat().st_size,
+                sharepoint_path,
+            )
+
+            upload_result = await self.sharepoint.upload_file(snapshot_path, sharepoint_path)
+
         if not upload_result.location:
             spider_name = spider.name if spider else "unknown"
             logger.error(

@@ -1,3 +1,6 @@
+import gzip
+import shutil
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +12,22 @@ from scrapy.crawler import Crawler
 
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
+
+
+def _make_database(db_path: Path, rows: int) -> Path:
+    """Create a small SQLite database with a padded table for snapshot tests."""
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT)")
+        connection.executemany(
+            "INSERT INTO articles (id, title) VALUES (?, ?)",
+            [(i, f"Article {i} " + "x" * 200) for i in range(1, rows + 1)],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    return db_path
 
 
 class TestSharePointPipeline:
@@ -144,25 +163,85 @@ class TestSharePointPipeline:
 
         result = pipeline._build_db_sharepoint_path(db_path, run_at)
 
-        assert result == "dbs/open_ire__2026-02-18.db"
+        assert result == "dbs/open_ire__2026-02-18.db.gz"
+
+    def test_create_snapshot_compacts_and_compresses(
+        self, pipeline: SharePointPipeline, tmp_path: Path
+    ) -> None:
+        """A snapshot should be gzipped and preserve the database contents."""
+        db_path = _make_database(tmp_path / "open_ire.db", rows=500)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        snapshot = pipeline._create_snapshot(db_path, staging)
+
+        assert snapshot.name == "open_ire.db.gz"
+        assert list(staging.iterdir()) == [snapshot], "uncompressed copy should be removed"
+
+        restored = tmp_path / "restored.db"
+        with gzip.open(snapshot, "rb") as gz, restored.open("wb") as out:
+            shutil.copyfileobj(gz, out)
+
+        connection = sqlite3.connect(restored)
+        try:
+            assert connection.execute("SELECT count(*) FROM articles").fetchone()[0] == 500
+        finally:
+            connection.close()
+
+    def test_create_snapshot_drops_free_pages(
+        self, pipeline: SharePointPipeline, tmp_path: Path
+    ) -> None:
+        """Vacuuming should reclaim space left behind by deleted rows."""
+        db_path = _make_database(tmp_path / "open_ire.db", rows=2000)
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("DELETE FROM articles WHERE id > 100")
+            connection.commit()
+            assert connection.execute("PRAGMA freelist_count").fetchone()[0] > 0
+        finally:
+            connection.close()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        snapshot = pipeline._create_snapshot(db_path, staging)
+
+        assert snapshot.stat().st_size < db_path.stat().st_size
+
+    def test_create_snapshot_leaves_source_untouched(
+        self, pipeline: SharePointPipeline, tmp_path: Path
+    ) -> None:
+        """The live database must not be modified by taking a snapshot."""
+        db_path = _make_database(tmp_path / "open_ire.db", rows=100)
+        before = db_path.read_bytes()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        pipeline._create_snapshot(db_path, staging)
+
+        assert db_path.read_bytes() == before
 
     @pytest.mark.asyncio
     async def test_upload_database_backup(
         self, pipeline: SharePointPipeline, tmp_path: Path
     ) -> None:
-        db_path = tmp_path / "open_ire.db"
-        db_path.write_text("sqlite-content")
+        db_path = _make_database(tmp_path / "open_ire.db", rows=10)
         pipeline.db_path = db_path
 
-        backup_path = "open_ire__2026-01-27.db"
+        backup_path = "open_ire__2026-01-27.db.gz"
         mock_upload_result = MagicMock()
         mock_upload_result.location = "https://sharepoint.com/uploaded-db"
         mock_drive_item = MagicMock()
         mock_drive_item.size = db_path.stat().st_size
         mock_drive_item.web_url = "https://sharepoint.com/db-web-url"
 
+        uploaded_bytes: list[bytes] = []
+
+        async def capture_upload(local_path: Path, _remote_path: str) -> MagicMock:
+            uploaded_bytes.append(local_path.read_bytes())
+            return mock_upload_result
+
         sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
+        sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
         sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
 
         with patch.object(
@@ -172,5 +251,26 @@ class TestSharePointPipeline:
         ):
             await pipeline._upload_database_backup()
 
-        sharepoint.upload_file.assert_awaited_once_with(db_path, backup_path)
+        sharepoint.upload_file.assert_awaited_once()
+        snapshot_path, remote_path = sharepoint.upload_file.await_args.args
+        assert remote_path == backup_path
+        assert snapshot_path.name == "open_ire.db.gz"
+        assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
+        assert not snapshot_path.exists(), "staging directory should be cleaned up"
         sharepoint.get_item.assert_awaited_once_with(backup_path)
+
+    @pytest.mark.asyncio
+    async def test_upload_database_backup_snapshot_failure(
+        self, pipeline: SharePointPipeline, tmp_path: Path
+    ) -> None:
+        """A corrupt database should be reported without attempting an upload."""
+        db_path = tmp_path / "open_ire.db"
+        db_path.write_text("not-a-database")
+        pipeline.db_path = db_path
+
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.upload_file = AsyncMock()
+
+        await pipeline._upload_database_backup()
+
+        sharepoint.upload_file.assert_not_awaited()
