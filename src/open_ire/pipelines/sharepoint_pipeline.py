@@ -31,10 +31,12 @@ class SharePointPipeline:
         sharepoint_base_path: str,
         local_base_path: str,
         crawler: Crawler | None = None,
+        backup_retention: int = 0,
     ) -> None:
         self.sharepoint = SharePoint(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
         self.crawler = crawler
+        self.backup_retention = backup_retention
         self.db_path: Path | None = None
         self.log_path: Path | None = None
 
@@ -47,7 +49,8 @@ class SharePointPipeline:
         sharepoint_base_path = crawler.settings.get("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         log_file = crawler.settings.get("LOG_FILE")
-        pipeline = cls(sharepoint_base_path, local_base_path, crawler)
+        backup_retention = crawler.settings.getint("OPEN_IRE_SHAREPOINT_BACKUP_RETENTION", 0)
+        pipeline = cls(sharepoint_base_path, local_base_path, crawler, backup_retention)
         pipeline.db_path = Path(db_path) if db_path else None
         pipeline.log_path = Path(log_file) if log_file else None
         crawler.signals.connect(pipeline._upload_database_backup, signal=signals.spider_closed)
@@ -109,13 +112,51 @@ class SharePointPipeline:
         return compressed
 
     @staticmethod
+    def _backup_dir(db_path: Path) -> str:
+        backup_dir = db_path.parent.as_posix().strip("/")
+        return "" if backup_dir in ("", ".") else backup_dir
+
+    @staticmethod
     def _build_db_sharepoint_path(db_path: Path, run_at: datetime) -> str:
         filename = SharePointPipeline._backup_filename(db_path, run_at)
-        backup_dir = db_path.parent.as_posix().strip("/")
-        if backup_dir in ("", "."):
+        backup_dir = SharePointPipeline._backup_dir(db_path)
+        if not backup_dir:
             return filename
 
         return posix_join(backup_dir, filename)
+
+    async def _prune_old_snapshots(self, db_path: Path) -> None:
+        """Delete all but the most recent ``backup_retention`` snapshots.
+
+        Snapshot names embed an ISO date stamp, so a reverse lexicographic
+        sort by name is also a reverse chronological sort.
+        """
+        if self.backup_retention <= 0:
+            return
+
+        backup_dir = self._backup_dir(db_path)
+        try:
+            children = await self.sharepoint.list_children(backup_dir)
+        except Exception as e:
+            logger.error("Could not list SharePoint snapshots in '%s': %s", backup_dir, e)
+            return
+
+        prefix = f"{db_path.stem}__"
+        suffix = f"{db_path.suffix}.gz"
+        snapshots = []
+        for child in children:
+            name = child.name or ""
+            if name.startswith(prefix) and name.endswith(suffix):
+                snapshots.append(name)
+
+        snapshots.sort(reverse=True)
+        for stale_name in snapshots[self.backup_retention :]:
+            stale_path = posix_join(backup_dir, stale_name) if backup_dir else stale_name
+            try:
+                await self.sharepoint.delete_item(stale_path)
+                logger.info("Pruned old database snapshot: %s", stale_path)
+            except Exception as e:
+                logger.error("Failed to prune snapshot %s: %s", stale_path, e)
 
     async def _upload_database_backup(
         self,
@@ -169,6 +210,8 @@ class SharePointPipeline:
             "Database snapshot uploaded successfully: %s",
             drive_item.web_url or sharepoint_path,
         )
+
+        await self._prune_old_snapshots(local_db_path)
 
     async def _upload_log_file(
         self,

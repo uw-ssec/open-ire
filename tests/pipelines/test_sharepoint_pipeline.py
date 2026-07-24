@@ -30,6 +30,14 @@ def _make_database(db_path: Path, rows: int) -> Path:
     return db_path
 
 
+def _drive_item(name: str) -> MagicMock:
+    """Stub a DriveItem; `name` is reserved by the MagicMock constructor."""
+    item = MagicMock()
+    item.name = name
+
+    return item
+
+
 class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
@@ -260,6 +268,75 @@ class TestSharePointPipeline:
         assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
         assert not snapshot_path.exists(), "staging directory should be cleaned up"
         sharepoint.get_item.assert_awaited_once_with(backup_path)
+
+    @pytest.mark.asyncio
+    async def test_prune_keeps_most_recent_snapshots(self, pipeline: SharePointPipeline) -> None:
+        """Only the newest snapshots should survive pruning."""
+        pipeline.backup_retention = 2
+        names = [
+            "open_ire__2026-01-04.db.gz",
+            "open_ire__2026-01-01.db.gz",
+            "open_ire__2026-01-03.db.gz",
+            "open_ire__2026-01-02.db.gz",
+        ]
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
+        sharepoint.delete_item = AsyncMock()
+
+        await pipeline._prune_old_snapshots(Path("dbs/open_ire.db"))
+
+        deleted = sorted(call.args[0] for call in sharepoint.delete_item.await_args_list)
+        assert deleted == ["dbs/open_ire__2026-01-01.db.gz", "dbs/open_ire__2026-01-02.db.gz"]
+
+    @pytest.mark.asyncio
+    async def test_prune_ignores_unrelated_files(self, pipeline: SharePointPipeline) -> None:
+        """Files that are not snapshots of this database must be left alone."""
+        pipeline.backup_retention = 1
+        names = [
+            "open_ire__2026-01-02.db.gz",
+            "open_ire__2026-01-01.db.gz",
+            "open_ire_nursing__2026-01-01.db.gz",
+            "notes.txt",
+            "open_ire__2026-01-01.db",
+        ]
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
+        sharepoint.delete_item = AsyncMock()
+
+        await pipeline._prune_old_snapshots(Path("dbs/open_ire.db"))
+
+        deleted = [call.args[0] for call in sharepoint.delete_item.await_args_list]
+        assert deleted == ["dbs/open_ire__2026-01-01.db.gz"]
+
+    @pytest.mark.asyncio
+    async def test_prune_disabled_by_zero_retention(self, pipeline: SharePointPipeline) -> None:
+        """A retention of zero should keep every snapshot."""
+        pipeline.backup_retention = 0
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.list_children = AsyncMock()
+        sharepoint.delete_item = AsyncMock()
+
+        await pipeline._prune_old_snapshots(Path("dbs/open_ire.db"))
+
+        sharepoint.list_children.assert_not_awaited()
+        sharepoint.delete_item.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prune_survives_delete_failure(self, pipeline: SharePointPipeline) -> None:
+        """A failed delete should be logged without aborting the remaining prunes."""
+        pipeline.backup_retention = 1
+        names = [
+            "open_ire__2026-01-03.db.gz",
+            "open_ire__2026-01-02.db.gz",
+            "open_ire__2026-01-01.db.gz",
+        ]
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
+        sharepoint.delete_item = AsyncMock(side_effect=[RuntimeError("boom"), None])
+
+        await pipeline._prune_old_snapshots(Path("dbs/open_ire.db"))
+
+        assert sharepoint.delete_item.await_count == 2
 
     @pytest.mark.asyncio
     async def test_upload_log_file(self, pipeline: SharePointPipeline, tmp_path: Path) -> None:
