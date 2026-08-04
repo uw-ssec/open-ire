@@ -52,11 +52,9 @@ class SharePoint:
         return GraphServiceClient(credential, scopes)
 
     def _item_id_from_path(self, item_path: str) -> str:
-        if item_path.startswith("/"):
-            item_path = item_path[1:]
-
-        if item_path.endswith("/"):
-            item_path = item_path[:-1]
+        item_path = item_path.strip("/")
+        if not item_path:
+            return f"root:/{self.base_path}:/"
 
         return f"root:/{self.base_path}/{item_path}:/"
 
@@ -178,3 +176,27 @@ class SharePoint:
         item_id = self._item_id_from_path(item_path)
 
         return await self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).get()
+
+    async def list_children(self, folder_path: str) -> list[DriveItem]:
+        """
+        List the items directly inside a SharePoint Drive folder.
+
+        Args:
+            folder_path: Path to the folder, relative to the base path. Pass an
+                empty string for the base path itself.
+
+        Returns:
+            The folder's child items, or an empty list if it has none.
+        """
+        drive_id = await self._get_drive_id()
+        item_id = self._item_id_from_path(folder_path)
+        response = (
+            await self._client.drives.by_drive_id(drive_id)
+            .items.by_drive_item_id(item_id)
+            .children.get()
+        )
+
+        if response is None or response.value is None:
+            return []
+
+        return list(response.value)

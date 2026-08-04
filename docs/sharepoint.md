@@ -49,9 +49,26 @@ The integration requires four environment variables (see `.env.example`):
 
 Files are uploaded to the
 [Shared Documents](https://uwnetid.sharepoint.com/sites/uw-scholarship-archiving/Shared%20Documents/Forms/AllItems.aspx)
-library, organized under a base path controlled by the `SHAREPOINT_BASE_PATH`
-setting (defaults to `open_ire_dev` in development and `open_ire` in
-production).
+library, organized under a base path controlled by the
+`OPEN_IRE_SHAREPOINT_BASE_PATH` setting, which reads the `SHAREPOINT_BASE_PATH`
+environment variable (defaults to `open_ire_dev` in development and `open_ire`
+in production).
+
+### Backups
+
+When a spider closes, the pipeline also backs up the run's state:
+
+- **Database snapshot.** The SQLite database (`OPEN_IRE_DATABASE_FILE`) is
+  compacted with `VACUUM INTO` and gzipped before upload, so the backup drops
+  free pages and is taken from a transactionally consistent copy rather than the
+  live file. Snapshots are named `<db>__<YYYY-MM-DD>.db.gz` and stored beside
+  the database's own directory on SharePoint.
+- **Run log.** When `LOG_FILE` is set (as it is in production), the log is
+  gzipped and uploaded under `logs/`.
+
+`OPEN_IRE_SHAREPOINT_BACKUP_RETENTION` caps how many database snapshots are kept
+(default `10`); older snapshots are deleted after each successful upload. Set it
+to `0` to keep every snapshot.
 
 ## Requesting a New Integration
 
