@@ -139,11 +139,16 @@ pixi run search-authors openalex "data/authors.csv"
 ### Crawl and Resume
 
 To run a spider with a persistent crawl state (Scrapy `JOBDIR`) and optionally
-skip already-known files, use the `resume` command:
+skip already-known articles, use the `resume` command:
 
 ```bash
-pixi run resume <spider_name> [--skip-existing]
+pixi run resume <spider_name> [--skip-existing | --skip-existing-with-files]
 ```
+
+`--skip-existing` skips every article already in the database.
+`--skip-existing-with-files` skips only those that already have a stored file,
+re-processing articles whose file download previously failed so it can be
+re-attempted (for example, to recover PDFs missed by an earlier run).
 
 For example:
 

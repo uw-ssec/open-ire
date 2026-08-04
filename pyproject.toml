@@ -210,7 +210,7 @@ args = [
     "spider",
     { "arg" = "flag", "default" = "" },
 ]
-cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
+cmd = "scrapy crawl {{ spider }} -s JOBDIR=crawls/{{ spider }}{% if '--skip-existing-with-files' in flag %} -s OPEN_IRE_SKIP_EXISTING_WITH_FILES=True{% elif '--skip-existing' in flag %} -s OPEN_IRE_SKIP_EXISTING=True{% endif %}"
 
 [tool.pixi.tasks.search-author]
 args = ["spider", "author_name"]

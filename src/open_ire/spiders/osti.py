@@ -54,14 +54,12 @@ class OstiSpider(TermSearchSpider):
         # OSTI rate-limits bursts of fulltext PDF downloads with HTTP 503 or
         # dropped connections; waiting and retrying recovers them (verified
         # on 75/75 sampled failures). Retry those politely with exponential
-        # backoff instead of the built-in immediate retries.
+        # backoff instead of the built-in immediate retries. Priority 560
+        # keeps it above the built-in RetryMiddleware (550) so it handles
+        # 429/503 responses first.
         "DOWNLOADER_MIDDLEWARES": {
             "open_ire.middlewares.BackoffRetryMiddleware": 560,
         },
-        # When OPEN_IRE_SKIP_EXISTING is enabled, still re-process articles
-        # whose PDF download previously failed so their files get another
-        # attempt on each run.
-        "OPEN_IRE_SKIP_EXISTING_REQUIRES_FILES": True,
     }
 
     def build_search_request(self, term: str) -> Request:

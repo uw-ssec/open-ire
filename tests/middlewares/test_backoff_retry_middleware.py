@@ -1,5 +1,7 @@
 import asyncio
 from collections.abc import Callable, Coroutine, Generator
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -14,6 +16,10 @@ from twisted.internet.error import ConnectionLost, DNSLookupError
 from open_ire.middlewares import BackoffRetryMiddleware
 
 RunCoroutine = Callable[[Coroutine[Any, Any, Any]], Any]
+
+
+def _response(request: Request, status: int, headers: dict[str, str] | None = None) -> Response:
+    return Response(request.url, status=status, headers=headers, request=request)
 
 
 class TestBackoffRetryMiddleware:
@@ -60,7 +66,7 @@ class TestBackoffRetryMiddleware:
     def test_passes_through_ok_response(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
     ) -> None:
-        response = Response(request_.url, status=200, request=request_)
+        response = _response(request_, 200)
 
         result = run(middleware.process_response(request_, response))
 
@@ -71,7 +77,7 @@ class TestBackoffRetryMiddleware:
     ) -> None:
         """403/404 are permanent failures and must not be retried."""
         for status in (403, 404):
-            response = Response(request_.url, status=status, request=request_)
+            response = _response(request_, status)
 
             result = run(middleware.process_response(request_, response))
 
@@ -80,7 +86,7 @@ class TestBackoffRetryMiddleware:
     def test_retries_rate_limited_response(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
     ) -> None:
-        response = Response(request_.url, status=503, request=request_)
+        response = _response(request_, 503)
 
         result = run(middleware.process_response(request_, response))
 
@@ -92,11 +98,13 @@ class TestBackoffRetryMiddleware:
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
     ) -> None:
         exhausted = request_.replace(meta={"retry_times": middleware.max_retries})
-        response = Response(exhausted.url, status=503, request=exhausted)
+        response = _response(exhausted, 503)
 
         result = run(middleware.process_response(exhausted, response))
 
         assert result is response
+        # RetryMiddleware must not pick up the request we gave up on.
+        assert exhausted.meta["dont_retry"] is True
 
     def test_retries_dropped_connection(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
@@ -114,6 +122,7 @@ class TestBackoffRetryMiddleware:
         result = run(middleware.process_exception(exhausted, ConnectionLost("dropped")))
 
         assert result is None
+        assert exhausted.meta["dont_retry"] is True
 
     def test_ignores_dns_failure(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
@@ -130,7 +139,35 @@ class TestBackoffRetryMiddleware:
             delay = middleware._delay(retry_times)
             assert base * 0.75 <= delay <= base * 1.25
 
-    def test_delay_is_capped(self) -> None:
+    def test_delay_never_exceeds_max_delay(self) -> None:
         middleware = BackoffRetryMiddleware(max_retries=5, base_delay=4.0, max_delay=10.0)
 
-        assert middleware._delay(10) <= 10.0 * 1.25
+        assert middleware._delay(10) <= 10.0
+
+    def test_retry_after_seconds_header_is_honored(self, request_: Request) -> None:
+        middleware = BackoffRetryMiddleware(max_retries=3, base_delay=1.0, max_delay=60.0)
+        response = _response(request_, 503, headers={"Retry-After": "2"})
+
+        assert middleware._retry_after(response) == 2.0
+
+    def test_retry_after_is_capped_at_max_delay(
+        self, middleware: BackoffRetryMiddleware, request_: Request
+    ) -> None:
+        response = _response(request_, 503, headers={"Retry-After": "9999"})
+
+        assert middleware._retry_after(response) == middleware.max_delay
+
+    def test_retry_after_http_date_header_is_honored(
+        self, middleware: BackoffRetryMiddleware, request_: Request
+    ) -> None:
+        when = format_datetime(datetime.now(UTC) + timedelta(seconds=0.0015))
+        response = _response(request_, 503, headers={"Retry-After": when})
+
+        delay = middleware._retry_after(response)
+        assert delay is not None
+        assert 0.0 <= delay <= middleware.max_delay
+
+    def test_retry_after_absent_returns_none(
+        self, middleware: BackoffRetryMiddleware, request_: Request
+    ) -> None:
+        assert middleware._retry_after(_response(request_, 503)) is None

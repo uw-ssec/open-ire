@@ -99,23 +99,27 @@ class TestSkipExistingPipeline:
 
         return article
 
-    def test_requires_files_passes_existing_article_without_files(
+    @staticmethod
+    def _use_with_files_mode(pipeline: SkipExistingPipeline) -> None:
+        assert pipeline.crawler is not None
+        pipeline.crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
+        pipeline.crawler.settings.set("OPEN_IRE_SKIP_EXISTING_WITH_FILES", True)
+
+    def test_with_files_passes_existing_article_without_files(
         self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
-        """With the opt-in flag, a known article whose file download failed is re-processed."""
-        assert pipeline_enabled.crawler is not None
-        pipeline_enabled.crawler.settings.set("OPEN_IRE_SKIP_EXISTING_REQUIRES_FILES", True)
+        """In with-files mode, a known article whose file download failed is re-processed."""
+        self._use_with_files_mode(pipeline_enabled)
         self._save_article(pipeline_enabled, item)
 
         result = pipeline_enabled.process_item(item)
 
         assert result is item
 
-    def test_requires_files_skips_existing_article_with_files(
+    def test_with_files_skips_existing_article_with_files(
         self, pipeline_enabled: SkipExistingPipeline, item: ArticleItem
     ) -> None:
-        assert pipeline_enabled.crawler is not None
-        pipeline_enabled.crawler.settings.set("OPEN_IRE_SKIP_EXISTING_REQUIRES_FILES", True)
+        self._use_with_files_mode(pipeline_enabled)
         article = self._save_article(pipeline_enabled, item)
 
         assert pipeline_enabled.engine is not None

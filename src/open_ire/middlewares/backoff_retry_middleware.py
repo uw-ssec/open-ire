@@ -1,8 +1,10 @@
-"""Downloader middlewares for the open_ire project."""
+"""Downloader middleware that retries rate-limited downloads with backoff."""
 
 import asyncio
 import logging
 import random
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Self
 
 from scrapy import Request
@@ -23,15 +25,19 @@ class BackoffRetryMiddleware:
     request bursts with HTTP 503 or drop the connection instead of failing
     permanently. Scrapy's built-in ``RetryMiddleware`` retries immediately,
     which keeps hitting the same rate limit. This middleware instead waits
-    with exponential backoff (plus jitter) before each retry, and gives up
-    after ``OPEN_IRE_BACKOFF_RETRY_TIMES`` attempts so genuinely dead links
-    are skipped (and logged) rather than retried forever.
+    with exponential backoff (plus jitter) before each retry -- honouring the
+    server's ``Retry-After`` header when present -- and gives up after
+    ``OPEN_IRE_BACKOFF_RETRY_TIMES`` attempts so genuinely dead links are
+    skipped (and logged) rather than retried forever.
 
     DNS lookup failures are deliberately not handled here: a host that no
     longer resolves is dead, and the built-in ``RetryMiddleware`` already
     gives those a couple of quick retries before the file is skipped.
 
-    Enable per spider via ``custom_settings``::
+    Enable per spider via ``custom_settings``. It must be given a higher
+    priority number than the built-in ``RetryMiddleware`` (default 550) so
+    that its ``process_response`` runs *first* on 429/503 responses (which
+    ``RetryMiddleware`` also handles); 560 works::
 
         "DOWNLOADER_MIDDLEWARES": {
             "open_ire.middlewares.BackoffRetryMiddleware": 560,
@@ -52,6 +58,8 @@ class BackoffRetryMiddleware:
         ResponseFailed,
         TxTimeoutError,
     )
+    # Keep the jittered delay from exceeding max_delay (jitter tops out at 1.25x).
+    _JITTER_MAX = 1.25
 
     def __init__(
         self,
@@ -76,10 +84,32 @@ class BackoffRetryMiddleware:
         )
 
     def _delay(self, retry_times: int) -> float:
-        delay = min(self.base_delay * (2.0**retry_times), self.max_delay)
-        return delay * random.uniform(0.75, 1.25)
+        # Cap the base delay before applying jitter so the jittered result
+        # never exceeds max_delay.
+        capped = min(self.base_delay * (2.0**retry_times), self.max_delay / self._JITTER_MAX)
+        return capped * random.uniform(0.75, self._JITTER_MAX)
 
-    async def _retry(self, request: Request, reason: str) -> Request | None:
+    def _retry_after(self, response: Response) -> float | None:
+        """Return the server's ``Retry-After`` delay in seconds, if provided."""
+        raw = response.headers.get("Retry-After")
+        if not raw:
+            return None
+
+        value = raw.decode().strip()
+        if value.isdigit():
+            return min(float(value), self.max_delay)
+
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+
+        seconds = (retry_at - datetime.now(retry_at.tzinfo)).total_seconds()
+        return min(max(seconds, 0.0), self.max_delay)
+
+    async def _retry(
+        self, request: Request, reason: str, delay_override: float | None = None
+    ) -> Request | None:
         if self.crawler is None or self.crawler.spider is None:
             msg = "BackoffRetryMiddleware requires a crawler with a running spider."
             raise RuntimeError(msg)
@@ -92,6 +122,9 @@ class BackoffRetryMiddleware:
             max_retry_times=self.max_retries,
         )
         if new_request is None:
+            # Out of attempts. Flag the request so the built-in RetryMiddleware
+            # doesn't pick it back up should its RETRY_TIMES be higher.
+            request.meta["dont_retry"] = True
             logger.warning(
                 "Giving up on %s after %d backoff retries (%s); skipping.",
                 request.url,
@@ -100,7 +133,7 @@ class BackoffRetryMiddleware:
             )
             return None
 
-        delay = self._delay(retry_times)
+        delay = self._delay(retry_times) if delay_override is None else delay_override
         logger.info(
             "Backing off %.1fs before retry %d/%d for %s (%s)",
             delay,
@@ -116,7 +149,9 @@ class BackoffRetryMiddleware:
         if response.status not in self.RETRY_STATUSES:
             return response
 
-        retried = await self._retry(request, f"HTTP {response.status}")
+        retried = await self._retry(
+            request, f"HTTP {response.status}", delay_override=self._retry_after(response)
+        )
         return response if retried is None else retried
 
     async def process_exception(self, request: Request, exception: Exception) -> Request | None:
