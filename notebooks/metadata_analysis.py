@@ -66,7 +66,7 @@ def _(pd, query_df):
     files_df = query_df(
         """
         SELECT id, article_id, extension, size, url, created_at
-        FROM articlefile
+        FROM article_file
         """
     )
     return articles_df, files_df
