@@ -50,6 +50,8 @@ class ArticleBase(SQLModel):
 class Article(ArticleBase, table=True):
     """SQLModel to store article metadata."""
 
+    __tablename__ = "article"
+
     model_config = {"ignored_types": (hybrid_property,)}
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -131,6 +133,8 @@ class ArticleFile(ArticleFileBase, table=True):
     store_url: URL to the remote backup location (e.g., SharePoint).
     """
 
+    __tablename__ = "article_file"
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     checksum: str = Field()
@@ -152,6 +156,8 @@ class ArticleFileReference(ArticleFileBase, table=True):
     source_url: URL of the website where the file `url` was found.
     """
 
+    __tablename__ = "article_file_reference"
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     source_url: str | None = None
@@ -172,6 +178,8 @@ class ArticleOAEvidence(SQLModel, table=True):
     source: Origin of the evidence (e.g., "crossref", "openalex", "manual").
     data: Source-specific payload for evidence details.
     """
+
+    __tablename__ = "article_oa_evidence"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
@@ -200,6 +208,8 @@ class ArticleDepositStatusTransition(SQLModel, table=True):
     changed_at: Datetime when the status transition was recorded.
     reasons: Rule or factor identifiers applied in the decision.
     """
+
+    __tablename__ = "article_deposit_status_transition"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
@@ -242,6 +252,8 @@ class AuthorBase(SQLModel):
 class Author(AuthorBase, table=True):
     """SQLModel to store author information."""
 
+    __tablename__ = "author"
+
     id: int = Field(primary_key=True)
 
     # Relationships
@@ -271,6 +283,8 @@ class AuthorAffiliationBase(SQLModel):
 
 class AuthorAffiliation(AuthorAffiliationBase, table=True):
     """SQLModel to store author affiliations."""
+
+    __tablename__ = "author_affiliation"
 
     id: int = Field(primary_key=True)
 
@@ -310,6 +324,8 @@ class AuthorIdentifierBase(SQLModel):
 class AuthorIdentifier(AuthorIdentifierBase, table=True):
     """SQLModel to store external identifiers for authors."""
 
+    __tablename__ = "author_identifier"
+
     id: int = Field(primary_key=True)
 
     author_id: int = Field(
@@ -344,6 +360,8 @@ class AuthorshipBase(SQLModel):
 
 class Authorship(AuthorshipBase, table=True):
     """SQLModel to store many-to-many relationships between authors and articles."""
+
+    __tablename__ = "authorship"
 
     article_id: uuid.UUID = Field(
         sa_column=Column(
