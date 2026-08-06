@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -303,3 +304,43 @@ class TestWoSSpider:
 
     def test_normalize_type_unknown(self) -> None:
         assert WoSSpider._normalize_type("unknown-type") is None
+
+    @pytest.mark.parametrize(
+        ("coverdate", "expected"),
+        [
+            ("SPR 2020", date(2020, 3, 1)),
+            ("SUM 2019", date(2019, 6, 1)),
+            ("FAL 2024", date(2024, 9, 1)),
+            ("WIN 2018", date(2018, 12, 1)),
+            ("FAL-WIN 2018", date(2018, 9, 1)),
+            ("MAR-APR 2021", date(2021, 3, 1)),
+            ("JAN 2020", date(2020, 1, 1)),
+            ("2018-05-01", date(2018, 5, 1)),
+            # WoS also emits a bare day ('MON D YYYY') and, despite the docs, a bare integer year.
+            ("DEC 31 2024", date(2024, 12, 31)),
+            (2024, date(2024, 1, 1)),
+        ],
+    )
+    def test_extract_publication_date_periods(self, coverdate: str | int, expected: date) -> None:
+        summary = {"pub_info": {"coverdate": coverdate}}
+        assert WoSSpider._extract_publication_date(summary) == expected
+
+    @pytest.mark.parametrize(
+        "coverdate",
+        ["", None, "FOOBAR"],
+    )
+    def test_extract_publication_date_falls_back_to_sortdate(self, coverdate: str | None) -> None:
+        """An empty or invalid coverdate defers to sortdate, which WoS always emits as ISO 8601."""
+        summary = {"pub_info": {"coverdate": coverdate, "sortdate": "2024-12-31", "pubyear": 2024}}
+        assert WoSSpider._extract_publication_date(summary) == date(2024, 12, 31)
+
+    def test_extract_publication_date_prefers_coverdate_over_sortdate(self) -> None:
+        """For early-access records sortdate is the online date, so coverdate must win."""
+        summary = {
+            "pub_info": {"coverdate": "OCT 2 2025", "sortdate": "2024-04-18", "pubyear": 2025}
+        }
+        assert WoSSpider._extract_publication_date(summary) == date(2025, 10, 2)
+
+    def test_extract_publication_date_falls_back_to_pubyear(self) -> None:
+        summary = {"pub_info": {"coverdate": "not a date", "pubyear": 2022}}
+        assert WoSSpider._extract_publication_date(summary) == date(2022, 1, 1)
