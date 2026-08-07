@@ -1,8 +1,9 @@
 import datetime
 import json
 import os
+import re
 from collections.abc import Generator
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
@@ -281,16 +282,43 @@ class WoSSpider(AuthorSearchSpider):
 
         return None
 
-    @staticmethod
-    def _extract_publication_date(summary: dict[str, Any]) -> datetime.date | None:
+    @classmethod
+    def _extract_publication_date(cls, summary: dict[str, Any]) -> datetime.date | None:
         """Extract publication date with fallback from coverdate -> sortdate -> pubyear."""
         pub_info = summary.get("pub_info", {})
-        date = parse_date(pub_info.get("coverdate") or pub_info.get("sortdate"))
-        if date is None:
-            pub_year = pub_info.get("pubyear")
-            if pub_year:
-                date = parse_date(f"{pub_year}-01-01")
-        return date
+        candidates = (
+            cls._normalize_coverdate(pub_info.get("coverdate")),
+            pub_info.get("sortdate"),
+            pub_info.get("pubyear"),
+        )
+        for candidate in candidates:
+            date = parse_date(candidate)
+            if date is not None:
+                return date
+
+        return None
+
+    _COVERDATE_PERIOD_RE: Final = re.compile(
+        r"^(?P<abbrev>[A-Za-z]{3})(?:\s*-\s*[A-Za-z]{3})?\s+(?P<year>\d{4})$"
+    )
+    _SEASON_START_MONTH: Final = {"FAL": 9, "WIN": 12, "SPR": 3, "SUM": 6}
+    _MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+    @classmethod
+    def _normalize_coverdate(cls, value: str | int | None) -> str | int | None:
+        """Rewrite WoS date variants like 'SPR 2018', 'JAN 2019', 'JAN-JUL 2020', or 'FAL-WIN 2021' as 'YYYY-MM'."""
+        if not isinstance(value, str):
+            return value
+        match = cls._COVERDATE_PERIOD_RE.match(value.strip())
+        if not match:
+            return value
+        abbrev = match.group("abbrev").upper()
+        month = cls._SEASON_START_MONTH.get(abbrev)
+        if month is None and abbrev in cls._MONTHS:
+            month = cls._MONTHS.index(abbrev) + 1
+        if month is None:
+            return value
+        return f"{match.group('year')}-{month:02d}"
 
     @staticmethod
     def _build_article_url(doi: str | None, external_id: str) -> str:
