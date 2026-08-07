@@ -70,8 +70,9 @@ pixi run dotenv
 ```
 
 This command creates the environment file template `.env` that you then need to
-edit to configure your settings. The only required setting is `ENVIRONMENT`,
-which needs to be set to either `development` or `production`.
+edit to configure your settings. The only required setting is
+`OPEN_IRE_ENVIRONMENT`, which needs to be set to either `development` or
+`production`.
 
 To store collected files in a Microsoft SharePoint Drive, you also need to set
 your SharePoint credentials:
