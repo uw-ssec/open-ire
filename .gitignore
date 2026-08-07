@@ -141,6 +141,9 @@ data/
 logs/*.txt
 version.py
 
+# Machine-specific Scrapy settings
+src/open_ire/settings/development_local.py
+
 # pixi environments
 .pixi
 *.egg-info
