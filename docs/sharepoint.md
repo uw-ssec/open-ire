@@ -8,8 +8,9 @@ required.
 > [!NOTE]
 >
 > By default, the SharePoint pipeline is only active in the production
-> environment and disabled in the development environment. See the `ENVIRONMENT`
-> environment variable and `src/open_ire/settings/development.py`.
+> environment and disabled in the development environment. See the
+> `OPEN_IRE_ENVIRONMENT` environment variable and
+> `src/open_ire/settings/development.py`.
 
 ## Managing the Integration
 
