@@ -13,9 +13,9 @@ under `src/open_ire/settings/`.
 
 ### Settings package
 
-The `ENVIRONMENT` environment variable (defaults to `development`) controls
-which settings module is loaded. The `__init__.py` entry point reads this
-variable and re-exports everything from the matching module:
+The `OPEN_IRE_ENVIRONMENT` environment variable (defaults to `development`)
+controls which settings module is loaded. The `__init__.py` entry point reads
+this variable and re-exports everything from the matching module:
 
 - `base.py` — shared defaults for all environments
 - `development.py` — overrides meant for local development
@@ -25,6 +25,21 @@ variable and re-exports everything from the matching module:
 >
 > Project-specific settings use the `OPEN_IRE_` prefix to distinguish them from
 > built-in Scrapy settings.
+
+#### Naming conventions
+
+Scrapy settings live in one flat namespace shared with the framework and its
+extensions, so every setting this project defines takes an `OPEN_IRE_` prefix to
+avoid colliding with a built-in name.
+
+Environment variables follow the same rule, but only for names this project
+owns. `OPEN_IRE_ENVIRONMENT` and `OPEN_IRE_SHAREPOINT_BASE_PATH` are our
+concepts, and unprefixed names like `ENVIRONMENT` are generic enough that CI
+runners and deployment tooling routinely set them for unrelated purposes.
+
+Credentials for external services keep their conventional, unprefixed names
+(`SHAREPOINT_CLIENT_ID`, `WOS_API_KEY`, `NCBI_API_KEY`, `DATAMART_USER`, and so
+on).
 
 ![Architecture Diagram](images/architecture.png)
 
