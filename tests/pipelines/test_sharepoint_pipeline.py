@@ -125,7 +125,7 @@ class TestSharePointPipeline:
     def test_db_snapshot_on_spider_close(self, crawler: Crawler, tmp_path: Path) -> None:
         crawler.settings.set("FILES_STORE", str(tmp_path))
         crawler.settings.set("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
-        crawler.settings.set("SHAREPOINT_BASE_PATH", "test_sharepoint")
+        crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
         crawler.signals = MagicMock()
 
         with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint"):
