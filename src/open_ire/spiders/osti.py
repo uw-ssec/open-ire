@@ -24,7 +24,7 @@ from open_ire.affiliation import split_institutions, uw_affiliations
 from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem
 from open_ire.spiders.search import TermSearchSpider
-from open_ire.utils import parse_date
+from open_ire.utils import as_list, parse_date
 
 # Matches "[affiliation text]" or "[affiliation text" (unclosed) in an author name.
 _AFFILIATION_RE = re.compile(r"\s*\[.*")
@@ -176,20 +176,28 @@ class OstiSpider(TermSearchSpider):
             settings.getbool("OPEN_IRE_REQUIRE_UW_AFFILIATION", self.require_uw_affiliation)
         )
 
-    @staticmethod
-    def _record_affiliations(record: dict[str, Any]) -> list[str]:
+    #: Record fields that name an institution outright.  Deliberately excludes
+    #: ``title``, ``description`` and ``subjects``: a report *about* a UW
+    #: facility (e.g. "Radioactive Material Release in the Harborview Research
+    #: Building", authored at Brookhaven) names UW without being UW's work,
+    #: which is the very confusion this check exists to resolve.
+    AFFILIATION_FIELDS = ("research_orgs", "sponsor_orgs", "contributing_org", "assignee")
+
+    @classmethod
+    def _record_affiliations(cls, record: dict[str, Any]) -> list[str]:
         """Return every institution named in *record*'s structured fields.
 
-        Covers the research and sponsoring organisations, plus the
-        affiliation OSTI brackets into each author entry -- the only place a
-        UW connection is recorded for a large minority of UW articles.  Fields
-        naming several institutions at once are split into one entry each.
+        Covers :attr:`AFFILIATION_FIELDS` plus the affiliation OSTI brackets
+        into each author entry -- the only place a UW connection is recorded
+        for a large minority of UW articles.  OSTI returns some of these as a
+        bare string and some as a list, and packs several institutions into
+        one value with semicolons, so each is normalised to one entry per
+        institution.
         """
-        fields: list[str] = [
-            *(record.get("research_orgs") or []),
-            *(record.get("sponsor_orgs") or []),
-        ]
-        for author in record.get("authors") or []:
+        fields: list[str] = []
+        for name in cls.AFFILIATION_FIELDS:
+            fields.extend(as_list(record.get(name)))
+        for author in as_list(record.get("authors")):
             fields.extend(_AFFILIATION_CAPTURE_RE.findall(author))
 
         affiliations: list[str] = []
@@ -306,15 +314,17 @@ class OstiSpider(TermSearchSpider):
             if value := (record.get(key) or "").strip():
                 extra[key] = value
 
-        for key in ("subjects", "sponsor_orgs", "research_orgs"):
+        for key in ("subjects", "sponsor_orgs", "research_orgs", "contributing_org"):
             if value := record.get(key):
                 extra[key] = value
 
         # Keep the evidence that justified collecting this article.  Author
         # affiliations are stripped from the ``authors`` string to match
         # ParsedAuthor conventions, so without this the UW connection would be
-        # unverifiable after the crawl.
-        if uw := cls._uw_affiliations(record):
+        # unverifiable after the crawl.  De-duplicated because the same
+        # institution usually appears both as a research org and on each of
+        # its authors.
+        if uw := list(dict.fromkeys(cls._uw_affiliations(record))):
             extra["uw_affiliations"] = uw
         if search_term:
             extra["search_term"] = search_term

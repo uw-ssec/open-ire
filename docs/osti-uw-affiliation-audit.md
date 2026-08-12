@@ -148,11 +148,19 @@ filter.
    city cannot suppress a genuine UW match in the same field.
 
 2. **`OstiSpider` gates every record** on its own structured affiliations —
-   `research_orgs`, `sponsor_orgs`, and the affiliation bracketed into each
-   author entry. A record with no UW among them is dropped before it reaches any
-   pipeline, so no PDF is downloaded and nothing is uploaded to SharePoint for
-   it. `OPEN_IRE_REQUIRE_UW_AFFILIATION=False` disables the gate to re-measure
-   the unfiltered result.
+   `research_orgs`, `sponsor_orgs`, `contributing_org`, `assignee`, and the
+   affiliation bracketed into each author entry. A record with no UW among them
+   is dropped before it reaches any pipeline, so no PDF is downloaded and
+   nothing is uploaded to SharePoint for it.
+   `OPEN_IRE_REQUIRE_UW_AFFILIATION=False` disables the gate to re-measure the
+   unfiltered result.
+
+   `title`, `description` and `subjects` are deliberately **not** affiliation
+   evidence. A report _about_ a UW facility is not UW's work: osti_id 2311080,
+   "Evaluation of the Radioactive Material Release in the Harborview Research
+   Building", was authored at Brookhaven and names UW only in its title and
+   abstract. Counting narrative fields would reintroduce the exact confusion
+   this check exists to resolve.
 
 3. **The evidence is preserved.** `extra["uw_affiliations"]` records the
    affiliation strings that justified collecting the article and
@@ -162,22 +170,52 @@ filter.
 
 ### Measured on live data
 
-Running the real spider over 600 live records from
+Running the real spider over **2,000 live records** from
 `q="university of washington"`:
 
-|                                         |                  |
-| --------------------------------------- | ---------------- |
-| kept                                    | 176 (29.3%)      |
-| dropped                                 | 424 (70.7%)      |
-| kept via `research_orgs`/`sponsor_orgs` | 101              |
-| kept via **author affiliation only**    | 75 (43% of kept) |
-| kept records with no recorded evidence  | 0                |
-| kept evidence strings that are not UW   | 0                |
+|                                         |                   |
+| --------------------------------------- | ----------------- |
+| kept                                    | 509 (25.4%)       |
+| dropped                                 | 1,491 (74.6%)     |
+| kept via `research_orgs`                | 198               |
+| kept via **author affiliation / other** | 309 (61% of kept) |
+| kept via `contributing_org`             | 2                 |
+| kept records with no recorded evidence  | **0**             |
+| distinct evidence strings               | 110               |
 
-The reported false positive, `biblio/10158090`, is dropped. Cross-checked
-against the field-scoped `research_org:` query, the gate keeps **100%** of its
-300 sampled results — it discards nothing that a precision-first query would
-have kept.
+**Precision.** All 110 distinct evidence strings were reviewed by hand — an
+automated check would be circular, since those strings are UW-matching by
+definition. Every one names a UW unit: the Seattle, Bothell and Tacoma campuses,
+the Applied Physics Lab, School of Oceanography, Polar Science Center, Inst. for
+Nuclear Theory, and "Board of Regents of University of Washington" on a patent.
+One borderline entry, "Washington Univ., Richland (USA). Joint Center for
+Graduate Study", is a historical multi-university program in Richland rather
+than Seattle.
+
+**Recall.** Of the 1,491 dropped records, **none** carries UW in any
+affiliation-bearing field. Separately, the gate keeps **100%** of 300 sampled
+results from the field-scoped `research_org:` query, so it discards nothing a
+precision-first query would have kept.
+
+The reported false positive, `biblio/10158090`, is dropped.
+
+### The `contributing_org` gap, found on re-audit
+
+The first version of the gate read only `research_orgs`, `sponsor_orgs` and
+author brackets. Auditing every field OSTI returns turned up three more that
+name institutions outright — `contributing_org`, `assignee`, `rights` — and a
+false-negative sweep over dropped records found real UW work being discarded
+through `contributing_org`, e.g.:
+
+| osti_id | `contributing_org`                                                          |
+| ------- | --------------------------------------------------------------------------- |
+| 1415347 | University of Washington, Department of Civil and Environmental Engineering |
+| 2349327 | University of Utah; University of Washington                                |
+| 1105905 | University of Arizona; University of Utah; University of Washington         |
+
+`contributing_org` and `assignee` are now read. `rights` is not: it is a
+free-text legal statement, and the patent case it covered is already caught by
+`assignee`.
 
 ## Still open
 
@@ -185,6 +223,10 @@ have kept.
 2. The existing corpus is not retro-filtered. The ~17,700 already-collected
    false positives need a separate cleanup pass; `extra["uw_affiliations"]` is
    only populated for articles collected after this change.
-3. `uw.edu` and `washington.edu` remain in `OPEN_IRE_SEARCH_TERMS`. For OSTI
-   they can only ever match full text, so they now cost crawl time without
-   contributing articles — worth a per-spider term list later.
+3. All seven default terms were checked against the gate. An earlier draft of
+   this document claimed `uw.edu` and `washington.edu` could only ever match
+   full text for OSTI; **that was wrong**. On the first page of results the gate
+   keeps 88/100 and 29/100 of them respectively, so they do surface records with
+   genuine structured UW affiliation.
+   `harborview injury prevention and research center` really does match 0 OSTI
+   records.
