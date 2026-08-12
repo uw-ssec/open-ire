@@ -115,29 +115,76 @@ returns 1,895 records — both roughly 8% of what we actually collected.
    against their source APIs the way OSTI was here, so this is a flag for the
    same audit, not a measured false-positive rate.
 
-## Validated fix
+## Options considered
 
-OSTI v1 supports field-scoped search. This query was tested against 395 results
-across 4 pages spread through the result set:
+OSTI v1 supports field-scoped search, so the obvious fix is to narrow the query:
 
 ```
 research_org:(("university of washington" OR "univ. of washington" OR "washington univ") AND seattle)
 ```
 
-- 1,895 records with `has_fulltext=true`
-- **99.7% precision** (394/395 had a UW Seattle research org), vs ~22% today
-- the ` AND seattle` clause is what excludes Washington University in St. Louis
+Tested against 395 results across 4 pages, that returns 1,895 records at **99.7%
+precision** (394/395), with ` AND seattle` excluding Washington University in
+St. Louis.
 
-Recommended, in order:
+It was **rejected as the sole fix** because it costs too much recall. OSTI's
+`author:` index does not cover affiliation text —
+`author:"university of washington"` returns 0 records — so a
+`research_org:`-only query cannot see the articles whose UW connection is
+recorded in an author's affiliation. On live data those are **44% of all
+genuinely-UW records** (85 of 193 in one sample).
 
-1. Scope the OSTI query to `research_org:` instead of bare `q`. Use per-spider
-   terms — the shared `OPEN_IRE_SEARCH_TERMS` list mixes institution names with
-   email domains (`uw.edu`, `washington.edu`), which are full-text-only signals
-   and cannot be field-scoped.
-2. Stop stripping author affiliations in `_extract_authors`; keep them in
-   `extra` so relevance stays auditable after the crawl.
-3. Add an affiliation-check pipeline that drops items with no UW evidence in any
-   structured field, so a permissive source query cannot silently flood the
-   corpus.
-4. Record the matching search term on each item for traceability.
-5. Re-run the audit for `noaa` and `cdc_stacks`.
+## Implemented fix
+
+Keep the broad query for recall, and verify affiliation per record for
+precision. Field-scoped querying stays available as a cross-check, not as the
+filter.
+
+1. **`open_ire/affiliation.py`** — `is_uw_affiliation` recognises UW in a single
+   institution string and rejects the other Washington-named institutions (St.
+   Louis, George Washington, Washington State, Western/Eastern/Central
+   Washington) and Washington, DC agencies. `split_institutions` unpacks OSTI's
+   semicolon-separated multi-institution fields so one co-author's disqualifying
+   city cannot suppress a genuine UW match in the same field.
+
+2. **`OstiSpider` gates every record** on its own structured affiliations —
+   `research_orgs`, `sponsor_orgs`, and the affiliation bracketed into each
+   author entry. A record with no UW among them is dropped before it reaches any
+   pipeline, so no PDF is downloaded and nothing is uploaded to SharePoint for
+   it. `OPEN_IRE_REQUIRE_UW_AFFILIATION=False` disables the gate to re-measure
+   the unfiltered result.
+
+3. **The evidence is preserved.** `extra["uw_affiliations"]` records the
+   affiliation strings that justified collecting the article and
+   `extra["search_term"]` the term that found it, so relevance stays auditable
+   after the crawl. Author names are still stored without affiliation text, as
+   `ParsedAuthor` requires.
+
+### Measured on live data
+
+Running the real spider over 600 live records from
+`q="university of washington"`:
+
+|                                         |                  |
+| --------------------------------------- | ---------------- |
+| kept                                    | 176 (29.3%)      |
+| dropped                                 | 424 (70.7%)      |
+| kept via `research_orgs`/`sponsor_orgs` | 101              |
+| kept via **author affiliation only**    | 75 (43% of kept) |
+| kept records with no recorded evidence  | 0                |
+| kept evidence strings that are not UW   | 0                |
+
+The reported false positive, `biblio/10158090`, is dropped. Cross-checked
+against the field-scoped `research_org:` query, the gate keeps **100%** of its
+300 sampled results — it discards nothing that a precision-first query would
+have kept.
+
+## Still open
+
+1. Re-run the audit for `noaa` and `cdc_stacks`, which look worse than OSTI.
+2. The existing corpus is not retro-filtered. The ~17,700 already-collected
+   false positives need a separate cleanup pass; `extra["uw_affiliations"]` is
+   only populated for articles collected after this change.
+3. `uw.edu` and `washington.edu` remain in `OPEN_IRE_SEARCH_TERMS`. For OSTI
+   they can only ever match full text, so they now cost crawl time without
+   contributing articles — worth a per-spider term list later.
