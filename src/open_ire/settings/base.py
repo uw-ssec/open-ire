@@ -84,6 +84,10 @@ OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_SKIP_EXISTING_WITH_FILES = False
+# Repository search APIs match against indexed full text, so they return
+# articles that merely mention UW.  Keep only articles whose own structured
+# metadata names a UW affiliation.  Disable to measure the unfiltered result.
+OPEN_IRE_REQUIRE_UW_AFFILIATION = True
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
 # Default log level for `open_ire` logger
