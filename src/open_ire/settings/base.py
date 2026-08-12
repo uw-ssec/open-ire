@@ -83,6 +83,7 @@ OPEN_IRE_SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
+OPEN_IRE_SKIP_EXISTING_WITH_FILES = False
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
 # Default log level for `open_ire` logger

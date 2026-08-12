@@ -58,9 +58,15 @@ class DOIDuplicatesPipeline(BaseSQLModelPipeline):
         if doi not in self._doi_to_article:
             return item
 
+        cached = self._doi_to_article[doi]
+        if cached.repository == item.repository and cached.reference == item.reference:
+            # The DOI belongs to this very article (re-crawl), not to a
+            # duplicate; let it through so downstream pipelines can update
+            # it and re-attempt any missing file downloads.
+            return item
+
         assert self.engine is not None
         with Session(self.engine) as session:
-            cached = self._doi_to_article[doi]
             existing_article = session.exec(
                 select(Article).where(
                     Article.repository == cached.repository,

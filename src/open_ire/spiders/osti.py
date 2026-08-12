@@ -51,6 +51,15 @@ class OstiSpider(TermSearchSpider):
         # ROBOTSTXT_OBEY=True was incorrectly applying Googlebot rules as a
         # fallback and blocking PDF downloads that OSTI explicitly allows.
         "ROBOTSTXT_OBEY": False,
+        # OSTI rate-limits bursts of fulltext PDF downloads with HTTP 503 or
+        # dropped connections; waiting and retrying recovers them (verified
+        # on 75/75 sampled failures). Retry those politely with exponential
+        # backoff instead of the built-in immediate retries. Priority 560
+        # keeps it above the built-in RetryMiddleware (550) so it handles
+        # 429/503 responses first.
+        "DOWNLOADER_MIDDLEWARES": {
+            "open_ire.middlewares.BackoffRetryMiddleware": 560,
+        },
     }
 
     def build_search_request(self, term: str) -> Request:

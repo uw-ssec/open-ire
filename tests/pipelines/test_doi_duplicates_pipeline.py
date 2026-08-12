@@ -108,6 +108,31 @@ class TestDOIDuplicatesPipeline:
                 {"repository": "wos", "reference": "WOS:000123", "title": "Same Article from WoS"}
             ]
 
+    def test_passes_through_same_article_on_recrawl(
+        self,
+        pipeline_with_existing: DOIDuplicatesPipeline,
+    ) -> None:
+        """Re-crawling the article that owns the DOI must not drop it as its own duplicate."""
+        pipeline = pipeline_with_existing
+        assert pipeline.engine is not None
+        same_item = ArticleItem(
+            title="Existing Article",
+            authors="Author One",
+            publication_date=date(2024, 1, 15),
+            repository="openalex",
+            reference="OA123",
+            url="https://doi.org/10.1234/test",
+            doi="10.1234/test",
+        )
+
+        result = pipeline.process_item(same_item)
+
+        assert result is same_item
+        with Session(pipeline.engine) as session:
+            article = session.exec(select(Article).where(Article.doi == "10.1234/test")).first()
+            assert article is not None
+            assert "duplicate_sources" not in article.extra
+
     @pytest.mark.parametrize(
         ("pipeline_with_existing", "incoming_doi"),
         [
