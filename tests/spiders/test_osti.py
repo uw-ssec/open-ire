@@ -87,6 +87,41 @@ WESTERN_WASHINGTON_UNIVERSITY: dict[str, Any] = {
     "links": [{"rel": "fulltext", "href": "https://www.osti.gov/servlets/purl/5559999"}],
 }
 
+# UW is named only in `contributing_org`, which OSTI returns as a bare
+# semicolon-separated string rather than a list.  Modelled on osti_id 1415347.
+UW_BY_CONTRIBUTING_ORG_ONLY: dict[str, Any] = {
+    "osti_id": "1415347",
+    "title": "Toward the Development of a Cold Regions Regional-Scale Hydrologic Model",
+    "research_orgs": ["Univ. of Alaska, Fairbanks, AK (United States)"],
+    "contributing_org": "University of Washington, Department of Civil and Environmental Engineering",
+    "authors": ["Hinzman, Larry D. [Univ. of Alaska, Fairbanks, AK (United States)]"],
+    "links": [{"rel": "fulltext", "href": "https://www.osti.gov/servlets/purl/1415347"}],
+}
+
+# A patent assigned to UW; `assignee` is the only affiliation field.
+UW_BY_ASSIGNEE_ONLY: dict[str, Any] = {
+    "osti_id": "1128706",
+    "title": "A patented device",
+    "product_type": "Patent",
+    "assignee": "University of Washington through its Center for Commercialization (Seattle, WA)",
+    "authors": ["Inventor, An"],
+    "links": [{"rel": "fulltext", "href": "https://www.osti.gov/servlets/purl/1128706"}],
+}
+
+# Authored at Brookhaven, merely *about* a UW building.  UW appears in the
+# title and abstract but in no affiliation field -- must still be dropped.
+ABOUT_A_UW_FACILITY: dict[str, Any] = {
+    "osti_id": "2311080",
+    "title": "Evaluation of the Radioactive Material Release in the Harborview Research Building",
+    "description": "An incident at the University of Washington Harborview facility.",
+    "research_orgs": ["Brookhaven National Laboratory (BNL), Upton, NY (United States)"],
+    "subjects": ["Harborview"],
+    "authors": [
+        "Musolino, Stephen V. [Brookhaven National Laboratory (BNL), Upton, NY (United States)]"
+    ],
+    "links": [{"rel": "fulltext", "href": "https://www.osti.gov/servlets/purl/2311080"}],
+}
+
 # OSTI packs co-authoring institutions into one semicolon-separated field.
 UW_PACKED_WITH_CO_INSTITUTIONS: dict[str, Any] = {
     "osti_id": "5557777",
@@ -122,14 +157,26 @@ class TestAffiliationFiltering:
     def test_drops_western_washington_university(self, spider: OstiSpider) -> None:
         assert _items(spider, [WESTERN_WASHINGTON_UNIVERSITY]) == []
 
+    def test_keeps_record_affiliated_only_via_contributing_org(self, spider: OstiSpider) -> None:
+        items = _items(spider, [UW_BY_CONTRIBUTING_ORG_ONLY])
+        assert [item.reference for item in items] == ["1415347"]
+
+    def test_keeps_patent_affiliated_only_via_assignee(self, spider: OstiSpider) -> None:
+        items = _items(spider, [UW_BY_ASSIGNEE_ONLY])
+        assert [item.reference for item in items] == ["1128706"]
+
+    def test_drops_report_about_a_uw_facility(self, spider: OstiSpider) -> None:
+        # UW is in the title, abstract and subjects, but no affiliation field.
+        assert _items(spider, [ABOUT_A_UW_FACILITY]) == []
+
     def test_keeps_uw_packed_alongside_other_institutions(self, spider: OstiSpider) -> None:
         items = _items(spider, [UW_PACKED_WITH_CO_INSTITUTIONS])
         assert [item.reference for item in items] == ["5557777"]
         assert items[0].extra is not None
-        # Only the UW institution is recorded as evidence, not the whole field.
+        # Only the UW institution is recorded as evidence, not the whole field,
+        # and the research-org and author copies collapse to one entry.
         assert items[0].extra["uw_affiliations"] == [
-            "Univ. of Washington, Seattle, WA (United States)",
-            "Univ. of Washington, Seattle, WA (United States)",
+            "Univ. of Washington, Seattle, WA (United States)"
         ]
 
     def test_filters_a_mixed_page(self, spider: OstiSpider) -> None:
@@ -156,10 +203,24 @@ class TestAffiliationFiltering:
 
 class TestAffiliationEvidence:
     def test_uw_affiliations_collects_org_and_author_matches(self) -> None:
+        # One entry from research_orgs, one from the author's bracket.
         assert OstiSpider._uw_affiliations(UW_BY_RESEARCH_ORG) == [
             "University of Washington, Seattle, WA (United States)",
             "University of Washington, Seattle, WA (United States)",
         ]
+
+    def test_recorded_evidence_is_deduplicated(self, spider: OstiSpider) -> None:
+        [item] = _items(spider, [UW_BY_RESEARCH_ORG])
+        assert item.extra is not None
+        assert item.extra["uw_affiliations"] == [
+            "University of Washington, Seattle, WA (United States)"
+        ]
+
+    def test_affiliation_fields_exclude_narrative_fields(self) -> None:
+        # Guards the decision that title/description/subjects are not evidence.
+        assert "title" not in OstiSpider.AFFILIATION_FIELDS
+        assert "description" not in OstiSpider.AFFILIATION_FIELDS
+        assert "subjects" not in OstiSpider.AFFILIATION_FIELDS
 
     def test_uw_affiliations_empty_for_unaffiliated_record(self) -> None:
         assert OstiSpider._uw_affiliations(NO_UW_ANYWHERE) == []
