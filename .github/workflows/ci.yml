@@ -21,7 +21,7 @@ permissions: {}
 
 jobs:
   pre-commit:
-    name: Format
+    name: Pre-commit checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +44,6 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: read
-    needs: [pre-commit]
     strategy:
       fail-fast: false
       matrix:
