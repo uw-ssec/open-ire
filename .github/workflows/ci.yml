@@ -44,7 +44,6 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: read
-    needs: [pre-commit]
     strategy:
       fail-fast: false
       matrix:
