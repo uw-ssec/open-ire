@@ -17,10 +17,14 @@ env:
   FORCE_COLOR: 3
   PROJECT_NAME: "open_ire"
 
+permissions: {}
+
 jobs:
   pre-commit:
     name: Format
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,6 +42,8 @@ jobs:
   checks:
     name: Check Python ${{ matrix.python-version }} on ${{ matrix.runs-on }}
     runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
     needs: [pre-commit]
     strategy:
       fail-fast: false
