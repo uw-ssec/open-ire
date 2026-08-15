@@ -73,3 +73,26 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  pixi-install:
+    name: Install with pixi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # hatch-vcs derives the version from git history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # How the project is actually developed: conda-forge via pixi, which the
+      # pip-based test matrix doesn't exercise. `locked` fails the job when
+      # pixi.lock has drifted from pyproject.toml.
+      - uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+        with:
+          environments: dev
+          locked: true
+
+      - name: Import package
+        run: pixi run -e dev python -c "import ${{ env.PROJECT_NAME }}"
