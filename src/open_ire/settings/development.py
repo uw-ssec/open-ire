@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from .base import *  # noqa: F403
-from .base import ITEM_PIPELINES
+from .base import ITEM_PIPELINES, OPEN_IRE_SHAREPOINT_BASE_PATH
 
 EXTENSIONS = {"open_ire.logging.OpenIRELogger": 100}
 LOG_LEVEL = "WARNING"
@@ -15,7 +15,9 @@ HTTPCACHE_ENABLED = True
 
 # Kept even though SharePointPipeline is removed below: if the pipeline is
 # re-enabled locally, this keeps dev crawls out of the production folder.
-SHAREPOINT_BASE_PATH = "open_ire_dev"
+# Suffixed rather than replaced so an OPEN_IRE_SHAREPOINT_BASE_PATH override
+# still applies in development.
+OPEN_IRE_SHAREPOINT_BASE_PATH += "_dev"
 
 # Copy before removing: `from .base import` binds the same dict object, so
 # deleting in place would strip the pipeline from base.ITEM_PIPELINES too.

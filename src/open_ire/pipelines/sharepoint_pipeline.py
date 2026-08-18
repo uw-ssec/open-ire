@@ -37,7 +37,7 @@ class SharePointPipeline:
             conf = "FILES_STORE"
             raise ConfigurationError(conf)
 
-        sharepoint_base_path = crawler.settings.get("SHAREPOINT_BASE_PATH", "open_ire")
+        sharepoint_base_path = crawler.settings.get("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         pipeline = cls(sharepoint_base_path, local_base_path, crawler)
         pipeline.db_path = Path(db_path) if db_path else None

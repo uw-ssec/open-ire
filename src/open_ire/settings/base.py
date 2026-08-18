@@ -79,7 +79,7 @@ OPEN_IRE_SEARCH_TERMS = [
     "washington sea grant",
     "washington.edu",
 ]
-OPEN_IRE_SHAREPOINT_BASE_PATH = os.getenv("SHAREPOINT_BASE_PATH", "open_ire")
+OPEN_IRE_SHAREPOINT_BASE_PATH = os.getenv("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
 OPEN_IRE_DATABASE_FILE = "dbs/open_ire.db"
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
