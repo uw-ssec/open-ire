@@ -4,8 +4,16 @@ from .base import *  # noqa: F403
 from .base import ITEM_PIPELINES
 
 EXTENSIONS = {"open_ire.logging.OpenIRELogger": 100}
-LOG_LEVEL = "WARNING"
+# LOG_LEVEL gates Scrapy's handler (the sink), so it must stay permissive;
+# noise is filtered per-logger via OPEN_IRE_LOG_LEVELS (the sources).
+LOG_LEVEL = "DEBUG"
 OPEN_IRE_LOG_LEVEL = "DEBUG"
+OPEN_IRE_LOG_LEVELS = {
+    "scrapy": "WARNING",
+    "twisted": "WARNING",
+    "alembic": "WARNING",
+    "scrapy-playwright": "WARNING",
+}
 OPEN_IRE_LOG_DROPPED_ITEMS = False
 
 # HTTPCACHE_DIR is relative to the Scrapy data dir, which is .scrapy/
