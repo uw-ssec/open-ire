@@ -58,7 +58,9 @@ class OpenIRELogger:
 
         # Scrapy *replaces* the console handler with a file handler when
         # LOG_FILE is set; add a console handler back so both get the logs.
-        if crawler.settings.get("LOG_FILE"):
+        # LOG_ENABLED=False means "no console output", which Scrapy itself
+        # ignores once LOG_FILE is set -- so honor it here.
+        if crawler.settings.get("LOG_FILE") and crawler.settings.getbool("LOG_ENABLED", True):
             root = logging.getLogger()
             if not any(getattr(h, "open_ire_handler", False) for h in root.handlers):
                 log_format = crawler.settings.get(
