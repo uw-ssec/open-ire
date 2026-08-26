@@ -85,6 +85,10 @@ PLAYWRIGHT_LAUNCH_OPTIONS = {
 # ===============================================================================
 # Logging
 # ===============================================================================
+# Registered here rather than per-environment so every environment gets it.
+EXTENSIONS = {
+    "open_ire.logging.OpenIRELogger": 100,
+}
 LOG_FORMATTER = "open_ire.logging.OpenIRELogFormatter"
 # Default log level for `open_ire` logger
 OPEN_IRE_LOG_LEVEL = "INFO"
