@@ -63,12 +63,11 @@ class OpenIRELogger:
         if crawler.settings.get("LOG_FILE") and crawler.settings.getbool("LOG_ENABLED", True):
             root = logging.getLogger()
             if not any(getattr(h, "open_ire_handler", False) for h in root.handlers):
-                log_format = crawler.settings.get(
-                    "LOG_FORMAT", "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
-                )
-                date_format = crawler.settings.get("LOG_DATEFORMAT", "%Y-%m-%d %H:%M:%S")
+                # Scrapy always defines these, so no fallbacks are needed.
+                log_format = crawler.settings.get("LOG_FORMAT")
+                date_format = crawler.settings.get("LOG_DATEFORMAT")
                 handler = logging.StreamHandler()
-                handler.setLevel(crawler.settings.get("LOG_LEVEL", "DEBUG"))
+                handler.setLevel(crawler.settings.get("LOG_LEVEL"))
                 handler.setFormatter(logging.Formatter(log_format, date_format))
                 handler.open_ire_handler = True  # type: ignore[attr-defined]
                 root.addHandler(handler)
