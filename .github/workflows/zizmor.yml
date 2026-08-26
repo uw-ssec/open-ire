@@ -19,4 +19,4 @@ jobs:
       contents: read
     uses: uw-ssec/.github/.github/workflows/zizmor-lint.yml@main # zizmor: ignore[unpinned-uses] centrally managed org workflow
     with:
-      enforce: false
+      enforce: true
