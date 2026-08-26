@@ -53,7 +53,7 @@ class FileReferencePipeline:
         }
 
         request = Request(reference_url, method="HEAD", callback=NO_CALLBACK)
-        if self.crawler is None or not self.crawler.engine:
+        if self.crawler is None:
             return file_reference
 
         response = await maybe_deferred_to_future(self.crawler.engine.download(request))
