@@ -28,33 +28,22 @@ class OpenIRELogFormatter(LogFormatter):
 
 
 class OpenIRELogger:
-    """Tune per-logger levels so Open IRE and Scrapy logs share Scrapy's handler.
+    """Clamp noisy logger trees, and keep the console alive when logging to a file.
 
     All records propagate to the root logger, where Scrapy installs its single
-    handler (stderr, or LOG_FILE when set) at LOG_LEVEL. Noise control therefore
-    happens at the *emitting* loggers: LOG_LEVEL must be permissive (DEBUG), and
-    OPEN_IRE_LOG_LEVELS clamps noisy subtrees (e.g. "scrapy", "twisted").
+    handler (stderr, or LOG_FILE when set) at LOG_LEVEL. Scrapy leaves the root
+    logger itself at NOTSET, so LOG_LEVEL alone decides how verbose open_ire.*
+    is; OPEN_IRE_LOGGER_LEVELS only exists to clamp trees *below* it. Scrapy
+    already clamps several (see its DEFAULT_LOGGING), so an entry is worth
+    adding only for a logger Scrapy doesn't cover.
     """
-
-    def __init__(self, level_name: str = "INFO") -> None:
-        self.level_name = level_name
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
-        level_name = crawler.settings.get("OPEN_IRE_LOG_LEVEL", "INFO")
-        level = getattr(logging, str(level_name).upper(), logging.INFO)
+        log_levels: dict[str, str] = crawler.settings.getdict("OPEN_IRE_LOGGER_LEVELS", {})
 
-        # Module-level logs under open_ire.*
-        logging.getLogger("open_ire").setLevel(level)
-        # Spider logs emitted via self.logger (named after spider).
-        if crawler.spider:
-            logging.getLogger(crawler.spider.name).setLevel(level)
-
-        # Override levels based on the OPEN_IRE_LOG_LEVELS setting
-        log_levels: dict[str, str] = crawler.settings.getdict("OPEN_IRE_LOG_LEVELS", {})
-        for logger_name, override_name in log_levels.items():
-            override_level = getattr(logging, str(override_name).upper(), logging.INFO)
-            logging.getLogger(logger_name).setLevel(override_level)
+        for logger_name, level_name in log_levels.items():
+            logging.getLogger(logger_name).setLevel(str(level_name).upper())
 
         # Scrapy *replaces* the console handler with a file handler when
         # LOG_FILE is set; add a console handler back so both get the logs.
@@ -72,4 +61,4 @@ class OpenIRELogger:
                 handler.open_ire_handler = True  # type: ignore[attr-defined]
                 root.addHandler(handler)
 
-        return cls(level_name)
+        return cls()
