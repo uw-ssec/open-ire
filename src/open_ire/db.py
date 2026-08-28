@@ -18,7 +18,9 @@ _migrated_paths: set[str] = set()
 
 def get_alembic_config(db_url: str) -> Config:
     """Build an Alembic Config pointing at the migration scripts."""
-    cfg = Config()
+    # Deliberately avoid reading alembic.ini with its logging config so
+    # in-process migrations leave Scrapy's logging untouched.
+    cfg = Config(file_=None)
     cfg.set_main_option("script_location", str(_ALEMBIC_DIR))
     cfg.attributes["sqlalchemy.url"] = db_url
     return cfg
