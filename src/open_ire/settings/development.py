@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from .base import *  # noqa: F403
 from .base import ITEM_PIPELINES
 
@@ -21,8 +19,3 @@ SHAREPOINT_BASE_PATH = "open_ire_dev"
 # deleting in place would strip the pipeline from base.ITEM_PIPELINES too.
 ITEM_PIPELINES = dict(ITEM_PIPELINES)
 ITEM_PIPELINES.pop("open_ire.pipelines.SharePointPipeline", None)
-
-# Machine-specific overrides, if any. Checking for the file first (rather than
-# catching ImportError) keeps errors raised *inside* it from being swallowed.
-if (Path(__file__).parent / "development_local.py").exists():
-    from .development_local import *  # noqa: F403
