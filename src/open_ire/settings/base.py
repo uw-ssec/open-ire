@@ -38,6 +38,11 @@ ITEM_PIPELINES = {
     "open_ire.pipelines.SQLModelPipeline": 400,
     "open_ire.pipelines.AuthorshipPipeline": 410,
 }
+# Enable or disable extensions
+# See https://docs.scrapy.org/en/latest/topics/extensions.html
+EXTENSIONS = {
+    "open_ire.logging.OpenIRELogger": 100,
+}
 DOWNLOAD_HANDLERS = {
     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
     "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
