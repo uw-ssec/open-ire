@@ -157,6 +157,40 @@ class TestAffiliationFiltering:
     def test_drops_western_washington_university(self, spider: OstiSpider) -> None:
         assert _items(spider, [WESTERN_WASHINGTON_UNIVERSITY]) == []
 
+    @pytest.mark.parametrize(
+        "institution",
+        [
+            "University of Washington, Seattle, WA (United States)",
+            "Univ. of Washington, Seattle, WA (United States)",
+            "Washington Univ., Seattle (USA). Dept. of Physics",
+            "University of Washington, Tacoma, WA (United States)",
+            "Friday Harbor Laboratories",
+            "Washington Sea Grant",
+            "Harborview Injury Prevention and Research Center",
+            "Board of Regents of University of Washington (Seattle, WA)",
+        ],
+    )
+    def test_recognizes_our_institution(self, institution: str) -> None:
+        assert OstiSpider._is_our_institution(institution)
+
+    @pytest.mark.parametrize(
+        "institution",
+        [
+            "Washington Univ., St. Louis, MO (United States)",
+            "George Washington Univ., Washington, DC (United States)",
+            "Washington State University, Pullman, WA (United States)",
+            "Western Washington University",
+            "Eastern Washington University, Cheney, WA (United States)",
+            # Misspelled in OSTI's own data; seen live on osti_id 897663.
+            "Easthern Washington University, Upper Columbia United Tribes Fisheries Research Center",
+            "Pacific Northwest National Laboratory (PNNL), Richland, WA (United States)",
+            "Columbia Basin Fish and Wildlife Authority, Fish Passage Center",
+            "",
+        ],
+    )
+    def test_rejects_other_institutions(self, institution: str) -> None:
+        assert not OstiSpider._is_our_institution(institution)
+
     def test_keeps_record_affiliated_only_via_contributing_org(self, spider: OstiSpider) -> None:
         items = _items(spider, [UW_BY_CONTRIBUTING_ORG_ONLY])
         assert [item.reference for item in items] == ["1415347"]
@@ -173,11 +207,11 @@ class TestAffiliationFiltering:
         items = _items(spider, [UW_PACKED_WITH_CO_INSTITUTIONS])
         assert [item.reference for item in items] == ["5557777"]
         assert items[0].extra is not None
-        # Only the UW institution is recorded as evidence, not the whole field,
-        # and the research-org and author copies collapse to one entry.
-        assert items[0].extra["uw_affiliations"] == [
-            "Univ. of Washington, Seattle, WA (United States)"
-        ]
+        # Only the UW institution is recorded, not the whole packed field.
+        assert items[0].extra["affiliation_evidence"] == {
+            "work": ["Univ. of Washington, Seattle, WA (United States)"],
+            "author": ["Univ. of Washington, Seattle, WA (United States)"],
+        }
 
     def test_filters_a_mixed_page(self, spider: OstiSpider) -> None:
         items = _items(
@@ -191,53 +225,53 @@ class TestAffiliationFiltering:
         )
         assert [item.reference for item in items] == ["3021156", "3024995"]
 
-    def test_filtering_can_be_disabled(self, spider: OstiSpider) -> None:
-        spider.require_uw_affiliation = False
-        items = _items(spider, [NO_UW_ANYWHERE, WASHINGTON_UNIVERSITY_ST_LOUIS])
-        assert [item.reference for item in items] == ["10158090", "5551234"]
-
     def test_still_drops_records_missing_title_or_id(self, spider: OstiSpider) -> None:
         untitled = {**UW_BY_RESEARCH_ORG, "osti_id": "999", "title": ""}
         assert _items(spider, [untitled]) == []
 
 
 class TestAffiliationEvidence:
-    def test_uw_affiliations_collects_org_and_author_matches(self) -> None:
-        # One entry from research_orgs, one from the author's bracket.
-        assert OstiSpider._uw_affiliations(UW_BY_RESEARCH_ORG) == [
-            "University of Washington, Seattle, WA (United States)",
-            "University of Washington, Seattle, WA (United States)",
-        ]
+    def test_evidence_separates_work_from_author_affiliations(self) -> None:
+        assert OstiSpider._affiliation_evidence(UW_BY_AUTHOR_AFFILIATION_ONLY) == {
+            "work": [],
+            "author": ["University of Washington, Seattle, WA (United States)"],
+        }
+        assert OstiSpider._affiliation_evidence(UW_BY_CONTRIBUTING_ORG_ONLY) == {
+            "work": ["University of Washington, Department of Civil and Environmental Engineering"],
+            "author": [],
+        }
+
+    def test_evidence_is_empty_for_unaffiliated_record(self) -> None:
+        assert OstiSpider._affiliation_evidence(NO_UW_ANYWHERE) == {"work": [], "author": []}
 
     def test_recorded_evidence_is_deduplicated(self, spider: OstiSpider) -> None:
+        # The same institution appears on the research org and on the author.
         [item] = _items(spider, [UW_BY_RESEARCH_ORG])
         assert item.extra is not None
-        assert item.extra["uw_affiliations"] == [
-            "University of Washington, Seattle, WA (United States)"
-        ]
+        assert item.extra["affiliation_evidence"] == {
+            "work": ["University of Washington, Seattle, WA (United States)"],
+            "author": ["University of Washington, Seattle, WA (United States)"],
+        }
 
-    def test_affiliation_fields_exclude_narrative_fields(self) -> None:
+    def test_work_fields_exclude_narrative_fields(self) -> None:
         # Guards the decision that title/description/subjects are not evidence.
-        assert "title" not in OstiSpider.AFFILIATION_FIELDS
-        assert "description" not in OstiSpider.AFFILIATION_FIELDS
-        assert "subjects" not in OstiSpider.AFFILIATION_FIELDS
+        assert "title" not in OstiSpider.WORK_AFFILIATION_FIELDS
+        assert "description" not in OstiSpider.WORK_AFFILIATION_FIELDS
+        assert "subjects" not in OstiSpider.WORK_AFFILIATION_FIELDS
 
-    def test_uw_affiliations_empty_for_unaffiliated_record(self) -> None:
-        assert OstiSpider._uw_affiliations(NO_UW_ANYWHERE) == []
-
-    def test_record_affiliations_reads_authors_orgs_and_sponsors(self) -> None:
-        affiliations = OstiSpider._record_affiliations(NO_UW_ANYWHERE)
-        assert affiliations == [
+    def test_work_institutions_reads_orgs_and_sponsors(self) -> None:
+        assert OstiSpider._work_institutions(NO_UW_ANYWHERE) == [
             "Columbia Basin Fish and Wildlife Authority, Fish Passage Center",
             "US Bonneville Power Administration",
         ]
 
-    def test_extra_records_the_uw_evidence_and_search_term(self, spider: OstiSpider) -> None:
+    def test_extra_records_the_evidence_and_search_term(self, spider: OstiSpider) -> None:
         [item] = _items(spider, [UW_BY_AUTHOR_AFFILIATION_ONLY])
         assert item.extra is not None
-        assert item.extra["uw_affiliations"] == [
-            "University of Washington, Seattle, WA (United States)"
-        ]
+        assert item.extra["affiliation_evidence"] == {
+            "work": [],
+            "author": ["University of Washington, Seattle, WA (United States)"],
+        }
         assert item.extra["search_term"] == "university of washington"
 
     def test_author_names_still_exclude_affiliation_text(self, spider: OstiSpider) -> None:

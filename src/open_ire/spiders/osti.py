@@ -20,9 +20,9 @@ from urllib.parse import urlencode
 
 from scrapy.http import Request, Response
 
-from open_ire.affiliation import split_institutions, uw_affiliations
 from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem
+from open_ire.settings import OPEN_IRE_EXCLUDED_INSTITUTIONS, OPEN_IRE_INSTITUTION_NAMES
 from open_ire.spiders.search import TermSearchSpider
 from open_ire.utils import as_list, parse_date
 
@@ -33,36 +33,26 @@ _AFFILIATION_RE = re.compile(r"\s*\[.*")
 _AFFILIATION_CAPTURE_RE = re.compile(r"\[([^\]]*)\]?")
 # Matches "(ORCID:digits)" at the end of an author name.
 _ORCID_RE = re.compile(r"\s*\(ORCID:\d+\)\s*$")
+# OSTI packs several institutions into one field, separated by semicolons.
+_INSTITUTION_SEPARATOR_RE = re.compile(r"\s*;\s*")
 
 
 class OstiSpider(TermSearchSpider):
     """Collect DOE-funded research articles from the OSTI.GOV API.
 
     For each search term, queries ``/api/v1/records`` with
-    ``has_fulltext=true`` and paginates through all results, yielding
-    an :class:`ArticleItem` per record that is affiliated with UW.
+    ``has_fulltext=true`` and paginates through all results, yielding an
+    :class:`ArticleItem` per record affiliated with our institution.
 
-    OSTI's ``q`` parameter searches the indexed full text of the PDF, not
-    just its metadata, so it returns every report that so much as *mentions*
-    "University of Washington" in its references or acknowledgements.  On a
-    sample of 600 live results only 32% had any UW affiliation at all.  Each
-    record is therefore checked against its own structured affiliation
-    fields, and one without UW among them is dropped before it reaches the
-    pipelines -- see :meth:`_uw_affiliations`.
-
-    The broad query is kept deliberately: 44% of the records that pass the
-    check name UW *only* in an author's affiliation, and OSTI's ``author:``
-    field index does not cover affiliation text, so a narrower
-    ``research_org:`` query would silently lose them.
+    OSTI's ``q`` parameter also searches the indexed full text of the PDF, so
+    a search hit is not by itself evidence of an affiliation. Records are
+    therefore filtered on their own affiliation metadata; see
+    :meth:`_affiliation_evidence`.
     """
 
     name = "osti"
     api_url = "https://www.osti.gov/api/v1/records"
     page_size = 100
-
-    #: Set ``OPEN_IRE_REQUIRE_UW_AFFILIATION=False`` to keep every record the
-    #: API returns, e.g. to re-measure the false-positive rate.
-    require_uw_affiliation = True
 
     custom_settings = {  # noqa: RUF012
         "DOWNLOAD_DELAY": 1,
@@ -125,32 +115,33 @@ class OstiSpider(TermSearchSpider):
         unaffiliated = 0
         unusable = 0
         for record in records:
-            if self._require_uw_affiliation and not self._uw_affiliations(record):
+            evidence = self._affiliation_evidence(record)
+            if not any(evidence.values()):
                 unaffiliated += 1
                 self.logger.debug(
-                    "Dropping OSTI record %s (%r): no UW affiliation, matched %r in full text only",
+                    "Dropping OSTI record %s (%r): matched %r without an affiliation",
                     record.get("osti_id", "<unknown>"),
                     (record.get("title") or "")[:80],
                     search_term,
                 )
                 continue
 
-            item = self._parse_record(record, search_term)
+            item = self._parse_record(record, search_term, evidence)
             if item is None:
                 unusable += 1
                 continue
             yield item
 
         if unaffiliated:
-            self.logger.info(
-                "Dropped %d of %d record(s) on page %d for %r: no UW affiliation",
+            self.logger.debug(
+                "Dropped %d of %d record(s) on page %d for %r: no affiliation",
                 unaffiliated,
                 len(records),
                 current_page,
                 search_term,
             )
         if unusable:
-            self.logger.info(
+            self.logger.debug(
                 "Skipped %d record(s) on page %d for %r (missing title or osti_id)",
                 unusable,
                 current_page,
@@ -165,54 +156,96 @@ class OstiSpider(TermSearchSpider):
 
     # === AFFILIATION CHECKING ===
 
-    @property
-    def _require_uw_affiliation(self) -> bool:
-        """Whether records without a UW affiliation should be dropped."""
-        # `settings` is only attached once a crawler adopts the spider.
-        settings = getattr(self, "settings", None)
-        if settings is None:
-            return self.require_uw_affiliation
-        return bool(
-            settings.getbool("OPEN_IRE_REQUIRE_UW_AFFILIATION", self.require_uw_affiliation)
+    #: Fields naming the institutions behind the work itself. Deliberately
+    #: excludes ``title``, ``description`` and ``subjects``: a report *about*
+    #: an institution's facility is not that institution's work. OSTI 2311080,
+    #: "Evaluation of the Radioactive Material Release in the Harborview
+    #: Research Building", was authored at Brookhaven and names UW only in its
+    #: title and abstract.
+    WORK_AFFILIATION_FIELDS = ("research_orgs", "sponsor_orgs", "contributing_org", "assignee")
+
+    @staticmethod
+    def _normalize(value: str) -> str:
+        """Collapse whitespace and case-fold *value* for matching."""
+        return re.sub(r"\s+", " ", value or "").casefold()
+
+    @classmethod
+    def _is_our_institution(cls, institution_string: str) -> bool:
+        """Return ``True`` if *institution_string* names our institution.
+
+        *institution_string* must be a single institution, not a whole title
+        or abstract: the exclusions below have to apply to the same name they
+        disqualify, or one institution's city would rule out another's match.
+        """
+        name = cls._normalize(institution_string)
+        return any(n in name for n in OPEN_IRE_INSTITUTION_NAMES) and not any(
+            x in name for x in OPEN_IRE_EXCLUDED_INSTITUTIONS
         )
 
-    #: Record fields that name an institution outright.  Deliberately excludes
-    #: ``title``, ``description`` and ``subjects``: a report *about* a UW
-    #: facility (e.g. "Radioactive Material Release in the Harborview Research
-    #: Building", authored at Brookhaven) names UW without being UW's work,
-    #: which is the very confusion this check exists to resolve.
-    AFFILIATION_FIELDS = ("research_orgs", "sponsor_orgs", "contributing_org", "assignee")
+    @classmethod
+    def _institutions(cls, values: list[str]) -> list[str]:
+        """Split OSTI's packed affiliation *values* into single institutions."""
+        institutions: list[str] = []
+        for value in values:
+            institutions.extend(
+                part.strip()
+                for part in _INSTITUTION_SEPARATOR_RE.split(value or "")
+                if part.strip()
+            )
+        return institutions
 
     @classmethod
-    def _record_affiliations(cls, record: dict[str, Any]) -> list[str]:
-        """Return every institution named in *record*'s structured fields.
+    def _work_institutions(cls, record: dict[str, Any]) -> list[str]:
+        """Return the institutions credited with the work in *record*."""
+        values: list[str] = []
+        for field in cls.WORK_AFFILIATION_FIELDS:
+            values.extend(as_list(record.get(field)))
+        return cls._institutions(values)
 
-        Covers :attr:`AFFILIATION_FIELDS` plus the affiliation OSTI brackets
-        into each author entry -- the only place a UW connection is recorded
-        for a large minority of UW articles.  OSTI returns some of these as a
-        bare string and some as a list, and packs several institutions into
-        one value with semicolons, so each is normalised to one entry per
-        institution.
+    @classmethod
+    def _author_institutions(cls, record: dict[str, Any]) -> list[str]:
+        """Return the institutions bracketed into *record*'s author entries.
+
+        For a large minority of OSTI records this is the only place an
+        affiliation is recorded, and OSTI's ``author:`` index does not cover
+        it, so it cannot be reached by a field-scoped query.
         """
-        fields: list[str] = []
-        for name in cls.AFFILIATION_FIELDS:
-            fields.extend(as_list(record.get(name)))
+        values: list[str] = []
         for author in as_list(record.get("authors")):
-            fields.extend(_AFFILIATION_CAPTURE_RE.findall(author))
-
-        affiliations: list[str] = []
-        for field in fields:
-            affiliations.extend(split_institutions(field))
-        return affiliations
+            values.extend(_AFFILIATION_CAPTURE_RE.findall(author))
+        return cls._institutions(values)
 
     @classmethod
-    def _uw_affiliations(cls, record: dict[str, Any]) -> list[str]:
-        """Return *record*'s structured affiliations that name UW."""
-        return uw_affiliations(cls._record_affiliations(record))
+    def _affiliation_evidence(cls, record: dict[str, Any]) -> dict[str, list[str]]:
+        """Return *record*'s affiliations with our institution, by kind.
+
+        OSTI records an affiliation against the work and against individual
+        authors, and either alone is enough to collect the article. Both are
+        returned so the distinction survives into the stored item.
+        """
+        return {
+            "work": cls._our_institutions(cls._work_institutions(record)),
+            "author": cls._our_institutions(cls._author_institutions(record)),
+        }
+
+    @classmethod
+    def _our_institutions(cls, institutions: list[str]) -> list[str]:
+        """Return the entries of *institutions* that are ours, de-duplicated.
+
+        The same institution is usually repeated once per author, so the list
+        is de-duplicated while keeping the order it was found in.
+        """
+        ours = [i for i in institutions if cls._is_our_institution(i)]
+        return list(dict.fromkeys(ours))
 
     # === RECORD PARSING ===
 
-    def _parse_record(self, record: dict[str, Any], search_term: str = "") -> ArticleItem | None:
+    def _parse_record(
+        self,
+        record: dict[str, Any],
+        search_term: str = "",
+        evidence: dict[str, list[str]] | None = None,
+    ) -> ArticleItem | None:
         """Convert a single OSTI API record dict into an :class:`ArticleItem`."""
         title = (record.get("title") or "").strip()
         osti_id = str(record.get("osti_id", "")).strip()
@@ -228,7 +261,7 @@ class OstiSpider(TermSearchSpider):
             abstract=(record.get("description") or "").strip() or None,
             authors=self._extract_authors(record),
             doi=self._extract_doi(record),
-            extra=self._build_extra(record, search_term),
+            extra=self._build_extra(record, search_term, evidence),
             file_urls=self._extract_fulltext_urls(record),
             issn=self._extract_issn(record),
             publication_date=parse_date(record.get("publication_date")),
@@ -264,7 +297,7 @@ class OstiSpider(TermSearchSpider):
 
     @staticmethod
     def _extract_doi(record: dict[str, Any]) -> str | None:
-        """Extract and normalise the DOI, stripping the URL prefix."""
+        """Extract and normalize the DOI, stripping the URL prefix."""
         doi = (record.get("doi") or "").strip()
         if not doi:
             return None
@@ -301,7 +334,12 @@ class OstiSpider(TermSearchSpider):
         return None
 
     @classmethod
-    def _build_extra(cls, record: dict[str, Any], search_term: str = "") -> dict[str, Any]:
+    def _build_extra(
+        cls,
+        record: dict[str, Any],
+        search_term: str = "",
+        evidence: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
         """Collect supplementary metadata into the ``extra`` dict."""
         extra: dict[str, Any] = {}
         for key in (
@@ -318,14 +356,14 @@ class OstiSpider(TermSearchSpider):
             if value := record.get(key):
                 extra[key] = value
 
-        # Keep the evidence that justified collecting this article.  Author
-        # affiliations are stripped from the ``authors`` string to match
-        # ParsedAuthor conventions, so without this the UW connection would be
-        # unverifiable after the crawl.  De-duplicated because the same
-        # institution usually appears both as a research org and on each of
-        # its authors.
-        if uw := list(dict.fromkeys(cls._uw_affiliations(record))):
-            extra["uw_affiliations"] = uw
+        # Record why this article was collected. `authors` stores names
+        # without their affiliations, and the `authoraffiliation` table is not
+        # populated yet, so this is currently the only place the affiliation
+        # survives the crawl.
+        if evidence is None:
+            evidence = cls._affiliation_evidence(record)
+        if any(evidence.values()):
+            extra["affiliation_evidence"] = evidence
         if search_term:
             extra["search_term"] = search_term
 
