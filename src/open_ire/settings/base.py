@@ -86,6 +86,42 @@ OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_SKIP_EXISTING_WITH_FILES = False
 OPEN_IRE_CONTACT_EMAIL = "uwtextmine@uw.edu"
 
+# Names that identify our institution in a repository's affiliation metadata.
+# Matched as case-insensitive substrings of a single institution string, so a
+# prefix such as "friday harbor lab" also covers "Friday Harbor Laboratories",
+# and "washington univ" covers both "Washington Univ." and the spelled-out
+# "Washington University" that older records use for UW.
+OPEN_IRE_INSTITUTION_NAMES = [
+    "friday harbor lab",
+    "harborview",
+    "u. of washington",
+    "univ of washington",
+    "univ. of washington",
+    "university of washington",
+    "uw.edu",
+    "washington sea grant",
+    "washington univ",
+    "washington.edu",
+]
+
+# Other institutions whose names contain one of the above. Checked against the
+# same institution string: a name match that also matches one of these belongs
+# to a different institution, not to ours.
+OPEN_IRE_EXCLUDED_INSTITUTIONS = [
+    "central washington univ",
+    "eastern washington univ",
+    # Misspelled in some OSTI records ("Easthern Washington University").
+    "easthern washington univ",
+    "george washington",
+    "saint louis",
+    "st louis",
+    "st. louis",
+    "washington state univ",
+    "washington, d.c.",
+    "washington, dc",
+    "western washington univ",
+]
+
 # Default log level for `open_ire` logger
 OPEN_IRE_LOG_LEVEL = "INFO"
 OPEN_IRE_LOG_DROPPED_ITEMS = True
