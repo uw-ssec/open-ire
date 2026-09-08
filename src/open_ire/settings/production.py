@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from .base import *  # noqa: F403
+from .base import EXTENSIONS
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 USER_AGENT = "open_ire (+https://lib.uw.edu/)"
@@ -12,7 +13,10 @@ LOG_FILE = f"output/open_ire__{timestamp}.log"
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
+# Rebuild rather than mutate: `from .base import` binds the same dict object,
+# so updating in place would add these to base.EXTENSIONS too.
 EXTENSIONS = {
+    **EXTENSIONS,
     "scrapy.extensions.corestats.CoreStats": 500,
     "scrapy.extensions.periodic_log.PeriodicLog": 500,
 }
