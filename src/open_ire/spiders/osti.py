@@ -207,8 +207,8 @@ class OstiSpider(TermSearchSpider):
         """Return the institutions bracketed into *record*'s author entries.
 
         For a large minority of OSTI records this is the only place an
-        affiliation is recorded, and OSTI's ``author:`` index does not cover
-        it, so it cannot be reached by a field-scoped query.
+        affiliation is recorded, so it has to be read from the author entries
+        rather than from the organization fields.
         """
         values: list[str] = []
         for author in as_list(record.get("authors")):
