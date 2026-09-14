@@ -1,6 +1,6 @@
 import os
 
-from requests import utils as requests_utils
+from open_ire.version import version as __version__
 
 #
 # Open IRE Settings
@@ -34,7 +34,10 @@ BOT_NAME = "open_ire"
 SPIDER_MODULES = ["open_ire.spiders"]
 NEWSPIDER_MODULE = "open_ire.spiders"
 
-USER_AGENT = requests_utils.default_user_agent()
+# Crawl responsibly by identifying ourselves
+USER_AGENT = (
+    f"open-ire/{__version__} (+https://github.com/uw-ssec/open-ire; {OPEN_IRE_CONTACT_EMAIL})"
+)
 ROBOTSTXT_USER_AGENT = USER_AGENT
 ROBOTSTXT_OBEY = True
 
