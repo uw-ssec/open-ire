@@ -41,7 +41,7 @@ def id_from_uri(uri: str) -> str:
          Upcased ID string, or input string if the string is not a URI."""
     if not uri.startswith(("https://", "http://")):
         return uri
-    return uri.split("/")[-1].upper()
+    return uri.rsplit("/", maxsplit=1)[-1].upper()
 
 
 # === OPENALEX API DATACLASSES ===
