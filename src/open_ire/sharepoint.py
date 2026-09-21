@@ -52,11 +52,8 @@ class SharePoint:
         return GraphServiceClient(credential, scopes)
 
     def _item_id_from_path(self, item_path: str) -> str:
-        if item_path.startswith("/"):
-            item_path = item_path[1:]
-
-        if item_path.endswith("/"):
-            item_path = item_path[:-1]
+        item_path = item_path.removeprefix("/")
+        item_path = item_path.removesuffix("/")
 
         return f"root:/{self.base_path}/{item_path}:/"
 
