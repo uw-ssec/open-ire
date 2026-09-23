@@ -25,6 +25,37 @@ OPEN_IRE_OPENALEX_INSTITUTION_ID = "i201448701"
 OPEN_IRE_OPENALEX_AMBIGUOUS_AUTHORS_FILE = "output/openalex_ambiguous_authors.csv"
 OPEN_IRE_WOS_ORGANIZATION = "University of Washington"
 
+# Names that identify our institution in a repository's affiliation metadata.
+# Matched as case-insensitive substrings of a single institution string.
+OPEN_IRE_INSTITUTION_NAMES = [
+    "friday harbor lab",
+    "harborview",
+    "u. of washington",
+    "univ of washington",
+    "univ. of washington",
+    "university of washington",
+    "uw.edu",
+    "washington sea grant",
+    "washington univ",
+    "washington.edu",
+]
+
+# List of institutions to filter out, since their names contain one of the terms
+# in OPEN_IRE_INSTITUTION_NAMES.
+OPEN_IRE_EXCLUDED_INSTITUTIONS = [
+    "central washington univ",
+    "eastern washington univ",
+    # Misspelled in some OSTI records ("Easthern Washington University").
+    "easthern washington univ",
+    "george washington",
+    "saint louis",
+    "st louis",
+    "st. louis",
+    "washington state univ",
+    "washington, d.c.",
+    "washington, dc",
+    "western washington univ",
+]
 
 # ===============================================================================
 # Scrapy settings
