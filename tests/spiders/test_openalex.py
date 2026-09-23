@@ -86,7 +86,7 @@ def make_publication_data(
 
 class TestOpenAlexSpider:
     def test_no_arguments_raises_error(self) -> None:
-        with pytest.raises(ValueError, match="requires either"):
+        with pytest.raises(ValueError, match="requires"):
             OpenAlexSpider()
 
     def test_author_name_parameter(self, sample_authors: list[ParsedAuthor]) -> None:

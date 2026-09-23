@@ -56,8 +56,43 @@ class TestAuthorSearchSpider:
     """Tests for AuthorSearchSpider class."""
 
     def test_no_arguments_raise_error(self) -> None:
-        with pytest.raises(ValueError, match="requires either"):
+        with pytest.raises(ValueError, match="requires"):
             DummyAuthorSearchSpider()
+
+    @pytest.mark.asyncio
+    async def test_authors_arg_detects_csv_path(
+        self, tmp_path: Path, sample_authors: list[ParsedAuthor]
+    ) -> None:
+        """An `authors` value pointing at an existing CSV is loaded as a CSV."""
+        csv_author = sample_authors[4]
+        csv_path = _make_author_csv(tmp_path / "authors.csv", [csv_author])
+
+        spider = DummyAuthorSearchSpider(authors=str(csv_path))
+        outputs = await _collect_outputs(spider)
+        requests = [output for output in outputs if isinstance(output, Request)]
+
+        assert [_search_value(req) for req in requests] == [csv_author.full_name]
+
+    @pytest.mark.asyncio
+    async def test_authors_arg_detects_name(
+        self, sample_authors: list[ParsedAuthor]
+    ) -> None:
+        """An `authors` value that is not path-shaped is treated as a personal name."""
+        author = sample_authors[0]
+
+        spider = DummyAuthorSearchSpider(authors=author.full_name)
+        outputs = await _collect_outputs(spider)
+        author_items = [output for output in outputs if isinstance(output, AuthorItem)]
+        requests = [output for output in outputs if isinstance(output, Request)]
+
+        assert [item.author for item in author_items] == [author]
+        assert [_search_value(req) for req in requests] == [author.full_name]
+
+    def test_authors_arg_missing_csv_path_raises(self, tmp_path: Path) -> None:
+        """A path-shaped `authors` value that does not exist is an error, not a name."""
+        missing = tmp_path / "does-not-exist.csv"
+        with pytest.raises(ValueError, match="does not exist"):
+            DummyAuthorSearchSpider(authors=str(missing))
 
     @pytest.mark.asyncio
     async def test_start_yields_author_items_then_requests(
