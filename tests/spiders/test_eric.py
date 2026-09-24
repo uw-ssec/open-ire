@@ -1,8 +1,35 @@
 import pytest
 from scrapy.http import HtmlResponse
 
+from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_SEARCH_TERMS
 from open_ire.spiders.eric import EricSpider
+
+
+def _detail_response(
+    *,
+    url: str = "https://eric.ed.gov/?id=EJ1234567",
+    eric_number: str = "EJ1234567",
+    eissn: str = "EISSN-1234-5678",
+    authors: str = "Jane Doe; John Smith",
+) -> HtmlResponse:
+    """Build an ERIC detail-page response matching the selectors ``parse_detail`` reads."""
+    html = f"""
+    <div class="title">A Study of Something</div>
+    <div><strong>ERIC Number:</strong> {eric_number}</div>
+    <div><strong>Publication Date:</strong> 2025</div>
+    <div><strong>EISSN:</strong> {eissn}</div>
+    <div class="abstract">An abstract.</div>
+    <div class="r_a"><div><div>{authors}</div></div></div>
+    """
+    return HtmlResponse(url=url, body=html.encode("utf-8"))
+
+
+def _parse_one(response: HtmlResponse) -> ArticleItem:
+    """Run ``parse_detail`` and return its single yielded item."""
+    spider = EricSpider()
+    (item,) = list(spider.parse_detail(response))
+    return item
 
 
 class TestEricSpider:
@@ -40,6 +67,32 @@ class TestEricSpider:
         assert eric_number == "EJ1234567"
         assert pub_date == "2025"
         assert missing is None
+
+    def test_parse_detail_strips_eissn_prefix(self) -> None:
+        """A prefixed 'EISSN-<code>' page value is stored as the bare code (#116)."""
+        item = _parse_one(_detail_response(eissn="EISSN-1234-5678"))
+        assert item.eissn == "1234-5678"
+
+    def test_parse_detail_stores_null_for_na_eissn(self) -> None:
+        """The literal 'N/A' EISSN placeholder is stored as None, not a string (#116)."""
+        item = _parse_one(_detail_response(eissn="N/A"))
+        assert item.eissn is None
+
+    def test_parse_detail_url_omits_search_query(self) -> None:
+        """The stored URL links directly to the article, without the search query (#118)."""
+        search_url = "https://eric.ed.gov/?q=university+of+washington&ft=on&pg=20&id=EJ1362008"
+        item = _parse_one(_detail_response(url=search_url, eric_number="EJ1362008"))
+        assert item.url == "https://eric.ed.gov/?id=EJ1362008"
+
+    def test_parse_detail_normalizes_authors(self) -> None:
+        """Raw author text is re-encoded as canonical 'Last, First' names (#102)."""
+        item = _parse_one(_detail_response(authors="Jane Doe; John Smith"))
+        assert item.authors == "Doe, Jane; Smith, John"
+
+    def test_parse_detail_empty_authors_stored_as_none(self) -> None:
+        """A page with no real authors (e.g. '; ') stores None, not a mangled string (#102)."""
+        item = _parse_one(_detail_response(authors="; "))
+        assert item.authors is None
 
 
 @pytest.mark.parametrize("missing", ["title", "reference"])
