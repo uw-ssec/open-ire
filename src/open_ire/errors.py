@@ -42,3 +42,19 @@ class DatabaseDuplicateItemError(OpenIRError, DropItem):
 
     def __init__(self, message: str | None = None) -> None:
         super().__init__(message or "Duplicate item found in database.")
+
+
+class DatabaseRevisionError(OpenIRError, RuntimeError):
+    """Raised when an existing database is not at the latest migration revision."""
+
+    def __init__(self, db_path: str, revision: str | None, head: str | None) -> None:
+        found = revision or "unversioned (no alembic_version row)"
+        message = (
+            f"Database '{db_path}' is at migration revision {found}, but this code expects {head}. "
+            f'Back up the file, then run: `OPEN_IRE_DATABASE_FILE="{db_path}" pixi run -e dev alembic upgrade head`. '
+            f'See "Database Migrations" in CONTRIBUTING.md for more details.'
+        )
+        super().__init__(message)
+        self.db_path = db_path
+        self.revision = revision
+        self.head = head
