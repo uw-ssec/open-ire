@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Session
@@ -69,4 +69,4 @@ class AuthorshipPipeline(BaseSQLModelPipeline):
                 author_order,
             )
             link.author_order = author_order
-            link.updated_at = datetime.now()
+            link.updated_at = datetime.now(UTC)
