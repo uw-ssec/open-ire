@@ -203,7 +203,7 @@ test = "python -m pytest -ra --cov=open_ire"
 # User-facing tasks
 
 [tool.pixi.tasks.dotenv]
-cmd = "mkdir -p output && cp -n .env.example .env"
+cmd = "mkdir -p output && (test -e .env || cp .env.example .env)"
 
 [tool.pixi.tasks.resume]
 args = [
