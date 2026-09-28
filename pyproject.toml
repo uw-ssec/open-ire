@@ -33,6 +33,7 @@ dependencies = [
     "scrapy",
     "scrapy-playwright",
     "sqlmodel",
+    "tzdata; platform_system == 'Windows'",
 ]
 
 [project.license]
