@@ -1,12 +1,19 @@
 """Alembic environment configuration for Open IRE."""
 
 import os
+from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 import open_ire.models  # noqa: F401
+
+# Apply alembic.ini's logging config, which is what makes `alembic` CLI output visible. Only the
+# CLI reaches this: db.py builds a fileless Config(), so config_file_name is None during a crawl
+# and Scrapy's logging setup is left alone.
+if context.config.config_file_name is not None:
+    fileConfig(context.config.config_file_name)
 
 target_metadata = SQLModel.metadata
 

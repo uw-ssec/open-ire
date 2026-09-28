@@ -116,12 +116,15 @@ PLAYWRIGHT_LAUNCH_OPTIONS = {
 # ===============================================================================
 # Logging
 # ===============================================================================
+# Registered here rather than per-environment so every environment gets it.
+EXTENSIONS = {
+    "open_ire.logging.OpenIRELogger": 100,
+}
+LOG_LEVEL = "INFO"
+# LOG_LEVEL alone controls how verbose open_ire.* is; OPEN_IRE_LOGGER_LEVELS
+# clamps noisy logger trees below it. Add `open_ire` there only to make Open
+# IRE logging quieter than LOG_LEVEL.
+OPEN_IRE_LOGGER_LEVELS: dict[str, str] = {}
+# The formatter allows suppressing (the very noisy) logging of dropped items.
 LOG_FORMATTER = "open_ire.logging.OpenIRELogFormatter"
-# Default log level for `open_ire` logger
-OPEN_IRE_LOG_LEVEL = "INFO"
 OPEN_IRE_LOG_DROPPED_ITEMS = True
-# Override log levels for specific modules. For example:
-# OPEN_IRE_LOG_LEVELS = {
-#   "open_ire.pipelines.sharepoint_pipeline": "WARNING"
-# }
-OPEN_IRE_LOG_LEVELS = {}
