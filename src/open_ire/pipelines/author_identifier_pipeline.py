@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Session, select
@@ -84,7 +84,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
 
     def _update_author(self, session: Session, author: Author, item: AuthorItem) -> None:
         """Update an existing author with new data and add any missing identifiers."""
-        author.updated_at = datetime.now()
+        author.updated_at = datetime.now(UTC)
 
         # Add any identifiers that don't already exist
         self._add_missing_identifiers(session, author, item.identifiers)

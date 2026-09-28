@@ -25,7 +25,6 @@ def upgrade() -> None:
                 "updated_at",
                 sa.DateTime(),
                 nullable=False,
-                server_default=sa.text("(datetime('now'))"),
             )
         )
 

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, CheckConstraint, Column, ForeignKey, UniqueConstraint
@@ -33,8 +33,8 @@ class ArticleBase(SQLModel):
     abstract: str | None = None
     type: ArticleType | None = None
     authors: str | None = None
-    created_at: datetime = Field(default_factory=datetime.now, index=True)
-    updated_at: datetime = Field(default_factory=datetime.now, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
     doi: str | None = None
     eissn: str | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -116,7 +116,7 @@ class ArticleFileBase(SQLModel):
     """
 
     article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    created_at: datetime = Field(default_factory=datetime.now, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
     extension: str | None = None
     size: int | None = None
     url: str = Field(unique=True)
@@ -183,7 +183,7 @@ class ArticleOAEvidence(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     article_id: uuid.UUID = Field(foreign_key="article.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.now, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
     kind: OAEvidenceKind = Field(index=True)
     supports_oa: bool
@@ -216,7 +216,7 @@ class ArticleDepositStatusTransition(SQLModel, table=True):
 
     from_status: DepositStatus | None = Field(default=None, index=True)
     to_status: DepositStatus | None = Field(default=None, index=True)
-    changed_at: datetime = Field(default_factory=datetime.now, index=True)
+    changed_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
     reasons: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
@@ -245,8 +245,8 @@ class AuthorBase(SQLModel):
     canonical_name: str = Field(index=True)
     uw_academic_unit: str | None = Field(default=None, index=True)
     explicitly_searched: bool = Field(default=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Author(AuthorBase, table=True):
@@ -318,7 +318,7 @@ class AuthorIdentifierBase(SQLModel):
     author_id: int | None = Field(default=None, foreign_key="author.id")
     authority: str = Field(index=True)
     identifier: str = Field(index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuthorIdentifier(AuthorIdentifierBase, table=True):
@@ -354,8 +354,8 @@ class AuthorshipBase(SQLModel):
     article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
     author_id: int | None = Field(default=None, foreign_key="author.id")
     author_order: int | None = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Authorship(AuthorshipBase, table=True):
