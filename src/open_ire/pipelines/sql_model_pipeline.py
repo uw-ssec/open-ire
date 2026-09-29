@@ -26,7 +26,7 @@ class SQLModelPipeline(BaseSQLModelPipeline):
 
         for file_ref in file_references:
             try:
-                article_file_refs.append(ArticleFileReference(**file_ref))
+                article_file_refs.append(ArticleFileReference.model_validate(file_ref))
             except ValidationError:
                 logger.warning("Skipping file reference due to validation error.")
 
@@ -70,7 +70,7 @@ class SQLModelPipeline(BaseSQLModelPipeline):
                 file_data["store_url"] = (
                     item.store_urls[i] if item.store_urls and i < len(item.store_urls) else None
                 )
-                file_row = ArticleFile(**file_data)
+                file_row = ArticleFile.model_validate(file_data)
                 article_files.append(file_row)
             except ValidationError:
                 logger.warning("Skipping file due to validation error.")

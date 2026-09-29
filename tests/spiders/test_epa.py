@@ -1,5 +1,6 @@
 from datetime import date
 
+import pytest
 from scrapy.http import HtmlResponse, Request
 
 from open_ire.items import ArticleItem
@@ -103,3 +104,12 @@ class TestEPASpider:
             "https://catalog.data.gov/dataset/sample-dataset",
             "https://catalog.data.gov/download/file2.json",
         )
+
+
+@pytest.mark.parametrize("missing", ["title", "reference"])
+def test_parse_detail_skips_missing_required_metadata(missing: str) -> None:
+    title = '<meta name="DC.title" content="Example">'
+    reference = '<span id="recordID">123</span>'
+    html = reference if missing == "title" else title
+    response = HtmlResponse(url="https://example.com/article", body=html.encode())
+    assert list(EPASpider().parse_detail(response)) == []

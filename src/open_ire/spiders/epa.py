@@ -89,6 +89,12 @@ class EPASpider(Spider):
         title = text_response.css('meta[name="DC.title"]::attr(content)').get()
         abstract = text_response.css('meta[name="DC.description"]::attr(content)').get()
         reference = text_response.xpath('//span[@id="recordID"]/text()').get()
+        if not reference or not title:
+            self.logger.warning(
+                "Skipping article with missing title or record ID: %s", response.url
+            )
+            return
+
         publication_date_text = (
             text_response.xpath(
                 "//b[contains(text(), 'Product Published Date:')]/following-sibling::text()"
@@ -100,7 +106,7 @@ class EPASpider(Spider):
 
         item = ArticleItem(
             abstract=abstract,
-            authors=self.extract_authors(text_response, title or ""),
+            authors=self.extract_authors(text_response, title),
             file_urls=self.extract_file_urls(text_response),
             publication_date=publication_date,
             reference=reference,

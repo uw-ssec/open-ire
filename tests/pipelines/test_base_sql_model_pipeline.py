@@ -1,9 +1,10 @@
 """Contract tests for BaseSQLModelPipeline subclasses."""
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from scrapy import Spider
+from scrapy.crawler import Crawler
 
 from open_ire.errors import ConfigurationError
 from open_ire.pipelines import BaseSQLModelPipeline, SQLModelPipeline
@@ -35,25 +36,25 @@ class TestBaseSQLModelPipeline:
         self, pipeline_cls: type[BaseSQLModelPipeline], tmp_path: Path
     ) -> None:
         missing_db = str(tmp_path / "missing_parent" / "open_ire.db")
-        crawler = SimpleNamespace(
-            settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
+        crawler = Crawler(
+            Spider, settings={"OPEN_IRE_DATABASE_FILE": missing_db, "FILES_STORE": str(tmp_path)}
         )
 
-        pipeline = pipeline_cls.from_crawler(crawler)  # type: ignore[arg-type]
+        pipeline = pipeline_cls.from_crawler(crawler)
 
         assert isinstance(pipeline, pipeline_cls)
         assert pipeline.crawler is crawler
         assert Path(missing_db).parent.exists()
 
     def test_from_crawler_raises_if_open_ire_database_file_missing(self, tmp_path: Path) -> None:
-        crawler = SimpleNamespace(settings={"FILES_STORE": str(tmp_path)})
+        crawler = Crawler(Spider, settings={"FILES_STORE": str(tmp_path)})
 
         with pytest.raises(ConfigurationError, match="OPEN_IRE_DATABASE_FILE"):
-            SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
+            SQLModelPipeline.from_crawler(crawler)
 
     def test_from_crawler_raises_if_files_store_missing(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "dbs" / "open_ire.db")
-        crawler = SimpleNamespace(settings={"OPEN_IRE_DATABASE_FILE": db_path})
+        crawler = Crawler(Spider, settings={"OPEN_IRE_DATABASE_FILE": db_path})
 
         with pytest.raises(ConfigurationError, match="FILES_STORE"):
-            SQLModelPipeline.from_crawler(crawler)  # type: ignore[arg-type]
+            SQLModelPipeline.from_crawler(crawler)

@@ -54,6 +54,13 @@ class EricSpider(Spider):
             file_urls.append(response.urljoin(file_href))
 
         eric_number = self.extract_article_attribute("ERIC Number", response)
+        title = response.css(".title::text").get()
+        if not eric_number or not title:
+            self.logger.warning(
+                "Skipping article with missing title or ERIC Number: %s", response.url
+            )
+            return
+
         publication_date_text = self.extract_article_attribute("Publication Date", response)
         eissn = self.extract_article_attribute("EISSN", response)
 
@@ -65,7 +72,7 @@ class EricSpider(Spider):
             publication_date=parse_date(publication_date_text),
             reference=eric_number,
             repository=self.name,
-            title=response.css(".title::text").get(),
+            title=title,
             url=response.url,
         )
 

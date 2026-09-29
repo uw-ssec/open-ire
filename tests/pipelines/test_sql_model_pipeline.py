@@ -188,3 +188,15 @@ class TestSQLModelPipeline:
         with Session(pipeline.engine) as session:
             file_refs = session.exec(select(ArticleFileReference)).all()
             assert len(file_refs) == 1
+
+
+@pytest.mark.parametrize("kind", ["files", "file_references"])
+def test_invalid_file_metadata_is_skipped(kind: str) -> None:
+    item = ArticleItem(reference="test", repository="test", title="Test", url="https://example.com")
+    pipeline = SQLModelPipeline(":memory:", "output")
+    if kind == "files":
+        item.files = [{"url": "https://example.com/file", "path": "file.pdf"}]
+        assert pipeline._get_article_files(item) == []
+    else:
+        item.file_references = [{"url": None}]
+        assert pipeline._get_article_file_references(item) == []

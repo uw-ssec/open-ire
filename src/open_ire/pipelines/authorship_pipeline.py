@@ -50,6 +50,7 @@ class AuthorshipPipeline(BaseSQLModelPipeline):
         if author is None:
             return
 
+        assert author.id is not None
         link = session.get(Authorship, (article.id, author.id))
         if link is None:
             logger.debug(
@@ -57,7 +58,9 @@ class AuthorshipPipeline(BaseSQLModelPipeline):
                 article.id,
                 author.canonical_name,
             )
-            session.add(Authorship(article=article, author=author, author_order=author_order))
+            session.add(
+                Authorship(article_id=article.id, author_id=author.id, author_order=author_order)
+            )
             return
 
         if link.author_order != author_order:

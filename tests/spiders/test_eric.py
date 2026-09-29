@@ -1,3 +1,4 @@
+import pytest
 from scrapy.http import HtmlResponse
 
 from open_ire.settings import OPEN_IRE_SEARCH_TERMS
@@ -39,3 +40,12 @@ class TestEricSpider:
         assert eric_number == "EJ1234567"
         assert pub_date == "2025"
         assert missing is None
+
+
+@pytest.mark.parametrize("missing", ["title", "reference"])
+def test_parse_detail_skips_missing_required_metadata(missing: str) -> None:
+    title = '<div class="title">Example</div>'
+    reference = "<div><strong>ERIC Number:</strong> EJ123</div>"
+    html = reference if missing == "title" else title
+    response = HtmlResponse(url="https://example.com/article", body=html.encode())
+    assert list(EricSpider().parse_detail(response)) == []

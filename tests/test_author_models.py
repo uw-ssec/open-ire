@@ -71,6 +71,7 @@ class TestAuthorship:
         session.commit()
         session.refresh(article)
         session.refresh(author)
+        assert author.id is not None
 
         # Create junction record
         article_author = Authorship(article_id=article.id, author_id=author.id, author_order=1)
@@ -124,7 +125,9 @@ class TestAuthorship:
         session.commit()
         session.refresh(article)
         session.refresh(author1)
+        assert author1.id is not None
         session.refresh(author2)
+        assert author2.id is not None
 
         # Create junction records
         junction1 = Authorship(article_id=article.id, author_id=author1.id, author_order=1)
@@ -169,6 +172,7 @@ class TestAuthorship:
         session.add_all([author, article1, article2])
         session.commit()
         session.refresh(author)
+        assert author.id is not None
         session.refresh(article1)
         session.refresh(article2)
 
@@ -208,6 +212,7 @@ class TestAuthorship:
         session.commit()
         session.refresh(article)
         session.refresh(author)
+        assert author.id is not None
 
         # Create junction record
         junction = Authorship(article_id=article.id, author_id=author.id, author_order=1)
@@ -246,6 +251,7 @@ class TestAuthorship:
         session.commit()
         session.refresh(article)
         session.refresh(author)
+        assert author.id is not None
 
         session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
         session.commit()
@@ -277,6 +283,7 @@ class TestAuthorship:
         session.commit()
         session.refresh(article)
         session.refresh(author)
+        assert author.id is not None
 
         session.add(Authorship(article_id=article.id, author_id=author.id, author_order=1))
         session.commit()
@@ -299,6 +306,7 @@ class TestAuthorship:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         session.add(Authorship(article_id=uuid4(), author_id=author.id, author_order=1))
         with pytest.raises(IntegrityError):
@@ -321,6 +329,7 @@ class TestAuthorIdentifiers:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         # Add identifiers
         orcid = AuthorIdentifier(
@@ -353,6 +362,7 @@ class TestAuthorIdentifiers:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         session.add_all(
             [
@@ -376,7 +386,10 @@ class TestAuthorConstraints:
 
     def test_author_requires_canonical_name(self, session: Session):
         """Creating an author without canonical_name should fail at commit time."""
-        author = Author(full_name="Missing Canonical", first_name="Missing", last_name="Canonical")
+        # Deliberately omit the required field to exercise the database constraint.
+        author = Author(  # type: ignore[call-arg]
+            full_name="Missing Canonical", first_name="Missing", last_name="Canonical"
+        )
         session.add(author)
 
         with pytest.raises(IntegrityError):
@@ -395,6 +408,7 @@ class TestAuthorAffiliations:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         affiliation1 = AuthorAffiliation(author_id=author.id, year=2019)
         affiliation2 = AuthorAffiliation(author_id=author.id, year=2021)
@@ -418,6 +432,7 @@ class TestAuthorAffiliations:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         session.add_all(
             [
@@ -447,6 +462,7 @@ class TestAuthorAffiliations:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         session.add(AuthorAffiliation(author_id=author.id, year=1899))
         with pytest.raises(IntegrityError):
@@ -463,6 +479,7 @@ class TestAuthorAffiliations:
         session.add(author)
         session.commit()
         session.refresh(author)
+        assert author.id is not None
 
         session.add(AuthorAffiliation(author_id=author.id, year=2020))
         session.commit()

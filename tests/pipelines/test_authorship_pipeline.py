@@ -1,6 +1,7 @@
 """Tests for AuthorshipPipeline."""
 
 from collections.abc import Generator
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,7 +30,7 @@ def article_item() -> ArticleItem:
         reference="the_article",
         authors="hooks, bell; Collins, Patricia Hill; Crenshaw, Kimberlé Williams",
         title="On the Uses of Test Articles",
-        publication_date="2005-01-01",
+        publication_date=date(2005, 1, 1),
         url="https://example.com/article",
     )
 

@@ -254,7 +254,7 @@ class Author(AuthorBase, table=True):
 
     __tablename__ = "author"
 
-    id: int = Field(primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
 
     # Relationships
     authorships: list["Authorship"] = Relationship(
@@ -286,7 +286,7 @@ class AuthorAffiliation(AuthorAffiliationBase, table=True):
 
     __tablename__ = "author_affiliation"
 
-    id: int = Field(primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
 
     author_id: int = Field(
         sa_column=Column(
@@ -326,7 +326,7 @@ class AuthorIdentifier(AuthorIdentifierBase, table=True):
 
     __tablename__ = "author_identifier"
 
-    id: int = Field(primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
 
     author_id: int = Field(
         sa_column=Column(

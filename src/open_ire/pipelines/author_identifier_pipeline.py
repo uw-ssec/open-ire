@@ -102,6 +102,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
         )
         session.add(author)
         session.flush()  # Get the ID
+        assert author.id is not None
 
         logger.info(
             "Created new author '%s' (id=%s) with %s identifier(s)",
@@ -137,6 +138,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
         of interest).  This method finds those articles and creates the missing
         Authorship links so the relationship is not lost.
         """
+        assert author.id is not None
         articles = session.exec(
             select(Article).where(Article.authors.contains(parsed.last_name))  # type: ignore[union-attr]
         ).all()
@@ -147,7 +149,9 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
                 if article_author.likely_same(parsed):
                     existing_link = session.get(Authorship, (article.id, author.id))
                     if existing_link is None:
-                        session.add(Authorship(article=article, author=author, author_order=i))
+                        session.add(
+                            Authorship(article_id=article.id, author_id=author.id, author_order=i)
+                        )
                         logger.info(
                             "Retroactively linked author '%s' to article '%s'",
                             author.canonical_name,
@@ -162,6 +166,7 @@ class AuthorIdentifierPipeline(BaseSQLModelPipeline):
         identifiers: list[dict[str, str]],
     ) -> None:
         """Add identifiers that don't already exist for this author."""
+        assert author.id is not None
         existing_identifiers = {(ai.authority, ai.identifier) for ai in author.identifiers}
 
         for ident in identifiers:
