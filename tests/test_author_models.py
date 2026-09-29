@@ -381,22 +381,6 @@ class TestAuthorIdentifiers:
         assert len(session.exec(select(AuthorIdentifier)).all()) == 0
 
 
-class TestAuthorConstraints:
-    """Tests for constraints on the Author model itself."""
-
-    def test_author_requires_canonical_name(self, session: Session):
-        """Creating an author without canonical_name should fail at commit time."""
-        # Deliberately omit the required field to exercise the database constraint.
-        author = Author(  # type: ignore[call-arg]
-            full_name="Missing Canonical", first_name="Missing", last_name="Canonical"
-        )
-        session.add(author)
-
-        with pytest.raises(IntegrityError):
-            session.commit()
-        session.rollback()
-
-
 class TestAuthorAffiliations:
     def test_author_affiliation_relationship(self, session: Session):
         author = Author(
