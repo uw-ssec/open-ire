@@ -1,7 +1,5 @@
 """Alembic environment configuration for Open IRE."""
 
-import os
-
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
@@ -16,15 +14,12 @@ def get_url() -> str:
 
     Priority:
     1. URL passed programmatically via config attributes (production runtime).
-    2. OPEN_IRE_DATABASE_URL environment variable.
-    3. OPEN_IRE_DATABASE_FILE from Scrapy settings (CLI default).
+    2. OPEN_IRE_DATABASE_FILE from base settings, which reads the environment
+       variable of the same name.
     """
     url: str | None = context.config.attributes.get("sqlalchemy.url")
     if url:
         return url
-
-    if env_url := os.environ.get("OPEN_IRE_DATABASE_URL"):
-        return env_url
 
     from open_ire.settings.base import OPEN_IRE_DATABASE_FILE  # noqa: PLC0415
 

@@ -109,10 +109,9 @@ pixi shell -e <environment>
 
 ### Database Migrations
 
-Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/).
-Migrations run automatically when spiders start, but when you modify the
-database models in `src/open_ire/models.py`, you must generate a corresponding
-migration:
+Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/). When
+you modify the database models in `src/open_ire/models.py`, you must generate a
+corresponding migration:
 
 ```bash
 pixi run -e dev alembic revision --autogenerate -m "brief description"
@@ -125,11 +124,23 @@ alongside the model changes. See the
 [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script)
 for more information.
 
+A spider creates a new database at the latest revision, but it will not migrate
+an existing one. A spider pointed at a database that is behind (or at a revision
+this code no longer knows about) fails at startup. Back up the file first, then
+upgrade it:
+
+```bash
+OPEN_IRE_DATABASE_FILE=dbs/open_ire.db pixi run -e dev alembic upgrade head
+```
+
 Other useful migration commands:
 
 ```bash
-pixi run -e dev alembic upgrade head          # Apply pending migrations manually
-pixi run -e dev alembic history --verbose     # Show migration history
+# Show the revision a database is at
+OPEN_IRE_DATABASE_FILE=dbs/open_ire.db pixi run -e dev alembic current
+
+# Show migration history
+pixi run -e dev alembic history --verbose
 ```
 
 ### Running Tests
