@@ -74,9 +74,7 @@ class TestAuthorSearchSpider:
         assert [_search_value(req) for req in requests] == [csv_author.full_name]
 
     @pytest.mark.asyncio
-    async def test_authors_arg_detects_name(
-        self, sample_authors: list[ParsedAuthor]
-    ) -> None:
+    async def test_authors_arg_detects_name(self, sample_authors: list[ParsedAuthor]) -> None:
         """An `authors` value that is not path-shaped is treated as a personal name."""
         author = sample_authors[0]
 
