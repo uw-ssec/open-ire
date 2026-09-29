@@ -64,13 +64,17 @@ class AuthorSearchSpider(SearchSpider[ParsedAuthor], ABC):
     """
     A specialized base spider that searches using author names from CSV file and/or individual author names.
 
-    This spider accepts `author_csv` and/or `author_name` arguments. If both are provided, the individual
-    author name is added to the list from the CSV. Subclasses can override `author_name_for_query` to specify
-    the required name format for the target API.
+    This spider accepts an `authors` argument that is auto-detected as either a CSV file path or a
+    personal name, so callers no longer need to pick the right argument name. The legacy `author_csv`
+    and `author_name` arguments are still accepted for backward compatibility. If several sources are
+    provided, all of their authors are searched.
+
+    Subclasses can override `author_name_for_query` to specify the required name format for the target API.
     """
 
     def __init__(
         self,
+        authors: str | None = None,
         author_csv: str | None = None,
         author_name: str | None = None,
         *args: Any,
@@ -78,20 +82,48 @@ class AuthorSearchSpider(SearchSpider[ParsedAuthor], ABC):
     ) -> None:
         super().__init__(*args, **kwargs)
 
+        authors = authors.strip() if authors else None
         author_csv = author_csv.strip() if author_csv else None
         author_name = author_name.strip() if author_name else None
-        if not author_csv and not author_name:
-            msg = f"The '{self.name}' spider requires either the 'author_csv' or 'author_name' argument (or both)."
+        if not authors and not author_csv and not author_name:
+            msg = (
+                f"The '{self.name}' spider requires the 'authors' argument "
+                "(a CSV file path or a personal name)."
+            )
             raise ValueError(msg)
 
         self.search_phrases = []
 
+        if authors:
+            self._add_authors_argument(authors)
+
         if author_csv:
-            author_index = AuthorIndex(Path(author_csv).resolve())
-            self.search_phrases.extend(author_index.records)
+            self._add_authors_from_csv(author_csv)
 
         if author_name:
             self.search_phrases.append(ParsedAuthor(author_name))
+
+    def _add_authors_argument(self, value: str) -> None:
+        """Route a single `authors` value to CSV loading or name parsing based on its shape."""
+        if self._looks_like_path(value):
+            if not Path(value).expanduser().resolve().is_file():
+                msg = (
+                    f"The 'authors' argument '{value}' looks like a file path but does not exist. "
+                    "Provide an existing CSV file or a personal name."
+                )
+                raise ValueError(msg)
+            self._add_authors_from_csv(value)
+        else:
+            self.search_phrases.append(ParsedAuthor(value))
+
+    def _add_authors_from_csv(self, csv_path: str) -> None:
+        author_index = AuthorIndex(Path(csv_path).expanduser().resolve())
+        self.search_phrases.extend(author_index.records)
+
+    @staticmethod
+    def _looks_like_path(value: str) -> bool:
+        """Return True if the value is shaped like a file path rather than a personal name."""
+        return value.lower().endswith(".csv") or "/" in value or "\\" in value
 
     async def start(self) -> AsyncIterator[Request | AuthorItem]:
         for author in self.search_phrases:
