@@ -7,7 +7,7 @@ from scrapy.crawler import Crawler
 from sqlmodel import Session, select
 
 from open_ire.items import ArticleItem
-from open_ire.models import Article, ArticleFile, ArticleFileReference
+from open_ire.models import Article, ArticleFile
 from open_ire.pipelines import SQLModelPipeline
 
 
@@ -46,12 +46,20 @@ class TestSQLModelPipeline:
         self,
         pipeline: SQLModelPipeline,
         item: ArticleItem,
-        item_with_file_references: ArticleItem,
     ) -> None:
-        """Test updating an existing article."""
+        """Test updating an existing article leaves other articles alone."""
 
+        other_item = item.model_copy(
+            update={
+                "title": "Another Article",
+                "reference": "TEST0002",
+                "url": "https://example.com/article/002",
+                "file_urls": [],
+                "files": None,
+            }
+        )
         pipeline.process_item(item)
-        pipeline.process_item(item_with_file_references)
+        pipeline.process_item(other_item)
 
         item_data = item.model_dump()
         item_data.update(
@@ -92,8 +100,12 @@ class TestSQLModelPipeline:
             checksums = {f.checksum for f in first_article.files}
             assert checksums == {"abcde12345", "supplement123"}
 
-            file_refs = session.exec(select(ArticleFileReference)).all()
-            assert len(file_refs) == 1
+            second_article = session.exec(
+                select(Article).where(Article.reference == "TEST0002")
+            ).first()
+            assert second_article is not None
+            assert second_article.title == "Another Article"
+            assert second_article.files == []
 
     def test_update_existing_article_with_new_files(
         self, pipeline: SQLModelPipeline, item: ArticleItem
@@ -155,48 +167,9 @@ class TestSQLModelPipeline:
             files = session.exec(select(ArticleFile)).all()
             assert len(files) == 1  # Should not duplicate
 
-    def test_file_reference_deduplication(
-        self,
-        pipeline: SQLModelPipeline,
-        item_with_file_references: ArticleItem,
-    ) -> None:
-        """Test that file references with the same URL are not duplicated."""
 
-        pipeline.process_item(item_with_file_references)
-
-        item_data = item_with_file_references.model_dump()
-        item_data.update(
-            {
-                "title": "Updated Title",
-                "file_reference_urls": [
-                    ("https://example.com/article/002", "https://example.com/data.csv")
-                ],
-                "file_references": [
-                    {
-                        "url": "https://example.com/data.csv",
-                        "source_url": "https://example.com/article/002",
-                        "extension": "csv",
-                        "size": 2048,
-                    }
-                ],
-            }
-        )
-        updated_item = ArticleItem(**item_data)
-
-        pipeline.process_item(updated_item)
-
-        with Session(pipeline.engine) as session:
-            file_refs = session.exec(select(ArticleFileReference)).all()
-            assert len(file_refs) == 1
-
-
-@pytest.mark.parametrize("kind", ["files", "file_references"])
-def test_invalid_file_metadata_is_skipped(kind: str) -> None:
+def test_invalid_file_metadata_is_skipped() -> None:
     item = ArticleItem(reference="test", repository="test", title="Test", url="https://example.com")
     pipeline = SQLModelPipeline(":memory:", "output")
-    if kind == "files":
-        item.files = [{"url": "https://example.com/file", "path": "file.pdf"}]
-        assert pipeline._get_article_files(item) == []
-    else:
-        item.file_references = [{"url": None}]
-        assert pipeline._get_article_file_references(item) == []
+    item.files = [{"url": "https://example.com/file", "path": "file.pdf"}]
+    assert pipeline._get_article_files(item) == []

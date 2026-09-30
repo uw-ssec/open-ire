@@ -39,28 +39,6 @@ def item() -> ArticleItem:
 
 
 @pytest.fixture
-def item_with_file_references() -> ArticleItem:
-    """Create a test item with files and file references."""
-    return ArticleItem(
-        title="Article with References",
-        authors="Test Author",
-        publication_date=date(2025, 6, 24),
-        repository="test_repo",
-        reference="TEST0002",
-        url="https://example.com/article/002",
-        file_reference_urls=[("https://example.com/article/002", "https://example.com/data.csv")],
-        file_references=[
-            {
-                "url": "https://example.com/data.csv",
-                "source_url": "https://example.com/article/002",
-                "extension": "csv",
-                "size": 1024,
-            }
-        ],
-    )
-
-
-@pytest.fixture
 def crawler() -> Crawler:
     """Create a mock crawler for testing."""
     mock_crawler = MagicMock(spec=Crawler)

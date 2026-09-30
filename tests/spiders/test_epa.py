@@ -1,7 +1,5 @@
-from datetime import date
-
 import pytest
-from scrapy.http import HtmlResponse, Request
+from scrapy.http import HtmlResponse
 
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_SEARCH_TERMS
@@ -64,47 +62,6 @@ class TestEPASpider:
         author = EPASpider.extract_authors(response, expected_title)
         assert author == expected_author
 
-    def test_parse_datagov_detail(self) -> None:
-        """Test parsing dataset file reference URLs from data.gov."""
-
-        item = ArticleItem(
-            publication_date=date(2025, 8, 15),
-            reference="REF123",
-            repository="test",
-            title="Test Article",
-            url="https://example.com",
-        )
-        request = Request(
-            url="https://catalog.data.gov/dataset/sample-dataset",
-            meta={"item": item, "dataset_urls": [], "file_reference_urls": []},
-        )
-
-        html = """
-        <div>
-            <ul class="resource-list">
-                <li><a class="btn btn-primary" href="/download/file1.csv">Download CSV</a></li>
-                <li><a class="btn btn-primary" href="/download/file2.json">Download JSON</a></li>
-            </ul>
-        </div>
-        """
-        response = HtmlResponse(url=request.url, body=html.encode("utf-8"), request=request)
-
-        spider = EPASpider()
-        results = list(spider.parse_datagov_detail(response))
-
-        assert len(results) == 1
-        result_item = results[0]
-        assert isinstance(result_item, ArticleItem)
-        assert len(result_item.file_reference_urls) == 2
-        assert result_item.file_reference_urls[0] == (
-            "https://catalog.data.gov/dataset/sample-dataset",
-            "https://catalog.data.gov/download/file1.csv",
-        )
-        assert result_item.file_reference_urls[1] == (
-            "https://catalog.data.gov/dataset/sample-dataset",
-            "https://catalog.data.gov/download/file2.json",
-        )
-
 
 @pytest.mark.parametrize("missing", ["title", "reference"])
 def test_parse_detail_skips_missing_required_metadata(missing: str) -> None:
@@ -113,3 +70,20 @@ def test_parse_detail_skips_missing_required_metadata(missing: str) -> None:
     html = reference if missing == "title" else title
     response = HtmlResponse(url="https://example.com/article", body=html.encode())
     assert list(EPASpider().parse_detail(response)) == []
+
+
+def test_parse_detail_extracts_article() -> None:
+    html = """
+    <meta name="DC.title" content="Example">
+    <span id="recordID">123</span>
+    <a href="si_public_file_download.cfm?p_download_id=1">PDF</a>
+    """
+    response = HtmlResponse(url="https://cfpub.epa.gov/si/", body=html.encode())
+    results = list(EPASpider().parse_detail(response))
+    assert len(results) == 1
+    item = results[0]
+    assert isinstance(item, ArticleItem)
+    assert item.reference == "123"
+    assert item.file_urls == [
+        "https://cfpub.epa.gov/si/si_public_file_download.cfm?p_download_id=1"
+    ]

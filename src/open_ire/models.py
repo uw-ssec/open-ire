@@ -58,7 +58,6 @@ class Article(ArticleBase, table=True):
 
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
-    file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
     oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
     deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
         back_populates="article"
@@ -77,11 +76,6 @@ class Article(ArticleBase, table=True):
     def files_size(self) -> int:
         """Total files size."""
         return sum(f.size for f in self.files if f.size)
-
-    @property
-    def file_references_size(self) -> int:
-        """Total file references size."""
-        return sum(f.size for f in self.file_references if f.size)
 
     @hybrid_property
     def deposit_status(self) -> DepositStatus | None:
@@ -103,66 +97,36 @@ class Article(ArticleBase, table=True):
         )
 
 
-class ArticleFileBase(SQLModel):
-    """Base SQLModel for common article file attributes.
-
-    Attributes
-    ----------
-    article_id: Foreign key to the Article table.
-    created_at: Datetime when the file metadata was added to this database.
-    extension: File extension (without the dot).
-    size: Size of the file in bytes.
-    url: Original URL of the file.
-    """
-
-    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
-    extension: str | None = None
-    size: int | None = None
-    url: str = Field(unique=True)
-
-
-class ArticleFile(ArticleFileBase, table=True):
+class ArticleFile(SQLModel, table=True):
     """SQLModel to store downloaded files associated with articles.
 
     Attributes
     ----------
-    id: Primary key for the database.
-    checksum: Checksum of the downloaded file.
+    id: Primary key for the ArticleFile table.
+    article_id: Foreign key to the Article table.
+    created_at: Datetime when the file metadata was added to this database.
+    url: Original URL of the file.
     path: Local path where the file is stored.
+    checksum: Checksum of the downloaded file.
+    extension: File extension (without the dot).
+    size: Size of the file in bytes.
     store_url: URL to the remote backup location (e.g., SharePoint).
     """
 
     __tablename__ = "article_file"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
-    checksum: str = Field()
+    url: str = Field(unique=True)
     path: str
+    checksum: str = Field()
+    extension: str | None = None
+    size: int | None = None
     store_url: str | None = None
 
     article: Article | None = Relationship(back_populates="files")
-
-
-class ArticleFileReference(ArticleFileBase, table=True):
-    """SQLModel to store references to external files with metadata only.
-
-    This model is used for files that are not downloaded locally, but we want to track
-    their metadata (e.g., size estimates from data.gov files).
-
-    Attributes
-    ----------
-    id: Primary key for the database.
-    source_url: URL of the website where the file `url` was found.
-    """
-
-    __tablename__ = "article_file_reference"
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-
-    source_url: str | None = None
-
-    article: Article | None = Relationship(back_populates="file_references")
 
 
 class ArticleOAEvidence(SQLModel, table=True):

@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from open_ire.errors import DatabaseDuplicateItemError
 from open_ire.items import ArticleItem
-from open_ire.models import Article, ArticleFile, ArticleFileReference
+from open_ire.models import Article, ArticleFile
 from open_ire.pipelines.base_sql_model_pipeline import BaseSQLModelPipeline
 
 logger = logging.getLogger(__name__)
@@ -20,23 +20,10 @@ class SQLModelPipeline(BaseSQLModelPipeline):
     """
 
     @staticmethod
-    def _get_article_file_references(item: ArticleItem) -> list[ArticleFileReference]:
-        article_file_refs = []
-        file_references = item.file_references or []
-
-        for file_ref in file_references:
-            try:
-                article_file_refs.append(ArticleFileReference.model_validate(file_ref))
-            except ValidationError:
-                logger.warning("Skipping file reference due to validation error.")
-
-        return article_file_refs
-
-    @staticmethod
     def _save_article_files(
         session: Session,
         article_id: Any,
-        article_files: list[ArticleFile] | list[ArticleFileReference],
+        article_files: list[ArticleFile],
     ) -> None:
         for file_row in article_files:
             file_row.article_id = article_id
@@ -83,7 +70,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
         existing_article: Article,
         item_data: dict[str, Any],
         article_files: list[ArticleFile],
-        file_references: list[ArticleFileReference],
     ) -> None:
         for key, value in item_data.items():
             if key not in ("id", "created_at"):
@@ -93,7 +79,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
         session.refresh(existing_article)
 
         self._save_article_files(session, existing_article.id, article_files)
-        self._save_article_files(session, existing_article.id, file_references)
 
         session.commit()
 
@@ -102,7 +87,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
         session: Session,
         item_data: dict[str, Any],
         article_files: list[ArticleFile],
-        file_references: list[ArticleFileReference],
     ) -> None:
         article = Article(**item_data)
 
@@ -112,7 +96,6 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             session.refresh(article)
 
             self._save_article_files(session, article.id, article_files)
-            self._save_article_files(session, article.id, file_references)
 
             session.commit()
 
@@ -125,11 +108,8 @@ class SQLModelPipeline(BaseSQLModelPipeline):
             return item
 
         article_files = self._get_article_files(item)
-        file_references = self._get_article_file_references(item)
         item_data = item.model_dump(
             exclude={
-                "file_reference_urls",
-                "file_references",
                 "file_urls",
                 "files",
                 "store_urls",
@@ -143,9 +123,8 @@ class SQLModelPipeline(BaseSQLModelPipeline):
                     existing_article,
                     item_data,
                     article_files,
-                    file_references,
                 )
             else:
-                self._create_new_article(session, item_data, article_files, file_references)
+                self._create_new_article(session, item_data, article_files)
 
         return item
