@@ -12,6 +12,11 @@ required.
 > `OPEN_IRE_ENVIRONMENT` environment variable and
 > `src/open_ire/settings/development.py`.
 
+The integration is optional. If any of the required [credentials](#credentials)
+is missing or empty, the pipeline disables itself for the crawl and logs a
+single warning naming the missing variables. The crawl otherwise runs normally:
+files stay in `FILES_STORE` and the database backup upload is skipped.
+
 ## Managing the Integration
 
 ### Azure App Registration
