@@ -10,15 +10,16 @@ def _detail_response(
     *,
     url: str = "https://eric.ed.gov/?id=EJ1234567",
     eric_number: str = "EJ1234567",
-    eissn: str = "EISSN-1234-5678",
+    eissn: str | None = "EISSN-1234-5678",
     authors: str = "Jane Doe; John Smith",
 ) -> HtmlResponse:
     """Build an ERIC detail-page response matching the selectors ``parse_detail`` reads."""
+    eissn_div = f"<div><strong>EISSN:</strong> {eissn}</div>" if eissn is not None else ""
     html = f"""
     <div class="title">A Study of Something</div>
     <div><strong>ERIC Number:</strong> {eric_number}</div>
     <div><strong>Publication Date:</strong> 2025</div>
-    <div><strong>EISSN:</strong> {eissn}</div>
+    {eissn_div}
     <div class="abstract">An abstract.</div>
     <div class="r_a"><div><div>{authors}</div></div></div>
     """
@@ -76,6 +77,11 @@ class TestEricSpider:
     def test_parse_detail_stores_null_for_na_eissn(self) -> None:
         """The literal 'N/A' EISSN placeholder is stored as None, not a string (#116)."""
         item = _parse_one(_detail_response(eissn="N/A"))
+        assert item.eissn is None
+
+    def test_parse_detail_stores_null_for_missing_eissn(self) -> None:
+        """A page without an EISSN field at all stores None (#116)."""
+        item = _parse_one(_detail_response(eissn=None))
         assert item.eissn is None
 
     def test_parse_detail_url_omits_search_query(self) -> None:
