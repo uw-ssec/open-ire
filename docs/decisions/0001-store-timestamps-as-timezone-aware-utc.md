@@ -48,7 +48,7 @@ uncertainty for these noncritical timestamps rather than stop the migration.
 - Bad, because downgrading removes timezone information again; values around
   daylight-saving transitions are not guaranteed to round-trip.
 
-[Migration `9843ce2b584f`](../../src/open_ire/migrations/versions/9843ce2b584f_aware_datetime.py)
+[Migration `9843ce2b584f`](../../src/open_ire/alembic/versions/9843ce2b584f_aware_datetime.py)
 assumes existing timestamps are `America/Los_Angeles` local time.
 
 ## More Information

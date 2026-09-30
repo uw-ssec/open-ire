@@ -15,7 +15,7 @@ from open_ire.errors import DatabaseRevisionError
 
 logger = logging.getLogger(__name__)
 
-_ALEMBIC_DIR = Path(__file__).resolve().parent / "migrations"
+_ALEMBIC_DIR = Path(__file__).resolve().parent / "alembic"
 _migration_lock = threading.Lock()
 _verified_paths: set[str] = set()
 
