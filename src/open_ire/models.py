@@ -187,8 +187,8 @@ class ArticleDepositStatusTransition(SQLModel, table=True):
     article: Article | None = Relationship(back_populates="deposit_status_transitions")
 
 
-class AuthorBase(SQLModel):
-    """Base SQLModel to define common author attributes.
+class Author(SQLModel, table=True):
+    """SQLModel to store author information.
 
     Attributes
     ----------
@@ -202,6 +202,10 @@ class AuthorBase(SQLModel):
     updated_at: Datetime when the author was last updated in this database.
     """
 
+    __tablename__ = "author"
+
+    id: int | None = Field(default=None, primary_key=True)
+
     first_name: str | None = None
     middle_names: str | None = None
     last_name: str | None = None
@@ -211,14 +215,6 @@ class AuthorBase(SQLModel):
     explicitly_searched: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Author(AuthorBase, table=True):
-    """SQLModel to store author information."""
-
-    __tablename__ = "author"
-
-    id: int | None = Field(default=None, primary_key=True)
 
     # Relationships
     authorships: list["Authorship"] = Relationship(
@@ -232,21 +228,14 @@ class Author(AuthorBase, table=True):
     )
 
 
-class AuthorAffiliationBase(SQLModel):
-    """Base SQLModel for author affiliation attributes.
+class AuthorAffiliation(SQLModel, table=True):
+    """SQLModel to store author affiliations.
 
     Attributes
     ----------
     author_id: Foreign key to the Author table.
     year: Year of the UW affiliation.
     """
-
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    year: int = Field(ge=1900)
-
-
-class AuthorAffiliation(AuthorAffiliationBase, table=True):
-    """SQLModel to store author affiliations."""
 
     __tablename__ = "author_affiliation"
 
@@ -268,8 +257,8 @@ class AuthorAffiliation(AuthorAffiliationBase, table=True):
     )
 
 
-class AuthorIdentifierBase(SQLModel):
-    """Base SQLModel for author identifier attributes.
+class AuthorIdentifier(SQLModel, table=True):
+    """SQLModel to store external identifiers for authors.
 
     Attributes
     ----------
@@ -278,15 +267,6 @@ class AuthorIdentifierBase(SQLModel):
     identifier: The actual identifier value.
     created_at: Datetime when the identifier was added.
     """
-
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    authority: str = Field(index=True)
-    identifier: str = Field(index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class AuthorIdentifier(AuthorIdentifierBase, table=True):
-    """SQLModel to store external identifiers for authors."""
 
     __tablename__ = "author_identifier"
 
@@ -298,14 +278,18 @@ class AuthorIdentifier(AuthorIdentifierBase, table=True):
         ),
     )
 
+    authority: str = Field(index=True)
+    identifier: str = Field(index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
     # Relationships
     author: "Author" = Relationship(back_populates="identifiers")
 
     __table_args__ = (UniqueConstraint("authority", "identifier", name="uq_author_identifier"),)
 
 
-class AuthorshipBase(SQLModel):
-    """Base SQLModel to define common authorship attributes.
+class Authorship(SQLModel, table=True):
+    """SQLModel to store many-to-many relationships between authors and articles.
 
     Attributes
     ----------
@@ -314,16 +298,6 @@ class AuthorshipBase(SQLModel):
     author_order: Position of author in the publication's author list.
     created_at: Datetime when the relationship was created.
     """
-
-    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    author_order: int | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Authorship(AuthorshipBase, table=True):
-    """SQLModel to store many-to-many relationships between authors and articles."""
 
     __tablename__ = "authorship"
 
@@ -339,6 +313,10 @@ class Authorship(AuthorshipBase, table=True):
             primary_key=True,
         ),
     )
+
+    author_order: int | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     article: "Article" = Relationship(back_populates="authorships")
