@@ -118,7 +118,7 @@ pixi run -e dev alembic revision --autogenerate -m "brief description"
 ```
 
 This creates a new migration file
-`src/open_ire/migrations/versions/<hash>_brief_description.py`. Review the
+`src/open_ire/alembic/versions/<hash>_brief_description.py`. Review the
 generated file to ensure it accurately captures your changes, then commit it
 alongside the model changes. See the
 [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script)
