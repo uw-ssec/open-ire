@@ -27,34 +27,25 @@ OPEN_IRE_WOS_ORGANIZATION = "University of Washington"
 
 # Names that identify our institution in a repository's affiliation metadata.
 # Matched as case-insensitive substrings of a single institution string.
+#
+# Several other universities share these words -- Washington University in
+# St. Louis, Washington State, George Washington, and Eastern, Central and
+# Western Washington. The forms that begin with "Washington" are ambiguous on
+# their own, so they carry the city; no other Washington-named university is
+# in Seattle.
 OPEN_IRE_INSTITUTION_NAMES = [
     "friday harbor lab",
     "harborview",
     "u. of washington",
+    "u. washington, seattle",
     "univ of washington",
     "univ. of washington",
     "university of washington",
     "uw.edu",
     "washington sea grant",
-    "washington univ",
+    "washington u., seattle",
+    "washington univ., seattle",
     "washington.edu",
-]
-
-# List of institutions to filter out, since their names contain one of the terms
-# in OPEN_IRE_INSTITUTION_NAMES.
-OPEN_IRE_EXCLUDED_INSTITUTIONS = [
-    "central washington univ",
-    "eastern washington univ",
-    # Misspelled in some OSTI records ("Easthern Washington University").
-    "easthern washington univ",
-    "george washington",
-    "saint louis",
-    "st louis",
-    "st. louis",
-    "washington state univ",
-    "washington, d.c.",
-    "washington, dc",
-    "western washington univ",
 ]
 
 # ===============================================================================

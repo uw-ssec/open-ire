@@ -162,7 +162,12 @@ class TestAffiliationFiltering:
         [
             "University of Washington, Seattle, WA (United States)",
             "Univ. of Washington, Seattle, WA (United States)",
+            # OSTI abbreviates the name; the city is what makes it ours.
             "Washington Univ., Seattle (USA). Dept. of Physics",
+            "Washington Univ., Seattle, WA (United States). Inst. for Nuclear Theory",
+            "Washington U., Seattle",
+            "Washington U., Seattle, Astron. Dept.",
+            "U. Washington, Seattle (main)",
             "University of Washington, Tacoma, WA (United States)",
             "Friday Harbor Laboratories",
             "Washington Sea Grant",
@@ -181,6 +186,9 @@ class TestAffiliationFiltering:
             "Washington State University, Pullman, WA (United States)",
             "Western Washington University",
             "Eastern Washington University, Cheney, WA (United States)",
+            # The abbreviated forms are only ours in Seattle.
+            "Washington University, St. Louis, MO (United States)",
+            "Washington U., St. Louis",
             # Misspelled in OSTI's own data; seen live on osti_id 897663.
             "Easthern Washington University, Upper Columbia United Tribes Fisheries Research Center",
             "Pacific Northwest National Laboratory (PNNL), Richland, WA (United States)",

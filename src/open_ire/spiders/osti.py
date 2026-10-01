@@ -22,7 +22,7 @@ from scrapy.http import Request, Response
 
 from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem
-from open_ire.settings import OPEN_IRE_EXCLUDED_INSTITUTIONS, OPEN_IRE_INSTITUTION_NAMES
+from open_ire.settings import OPEN_IRE_INSTITUTION_NAMES
 from open_ire.spiders.search import TermSearchSpider
 from open_ire.utils import as_list, parse_date
 
@@ -174,13 +174,11 @@ class OstiSpider(TermSearchSpider):
         """Return ``True`` if *institution_string* names our institution.
 
         *institution_string* must be a single institution, not a whole title
-        or abstract: the exclusions below have to apply to the same name they
-        disqualify, or one institution's city would rule out another's match.
+        or abstract: an ambiguous name is resolved by the city beside it, and
+        only within one institution's own string.
         """
         name = cls._normalize(institution_string)
-        return any(n in name for n in OPEN_IRE_INSTITUTION_NAMES) and not any(
-            x in name for x in OPEN_IRE_EXCLUDED_INSTITUTIONS
-        )
+        return any(n in name for n in OPEN_IRE_INSTITUTION_NAMES)
 
     @classmethod
     def _institutions(cls, values: list[str]) -> list[str]:
