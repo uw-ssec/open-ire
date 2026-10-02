@@ -1,8 +1,8 @@
 """Spider to collect DOE-funded research articles from OSTI.GOV.
 
-This spider queries the OSTI.GOV public API for articles matching
-configurable search terms and yields one :class:`~open_ire.items.ArticleItem`
-per record that has full text available.
+This spider queries the OSTI.GOV public API for articles whose research
+organization or author affiliations name our institution, and yields one
+:class:`~open_ire.items.ArticleItem` per record that has full text available.
 
 API documentation: https://www.osti.gov/api/v1/docs
 
@@ -14,7 +14,7 @@ Usage::
 
 import json
 import re
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from typing import Any
 from urllib.parse import urlencode
 
@@ -40,13 +40,16 @@ _INSTITUTION_SEPARATOR_RE = re.compile(r"\s*;\s*")
 class OstiSpider(TermSearchSpider):
     """Collect DOE-funded research articles from the OSTI.GOV API.
 
-    For each search term, queries ``/api/v1/records`` with
-    ``has_fulltext=true`` and paginates through all results, yielding an
-    :class:`ArticleItem` per record affiliated with our institution.
+    Searches ``/api/v1/records`` with ``has_fulltext=true`` for our
+    institution's names in the ``research_org`` and ``author`` fields, and
+    paginates through all results, yielding an :class:`ArticleItem` per record
+    affiliated with our institution. OSTI stores each author's affiliation
+    inside the author entry, so ``author`` reaches affiliations; neither field
+    reaches the PDF full text that the general ``q`` parameter searches.
 
-    OSTI's ``q`` parameter also searches the indexed full text of the PDF, so
-    a search hit is not by itself evidence of an affiliation. Records are
-    therefore filtered on their own affiliation metadata; see
+    ``author`` matches the words of a name in any order, so it also finds
+    other institutions sharing those words, such as Washington State. Records
+    are therefore filtered on their own affiliation metadata; see
     :meth:`_affiliation_evidence`.
     """
 
@@ -73,15 +76,40 @@ class OstiSpider(TermSearchSpider):
         },
     }
 
-    def build_search_request(self, term: str) -> Request:
-        """Build the first-page API request for *term*."""
-        self.logger.info("Searching OSTI for %r (page_size=%d)", term, self.page_size)
-        return self._build_page_request(term, page=1)
+    def __init__(self, terms: str | None = None, *args: Any, **kwargs: Any) -> None:
+        super().__init__(terms, *args, **kwargs)
+        if not terms:
+            # The searches are scoped to affiliation fields, so by default
+            # they look for our institution's names, not full-text terms.
+            self.search_phrases = list(OPEN_IRE_INSTITUTION_NAMES)
 
-    def _build_page_request(self, term: str, page: int) -> Request:
-        """Build an API request for *term* at the given *page*."""
+    async def start(self) -> AsyncIterator[Request]:
+        """Search the ``research_org`` and ``author`` fields for every term.
+
+        ``research_org`` matches a quoted term as a phrase and accepts ``OR``,
+        so one query covers every term. ``author`` ignores quotes, word order
+        and punctuation, and treats ``OR`` as another word to match, so it
+        needs one query per term; terms with the same words are searched once.
+        """
+        terms = [term for term in self.search_phrases if term]
+        if not terms:
+            return
+        yield self._build_page_request(
+            "research_org", " OR ".join(f'"{term}"' for term in terms), page=1
+        )
+        for term in self._distinct_by_words(terms):
+            yield self.build_search_request(term)
+
+    def build_search_request(self, term: str) -> Request:
+        """Build the first-page request searching the author entries for *term*."""
+        return self._build_page_request("author", term, page=1)
+
+    def _build_page_request(self, field: str, term: str, page: int) -> Request:
+        """Build an API request searching *field* for *term* at the given *page*."""
+        if page == 1:
+            self.logger.info("Searching OSTI %s for %r (page_size=%d)", field, term, self.page_size)
         params = {
-            "q": f'"{term}"',
+            field: term,
             "has_fulltext": "true",
             "rows": str(self.page_size),
             "page": str(page),
@@ -91,20 +119,34 @@ class OstiSpider(TermSearchSpider):
             url,
             callback=self.parse,
             headers={"Accept": "application/json"},
-            meta={"search_term": term, "page": page},
+            meta={"search_field": field, "search_term": term, "page": page},
         )
+
+    @staticmethod
+    def _distinct_by_words(terms: list[str]) -> list[str]:
+        """Return *terms*, dropping any with the same words as an earlier one."""
+        seen: set[frozenset[str]] = set()
+        distinct: list[str] = []
+        for term in terms:
+            words = frozenset(re.findall(r"\w+", term.casefold()))
+            if words not in seen:
+                seen.add(words)
+                distinct.append(term)
+        return distinct
 
     # === RESPONSE PARSING ===
 
     def parse(self, response: Response, **kwargs: Any) -> Generator[Request | ArticleItem]:  # noqa: ARG002
         """Parse a page of JSON results and follow pagination."""
+        search_field: str = response.meta["search_field"]
         search_term: str = response.meta["search_term"]
         current_page: int = response.meta["page"]
         records: list[dict[str, Any]] = json.loads(response.text or "[]")
 
         self.logger.info(
-            "OSTI returned %d record(s) for %r (page %d)",
+            "OSTI returned %d record(s) for %s=%r (page %d)",
             len(records),
+            search_field,
             search_term,
             current_page,
         )
@@ -126,7 +168,7 @@ class OstiSpider(TermSearchSpider):
                 )
                 continue
 
-            item = self._parse_record(record, search_term, evidence)
+            item = self._parse_record(record, search_field, search_term, evidence)
             if item is None:
                 unusable += 1
                 continue
@@ -152,7 +194,7 @@ class OstiSpider(TermSearchSpider):
         if len(records) >= self.page_size:
             next_page = current_page + 1
             self.logger.debug("Requesting next page %d for %r", next_page, search_term)
-            yield self._build_page_request(search_term, page=next_page)
+            yield self._build_page_request(search_field, search_term, page=next_page)
 
     # === AFFILIATION CHECKING ===
 
@@ -241,6 +283,7 @@ class OstiSpider(TermSearchSpider):
     def _parse_record(
         self,
         record: dict[str, Any],
+        search_field: str = "",
         search_term: str = "",
         evidence: dict[str, list[str]] | None = None,
     ) -> ArticleItem | None:
@@ -259,7 +302,7 @@ class OstiSpider(TermSearchSpider):
             abstract=(record.get("description") or "").strip() or None,
             authors=self._extract_authors(record),
             doi=self._extract_doi(record),
-            extra=self._build_extra(record, search_term, evidence),
+            extra=self._build_extra(record, search_field, search_term, evidence),
             file_urls=self._extract_fulltext_urls(record),
             issn=self._extract_issn(record),
             publication_date=parse_date(record.get("publication_date")),
@@ -335,6 +378,7 @@ class OstiSpider(TermSearchSpider):
     def _build_extra(
         cls,
         record: dict[str, Any],
+        search_field: str = "",
         search_term: str = "",
         evidence: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
@@ -362,6 +406,8 @@ class OstiSpider(TermSearchSpider):
             evidence = cls._affiliation_evidence(record)
         if any(evidence.values()):
             extra["affiliation_evidence"] = evidence
+        if search_field:
+            extra["search_field"] = search_field
         if search_term:
             extra["search_term"] = search_term
 
