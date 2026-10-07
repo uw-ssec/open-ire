@@ -2,11 +2,13 @@ import json
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from scrapy.http import Request, TextResponse
 
 from open_ire.items import ArticleItem
+from open_ire.settings import OPEN_IRE_INSTITUTION_NAMES
 from open_ire.spiders.osti import OstiSpider
 
 
@@ -19,8 +21,8 @@ def spider() -> Generator[OstiSpider, None, None]:
 def _page_response(
     records: list[dict[str, Any]], term: str = "university of washington"
 ) -> TextResponse:
-    url = "https://www.osti.gov/api/v1/records?q=test"
-    request = Request(url, meta={"search_term": term, "page": 1})
+    url = "https://www.osti.gov/api/v1/records?author=test"
+    request = Request(url, meta={"search_field": "author", "search_term": term, "page": 1})
     return TextResponse(
         url=url,
         body=json.dumps(records).encode("utf-8"),
@@ -45,8 +47,7 @@ UW_BY_RESEARCH_ORG: dict[str, Any] = {
     ],
 }
 
-# UW appears only in one author's affiliation.  OSTI's `author:` index does not
-# cover affiliation text, so a `research_org:`-scoped query would miss this.
+# UW appears only in one author's affiliation, which only the `author` search reaches.
 UW_BY_AUTHOR_AFFILIATION_ONLY: dict[str, Any] = {
     "osti_id": "3024995",
     "title": "Numerically exact configuration interaction",
@@ -280,12 +281,53 @@ class TestAffiliationEvidence:
             "work": [],
             "author": ["University of Washington, Seattle, WA (United States)"],
         }
+        assert item.extra["search_field"] == "author"
         assert item.extra["search_term"] == "university of washington"
 
     def test_author_names_still_exclude_affiliation_text(self, spider: OstiSpider) -> None:
         [item] = _items(spider, [UW_BY_AUTHOR_AFFILIATION_ONLY])
         assert item.authors is not None
         assert "University of Washington" not in item.authors
+
+
+async def _start_params(spider: OstiSpider) -> list[dict[str, list[str]]]:
+    return [parse_qs(urlparse(request.url).query) async for request in spider.start()]
+
+
+class TestSearchRequests:
+    def test_defaults_to_institution_names(self) -> None:
+        with patch.object(OstiSpider, "logger", new_callable=MagicMock):
+            spider = OstiSpider()
+        assert spider.search_phrases == OPEN_IRE_INSTITUTION_NAMES
+
+    @pytest.mark.asyncio
+    async def test_searches_research_org_once_with_every_term(self) -> None:
+        with patch.object(OstiSpider, "logger", new_callable=MagicMock):
+            spider = OstiSpider(terms="univ. of washington,washington univ")
+        first, *_ = await _start_params(spider)
+        assert first["research_org"] == ['"univ. of washington" OR "washington univ"']
+
+    @pytest.mark.asyncio
+    async def test_searches_author_once_per_distinct_set_of_words(self) -> None:
+        with patch.object(OstiSpider, "logger", new_callable=MagicMock):
+            spider = OstiSpider()
+        spider.search_phrases = [
+            "univ of washington",
+            "univ. of washington",
+            "washington u., seattle",
+            "u. washington, seattle",
+        ]
+        _, *author = await _start_params(spider)
+        assert [p["author"] for p in author] == [
+            ["univ of washington"],
+            ["washington u., seattle"],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_never_searches_full_text(self, spider: OstiSpider) -> None:
+        for params in await _start_params(spider):
+            assert "q" not in params
+            assert params["has_fulltext"] == ["true"]
 
 
 class TestPagination:
@@ -298,6 +340,7 @@ class TestPagination:
         # A full page of dropped records must still advance the crawl.
         assert len(requests) == 1
         assert "page=2" in requests[0].url
+        assert "author=" in requests[0].url
 
     def test_stops_paginating_on_a_partial_page(self, spider: OstiSpider) -> None:
         results = list(spider.parse(_page_response([UW_BY_RESEARCH_ORG])))
