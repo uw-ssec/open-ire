@@ -83,7 +83,6 @@ ITEM_PIPELINES = {
     "open_ire.pipelines.DOIDuplicatesPipeline": 20,
     # Processing pipelines:
     "open_ire.pipelines.LocalFilePipeline": 100,
-    "open_ire.pipelines.FileReferencePipeline": 200,
     "open_ire.pipelines.SharePointPipeline": 300,
     "open_ire.pipelines.SQLModelPipeline": 400,
     "open_ire.pipelines.AuthorshipPipeline": 410,

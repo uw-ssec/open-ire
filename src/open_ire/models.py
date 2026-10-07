@@ -58,7 +58,6 @@ class Article(ArticleBase, table=True):
 
     extra: dict[str, Any] = Field(sa_column=Column(JSON), default_factory=dict)
     files: list["ArticleFile"] = Relationship(back_populates="article")
-    file_references: list["ArticleFileReference"] = Relationship(back_populates="article")
     oa_evidence: list["ArticleOAEvidence"] = Relationship(back_populates="article")
     deposit_status_transitions: list["ArticleDepositStatusTransition"] = Relationship(
         back_populates="article"
@@ -77,11 +76,6 @@ class Article(ArticleBase, table=True):
     def files_size(self) -> int:
         """Total files size."""
         return sum(f.size for f in self.files if f.size)
-
-    @property
-    def file_references_size(self) -> int:
-        """Total file references size."""
-        return sum(f.size for f in self.file_references if f.size)
 
     @hybrid_property
     def deposit_status(self) -> DepositStatus | None:
@@ -103,66 +97,36 @@ class Article(ArticleBase, table=True):
         )
 
 
-class ArticleFileBase(SQLModel):
-    """Base SQLModel for common article file attributes.
-
-    Attributes
-    ----------
-    article_id: Foreign key to the Article table.
-    created_at: Datetime when the file metadata was added to this database.
-    extension: File extension (without the dot).
-    size: Size of the file in bytes.
-    url: Original URL of the file.
-    """
-
-    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
-    extension: str | None = None
-    size: int | None = None
-    url: str = Field(unique=True)
-
-
-class ArticleFile(ArticleFileBase, table=True):
+class ArticleFile(SQLModel, table=True):
     """SQLModel to store downloaded files associated with articles.
 
     Attributes
     ----------
-    id: Primary key for the database.
-    checksum: Checksum of the downloaded file.
+    id: Primary key for the ArticleFile table.
+    article_id: Foreign key to the Article table.
+    created_at: Datetime when the file metadata was added to this database.
+    url: Original URL of the file.
     path: Local path where the file is stored.
+    checksum: Checksum of the downloaded file.
+    extension: File extension (without the dot).
+    size: Size of the file in bytes.
     store_url: URL to the remote backup location (e.g., SharePoint).
     """
 
     __tablename__ = "article_file"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
-    checksum: str = Field()
+    url: str = Field(unique=True)
     path: str
+    checksum: str = Field()
+    extension: str | None = None
+    size: int | None = None
     store_url: str | None = None
 
     article: Article | None = Relationship(back_populates="files")
-
-
-class ArticleFileReference(ArticleFileBase, table=True):
-    """SQLModel to store references to external files with metadata only.
-
-    This model is used for files that are not downloaded locally, but we want to track
-    their metadata (e.g., size estimates from data.gov files).
-
-    Attributes
-    ----------
-    id: Primary key for the database.
-    source_url: URL of the website where the file `url` was found.
-    """
-
-    __tablename__ = "article_file_reference"
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-
-    source_url: str | None = None
-
-    article: Article | None = Relationship(back_populates="file_references")
 
 
 class ArticleOAEvidence(SQLModel, table=True):
@@ -223,8 +187,8 @@ class ArticleDepositStatusTransition(SQLModel, table=True):
     article: Article | None = Relationship(back_populates="deposit_status_transitions")
 
 
-class AuthorBase(SQLModel):
-    """Base SQLModel to define common author attributes.
+class Author(SQLModel, table=True):
+    """SQLModel to store author information.
 
     Attributes
     ----------
@@ -238,6 +202,10 @@ class AuthorBase(SQLModel):
     updated_at: Datetime when the author was last updated in this database.
     """
 
+    __tablename__ = "author"
+
+    id: int | None = Field(default=None, primary_key=True)
+
     first_name: str | None = None
     middle_names: str | None = None
     last_name: str | None = None
@@ -247,14 +215,6 @@ class AuthorBase(SQLModel):
     explicitly_searched: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Author(AuthorBase, table=True):
-    """SQLModel to store author information."""
-
-    __tablename__ = "author"
-
-    id: int | None = Field(default=None, primary_key=True)
 
     # Relationships
     authorships: list["Authorship"] = Relationship(
@@ -268,21 +228,14 @@ class Author(AuthorBase, table=True):
     )
 
 
-class AuthorAffiliationBase(SQLModel):
-    """Base SQLModel for author affiliation attributes.
+class AuthorAffiliation(SQLModel, table=True):
+    """SQLModel to store author affiliations.
 
     Attributes
     ----------
     author_id: Foreign key to the Author table.
     year: Year of the UW affiliation.
     """
-
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    year: int = Field(ge=1900)
-
-
-class AuthorAffiliation(AuthorAffiliationBase, table=True):
-    """SQLModel to store author affiliations."""
 
     __tablename__ = "author_affiliation"
 
@@ -304,8 +257,8 @@ class AuthorAffiliation(AuthorAffiliationBase, table=True):
     )
 
 
-class AuthorIdentifierBase(SQLModel):
-    """Base SQLModel for author identifier attributes.
+class AuthorIdentifier(SQLModel, table=True):
+    """SQLModel to store external identifiers for authors.
 
     Attributes
     ----------
@@ -314,15 +267,6 @@ class AuthorIdentifierBase(SQLModel):
     identifier: The actual identifier value.
     created_at: Datetime when the identifier was added.
     """
-
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    authority: str = Field(index=True)
-    identifier: str = Field(index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class AuthorIdentifier(AuthorIdentifierBase, table=True):
-    """SQLModel to store external identifiers for authors."""
 
     __tablename__ = "author_identifier"
 
@@ -334,14 +278,18 @@ class AuthorIdentifier(AuthorIdentifierBase, table=True):
         ),
     )
 
+    authority: str = Field(index=True)
+    identifier: str = Field(index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
     # Relationships
     author: "Author" = Relationship(back_populates="identifiers")
 
     __table_args__ = (UniqueConstraint("authority", "identifier", name="uq_author_identifier"),)
 
 
-class AuthorshipBase(SQLModel):
-    """Base SQLModel to define common authorship attributes.
+class Authorship(SQLModel, table=True):
+    """SQLModel to store many-to-many relationships between authors and articles.
 
     Attributes
     ----------
@@ -350,16 +298,6 @@ class AuthorshipBase(SQLModel):
     author_order: Position of author in the publication's author list.
     created_at: Datetime when the relationship was created.
     """
-
-    article_id: uuid.UUID | None = Field(default=None, foreign_key="article.id")
-    author_id: int | None = Field(default=None, foreign_key="author.id")
-    author_order: int | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Authorship(AuthorshipBase, table=True):
-    """SQLModel to store many-to-many relationships between authors and articles."""
 
     __tablename__ = "authorship"
 
@@ -375,6 +313,10 @@ class Authorship(AuthorshipBase, table=True):
             primary_key=True,
         ),
     )
+
+    author_order: int | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     article: "Article" = Relationship(back_populates="authorships")
