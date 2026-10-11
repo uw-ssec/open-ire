@@ -1,3 +1,5 @@
+import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -6,9 +8,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from scrapy import signals
 from scrapy.crawler import Crawler
+from scrapy.exceptions import NotConfigured
 
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
+from open_ire.sharepoint import SharePoint
+
+SHAREPOINT_ENV = {
+    "SHAREPOINT_CLIENT_ID": "test-client-id",
+    "SHAREPOINT_TENANT_ID": "test-tenant-id",
+    "SHAREPOINT_SITE_ID": "test-site-id",
+    "SHAREPOINT_CLIENT_SECRET": "test-client-secret",
+}
 
 
 class TestSharePointPipeline:
@@ -128,15 +139,58 @@ class TestSharePointPipeline:
         crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
         crawler.signals = MagicMock()
 
-        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint"):
+        with (
+            patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
+            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
+            patch.object(SharePoint, "_authenticate"),
+        ):
             pipeline = SharePointPipeline.from_crawler(crawler)
 
+        cls.assert_called_once()
         assert pipeline.db_path == Path("dbs/open_ire.db")
 
         connect = cast(Any, crawler.signals.connect)
         connect.assert_called_once()
         assert connect.call_args.kwargs["signal"] == signals.spider_closed
         assert connect.call_args.args[0] == pipeline._upload_database_backup
+
+    @pytest.mark.parametrize(
+        ("env", "missing"),
+        [
+            ({}, list(SHAREPOINT_ENV)),
+            (
+                {"SHAREPOINT_CLIENT_ID": "id", "SHAREPOINT_TENANT_ID": "tenant"},
+                ["SHAREPOINT_SITE_ID", "SHAREPOINT_CLIENT_SECRET"],
+            ),
+            ({**SHAREPOINT_ENV, "SHAREPOINT_SITE_ID": ""}, ["SHAREPOINT_SITE_ID"]),
+        ],
+    )
+    def test_from_crawler_disabled_without_credentials(
+        self,
+        crawler: Crawler,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        env: dict[str, str],
+        missing: list[str],
+    ) -> None:
+        crawler.settings.set("FILES_STORE", str(tmp_path))
+        crawler.signals = MagicMock()
+
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
+            caplog.at_level(logging.WARNING),
+            pytest.raises(NotConfigured),
+        ):
+            SharePointPipeline.from_crawler(crawler)
+
+        cls.assert_not_called()
+        cast(Any, crawler.signals.connect).assert_not_called()
+
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert all(name in message for name in missing)
+        assert all(value not in message for value in env.values() if value)
 
     def test_build_db_sharepoint_path(self, pipeline: SharePointPipeline) -> None:
         db_path = Path("dbs/open_ire.db")

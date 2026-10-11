@@ -16,6 +16,18 @@ from msgraph_core.tasks import LargeFileUploadTask
 
 
 class SharePoint:
+    _REQUIRED_ENV_VARS = (
+        "SHAREPOINT_CLIENT_ID",
+        "SHAREPOINT_TENANT_ID",
+        "SHAREPOINT_SITE_ID",
+        "SHAREPOINT_CLIENT_SECRET",
+    )
+
+    @staticmethod
+    def missing_credentials() -> list[str]:
+        """Return the names of required SharePoint environment variables that are unset or empty."""
+        return [name for name in SharePoint._REQUIRED_ENV_VARS if not os.getenv(name)]
+
     def __init__(
         self,
         base_path: str,

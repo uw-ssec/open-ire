@@ -160,6 +160,34 @@ class TestSharePoint:
         ):
             SharePoint(base_path=DefaultValues.BASE_PATH.value)
 
+    def test_missing_credentials_none_when_all_set(self, mock_env_vars: dict[str, str]) -> None:
+        with patch.dict(os.environ, mock_env_vars, clear=True):
+            assert SharePoint.missing_credentials() == []
+
+    def test_missing_credentials_all_when_unset(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            assert SharePoint.missing_credentials() == [
+                "SHAREPOINT_CLIENT_ID",
+                "SHAREPOINT_TENANT_ID",
+                "SHAREPOINT_SITE_ID",
+                "SHAREPOINT_CLIENT_SECRET",
+            ]
+
+    def test_missing_credentials_partial(self) -> None:
+        env = {"SHAREPOINT_CLIENT_ID": DefaultValues.CLIENT_ID.value}
+        with patch.dict(os.environ, env, clear=True):
+            assert SharePoint.missing_credentials() == [
+                "SHAREPOINT_TENANT_ID",
+                "SHAREPOINT_SITE_ID",
+                "SHAREPOINT_CLIENT_SECRET",
+            ]
+
+    def test_missing_credentials_treats_empty_as_missing(
+        self, mock_env_vars: dict[str, str]
+    ) -> None:
+        with patch.dict(os.environ, {**mock_env_vars, "SHAREPOINT_CLIENT_SECRET": ""}, clear=True):
+            assert SharePoint.missing_credentials() == ["SHAREPOINT_CLIENT_SECRET"]
+
     @pytest.mark.parametrize(
         ("path", "expected"),
         [

@@ -7,6 +7,7 @@ from typing import Any, Self
 
 from scrapy import Spider, signals
 from scrapy.crawler import Crawler
+from scrapy.exceptions import NotConfigured
 
 from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
@@ -33,6 +34,14 @@ class SharePointPipeline:
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
+        if missing := SharePoint.missing_credentials():
+            logger.warning(
+                "SharePoint integration disabled: missing or empty %s. "
+                "Files stay local and the database backup upload is skipped.",
+                ", ".join(missing),
+            )
+            raise NotConfigured
+
         if not (local_base_path := crawler.settings.get("FILES_STORE", "")):
             conf = "FILES_STORE"
             raise ConfigurationError(conf)
