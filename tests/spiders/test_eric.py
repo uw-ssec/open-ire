@@ -95,6 +95,17 @@ class TestEricSpider:
         item = _parse_one(_detail_response(authors="Jane Doe; John Smith"))
         assert item.authors == "Doe, Jane; Smith, John"
 
+    def test_parse_detail_preserves_linked_and_unlinked_authors(self) -> None:
+        """Keep all authors in order when some have ORCID links, as in ED630947."""
+        authors = (
+            '<a href="?redir=https%3a%2f%2forcid.org%2f0000-0002-5748-3280">'
+            "Kara J. Beckman</a>; Angeline Gacad; "
+            '<a href="?redir=https%3a%2f%2forcid.org%2f0000-0001-9605-0931">'
+            "Barbara McMorris</a>"
+        )
+        item = _parse_one(_detail_response(eric_number="ED630947", authors=authors))
+        assert item.authors == "Beckman, Kara J.; Gacad, Angeline; McMorris, Barbara"
+
     def test_parse_detail_empty_authors_stored_as_none(self) -> None:
         """A page with no real authors (e.g. '; ') stores None, not a mangled string (#102)."""
         item = _parse_one(_detail_response(authors="; "))

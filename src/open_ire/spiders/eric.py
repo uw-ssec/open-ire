@@ -93,7 +93,8 @@ class EricSpider(Spider):
 
         publication_date_text = self.extract_article_attribute("Publication Date", response)
         eissn = self.normalize_eissn(self.extract_article_attribute("EISSN", response))
-        authors = self.normalize_authors(response.css(".r_a>div>div::text").get())
+        raw_authors = response.css(".r_a>div>div").xpath("string(.)").get()
+        authors = self.normalize_authors(raw_authors)
 
         # Link directly to the article rather than the noisy search-results URL that
         # led here, which carries the query terms and pagination.
