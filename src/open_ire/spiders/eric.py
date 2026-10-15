@@ -56,17 +56,6 @@ class EricSpider(Spider):
         value = value.removeprefix("EISSN-").strip()
         return value or None
 
-    @staticmethod
-    def normalize_authors(value: str | None) -> str | None:
-        """Re-encode a raw author string into canonical ``Last, First`` names.
-
-        Parses ERIC's raw author text and re-encodes it so the stored value is a
-        clean semicolon-separated list of canonical names, returning None when no
-        real authors are present (e.g. an empty ``; `` string).
-        """
-        authors = ParsedAuthor.parse_author_string(value or "")
-        return ParsedAuthor.encode_author_string(authors) or None
-
     def parse(self, response: Response, **kwargs: Any) -> Generator[Request]:  # noqa: ARG002
         articles_hrefs = response.css(".r_t a::attr(href)").getall()
         for href in articles_hrefs:
@@ -94,7 +83,10 @@ class EricSpider(Spider):
         publication_date_text = self.extract_article_attribute("Publication Date", response)
         eissn = self.normalize_eissn(self.extract_article_attribute("EISSN", response))
         raw_authors = response.css(".r_a>div>div").xpath("string(.)").get()
-        authors = self.normalize_authors(raw_authors)
+        authors = (
+            ParsedAuthor.encode_author_string(ParsedAuthor.parse_author_string(raw_authors or ""))
+            or None
+        )
 
         # Link directly to the article rather than the noisy search-results URL that
         # led here, which carries the query terms and pagination.
