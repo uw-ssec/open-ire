@@ -89,7 +89,7 @@ jobs:
       # How the project is actually developed: conda-forge via pixi, which the
       # pip-based test matrix doesn't exercise. `locked` fails the job when
       # pixi.lock has drifted from pyproject.toml.
-      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+      - uses: prefix-dev/setup-pixi@9dabb60412d3d2d967a8d682f7ce01317af40514 # v0.11.0
         with:
           environments: dev
           locked: true
