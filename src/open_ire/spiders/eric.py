@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from scrapy import Spider
 from scrapy.http import Request, Response
 
+from open_ire.author import ParsedAuthor
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_DEFAULT_TERMS
 from open_ire.utils import parse_date
@@ -37,6 +38,24 @@ class EricSpider(Spider):
 
         return None
 
+    @staticmethod
+    def normalize_eissn(value: str | None) -> str | None:
+        """Return the bare EISSN, or None when ERIC reports no value.
+
+        ERIC renders an absent EISSN as the literal ``N/A`` and present ones with
+        an ``EISSN-`` prefix (e.g. ``EISSN-1234-5678``); both need cleaning before
+        storage.
+        """
+        if not value:
+            return None
+
+        value = value.strip()
+        if value.upper() == "N/A":
+            return None
+
+        value = value.removeprefix("EISSN-").strip()
+        return value or None
+
     def parse(self, response: Response, **kwargs: Any) -> Generator[Request]:  # noqa: ARG002
         articles_hrefs = response.css(".r_t a::attr(href)").getall()
         for href in articles_hrefs:
@@ -62,18 +81,27 @@ class EricSpider(Spider):
             return
 
         publication_date_text = self.extract_article_attribute("Publication Date", response)
-        eissn = self.extract_article_attribute("EISSN", response)
+        eissn = self.normalize_eissn(self.extract_article_attribute("EISSN", response))
+        raw_authors = response.css(".r_a>div>div").xpath("string(.)").get()
+        authors = (
+            ParsedAuthor.encode_author_string(ParsedAuthor.parse_author_string(raw_authors or ""))
+            or None
+        )
+
+        # Link directly to the article rather than the noisy search-results URL that
+        # led here, which carries the query terms and pagination.
+        url = f"https://eric.ed.gov/?id={eric_number}"
 
         item = ArticleItem(
             abstract=response.css(".abstract::text").get(),
-            authors=response.css(".r_a>div>div::text").get(),
+            authors=authors,
             eissn=eissn,
             file_urls=file_urls,
             publication_date=parse_date(publication_date_text),
             reference=eric_number,
             repository=self.name,
             title=title,
-            url=response.url,
+            url=url,
         )
 
         yield item
