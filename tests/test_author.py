@@ -56,6 +56,32 @@ class TestParsedAuthor:
         assert record.last_name == "Smith"
         assert record.suffix == "III, PhD"
 
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("John A. Doe Jr.", "Doe, John A., Jr."),
+            ("Darity, William, Jr.", "Darity, William, Jr."),
+            ("LESTER, H.T., JR.", "LESTER, H.T., JR."),
+            ("Martin Luther King III", "King, Martin Luther, III"),
+        ],
+    )
+    def test_canonical_name_keeps_generational_suffix(self, name: str, expected: str) -> None:
+        """Generational suffixes distinguish people, so the canonical name keeps them."""
+        assert ParsedAuthor(name).canonical_name == expected
+
+    def test_canonical_name_drops_credentials(self) -> None:
+        """Credentials like PhD are dropped, but a generational suffix beside them is kept."""
+        assert ParsedAuthor("Prof. Robert James Smith III, PhD").canonical_name == (
+            "Smith, Robert James, III"
+        )
+        assert ParsedAuthor("Jane Smith, PhD").canonical_name == "Smith, Jane"
+
+    @pytest.mark.parametrize("name", ["John A. Doe Jr.", "Martin Luther King III"])
+    def test_canonical_name_round_trips(self, name: str) -> None:
+        """Re-parsing a canonical name yields the same canonical name (#102)."""
+        canonical = ParsedAuthor(name).canonical_name
+        assert ParsedAuthor(canonical).canonical_name == canonical
+
     def test_empty_name_components(self) -> None:
         """Test that empty name components return empty strings."""
         record = ParsedAuthor(name="", email="test@example.com")

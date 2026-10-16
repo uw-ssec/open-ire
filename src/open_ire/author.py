@@ -5,6 +5,9 @@ from pathlib import Path
 
 from nameparser import HumanName
 
+# Suffixes that distinguish people (father vs. son). Compared lowercase with any trailing period removed.
+GENERATIONAL_SUFFIXES = {"jr", "jnr", "junior", "sr", "snr", "senior", "ii", "iii", "iv", "v"}
+
 
 class ParsedAuthor:
     """
@@ -87,7 +90,7 @@ class ParsedAuthor:
 
     @property
     def suffix(self) -> str:
-        """Suffix component (e.g., Jr., III)."""
+        """Generational suffix component (e.g., Jr., III)."""
         return str(self._parsed_name.suffix)
 
     @property
@@ -97,18 +100,24 @@ class ParsedAuthor:
 
     @property
     def canonical_name(self) -> str:
-        """Return the canonical name in 'Last, First Middle' format."""
+        """Return the canonical name in 'Last, First Middle[, Suffix]' format.
+
+        Only generational suffixes (Jr., III) are kept. See #{code GENERATIONAL_SUFFIXES}.
+        """
         last = self.last_name.strip()
         first = self.first_name.strip()
         middle = self.middle_names.strip()
+        suffix = ", ".join(
+            s for s in self.suffix.split(", ") if s.lower().rstrip(".") in GENERATIONAL_SUFFIXES
+        )
 
         # Build the given name (first + middle)
         given_parts = [p for p in [first, middle] if p]
         given_name = " ".join(given_parts) if given_parts else ""
 
-        # Return in "Last, First Middle" format
+        # Return in "Last, First Middle[, Suffix]" format
         if last and given_name:
-            return f"{last}, {given_name}"
+            return f"{last}, {given_name}, {suffix}" if suffix else f"{last}, {given_name}"
         if last:
             return last
         if given_name:
