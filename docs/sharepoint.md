@@ -57,9 +57,9 @@ The integration requires four environment variables (see `.env.example`):
 Files are uploaded to the
 [UW Scholarship Archiving Shared Documents](https://uwnetid.sharepoint.com/sites/uw-scholarship-archiving/Shared%20Documents/Forms/AllItems.aspx)
 library, organized under a base path controlled by the
-`OPEN_IRE_SHAREPOINT_BASE_PATH` setting (defaults to `open_ire` in the
-production environment, with a `_dev` suffix added in the development
-environment).
+`OPEN_IRE_SHAREPOINT_BASE_PATH` setting in `src/open_ire/settings/base.py`
+(defaults to `open_ire` in the production environment, with a `_dev` suffix
+added in the development environment).
 
 ### Backups
 
@@ -128,9 +128,9 @@ Include the Application (client) ID and the SharePoint site URL in the request.
 Reference:
 [Generate a client secret](https://learn.microsoft.com/en-us/azure/industry/training-services/microsoft-community-training/public-preview-version/frequently-asked-questions/generate-new-clientsecret-link-to-key-vault)
 
-### 5. Configure environment variables
+### 5. Configure the integration
 
 Set the environment variables described in the [Credentials](#credentials)
-section above, plus `OPEN_IRE_SHAREPOINT_BASE_PATH` for the desired upload
-directory (default is `open_ire`, with a `_dev` suffix added to the base path in
-the development environment).
+section above. To upload to a different directory, change
+`OPEN_IRE_SHAREPOINT_BASE_PATH` in `src/open_ire/settings/base.py` (see
+[SharePoint Drive](#sharepoint-drive)).
