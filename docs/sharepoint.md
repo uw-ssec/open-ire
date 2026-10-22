@@ -76,10 +76,11 @@ its log sit side by side:
   (as it is in production), the log is uploaded uncompressed so it can be read
   in the SharePoint web viewer. The local log file's name does not matter.
 
-`OPEN_IRE_SHAREPOINT_BACKUP_RETENTION` sets how many **days** of backups are
-kept (default `10`). Every snapshot and log from the newest days is kept,
-however many runs those days had; everything from older days is deleted after
-each successful snapshot upload. Set it to `0` to keep every backup.
+`OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT` sets how many days of backups are kept
+(default `10`). Every snapshot and log from the newest days is kept, however
+many runs those days had; everything from older days is deleted after each
+successful snapshot upload. Set it to `None` to keep every backup, or to `0` to
+skip backups entirely; `0` uploads nothing and leaves existing backups alone.
 
 ## Requesting a New Integration
 

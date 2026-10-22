@@ -39,13 +39,13 @@ class SharePointPipeline:
         sharepoint_base_path: str,
         local_base_path: str,
         crawler: Crawler | None = None,
-        backup_retention: int = 0,
+        backup_days_kept: int | None = None,
         backup_dir: str = "backups",
     ) -> None:
         self.sharepoint = SharePoint(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
         self.crawler = crawler
-        self.backup_retention = backup_retention
+        self.backup_days_kept = backup_days_kept
         self.backup_dir = backup_dir
         self.run_at = datetime.now()
         self.db_path: Path | None = None
@@ -68,14 +68,33 @@ class SharePointPipeline:
         sharepoint_base_path = crawler.settings.get("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         log_file = crawler.settings.get("LOG_FILE")
-        backup_retention = crawler.settings.getint("OPEN_IRE_SHAREPOINT_BACKUP_RETENTION", 0)
+        backup_days_kept = cls._parse_backup_days_kept(
+            crawler.settings.get("OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT")
+        )
         backup_dir = crawler.settings.get("OPEN_IRE_SHAREPOINT_BACKUP_DIR", "backups")
-        pipeline = cls(sharepoint_base_path, local_base_path, crawler, backup_retention, backup_dir)
+        pipeline = cls(sharepoint_base_path, local_base_path, crawler, backup_days_kept, backup_dir)
         pipeline.db_path = Path(db_path) if db_path else None
         pipeline.log_path = Path(log_file) if log_file else None
         crawler.signals.connect(pipeline._back_up_run, signal=signals.spider_closed)
 
         return pipeline
+
+    @staticmethod
+    def _parse_backup_days_kept(value: Any) -> int | None:
+        """Validate ``OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT``.
+
+        ``None`` keeps every backup and ``0`` disables backups. A digit string
+        is accepted so the setting can be overridden with ``scrapy crawl -s``.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+
+        conf = "OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT as None or a non-negative integer"
+        raise ConfigurationError(conf)
 
     @staticmethod
     def _remove_local_file(local_file_path: Path) -> None:
@@ -131,13 +150,14 @@ class SharePointPipeline:
         return posix_join(self.backup_dir, name)
 
     async def _prune_old_backups(self) -> None:
-        """Delete backups from all but the most recent ``backup_retention`` days.
+        """Delete backups from all but the most recent ``backup_days_kept`` days.
 
         Only files matching ``BACKUP_NAME_PATTERN`` are considered, so anything
         else in the backup folder is left alone. A day's snapshots and logs are
         kept or deleted together.
         """
-        if self.backup_retention <= 0:
+        # Zero disables backups in _back_up_run; it must never mean "delete all".
+        if not self.backup_days_kept:
             return
 
         try:
@@ -152,7 +172,7 @@ class SharePointPipeline:
             if match := BACKUP_NAME_PATTERN.fullmatch(name):
                 backups_by_date[match["date"]].append(name)
 
-        stale_dates = sorted(backups_by_date, reverse=True)[self.backup_retention :]
+        stale_dates = sorted(backups_by_date, reverse=True)[self.backup_days_kept :]
         for date in stale_dates:
             for name in backups_by_date[date]:
                 stale_path = posix_join(self.backup_dir, name)
@@ -174,6 +194,10 @@ class SharePointPipeline:
         skipped when the snapshot upload fails, so a run of failures can never
         prune away the last good snapshots.
         """
+        if self.backup_days_kept == 0:
+            logger.info("OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT is 0; skipping backups.")
+            return
+
         snapshot_uploaded = await self._upload_database_backup(spider, reason)
         await self._upload_log_file(spider, reason)
         if snapshot_uploaded:

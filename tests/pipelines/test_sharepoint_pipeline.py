@@ -13,6 +13,7 @@ from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
+from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
 from open_ire.sharepoint import SharePoint
@@ -165,7 +166,7 @@ class TestSharePointPipeline:
         crawler.settings.set("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
         crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
         crawler.settings.set("OPEN_IRE_SHAREPOINT_BACKUP_DIR", "test_backups")
-        crawler.settings.set("OPEN_IRE_SHAREPOINT_BACKUP_RETENTION", 5)
+        crawler.settings.set("OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT", 5)
         crawler.signals = MagicMock()
 
         with (
@@ -178,7 +179,7 @@ class TestSharePointPipeline:
         cls.assert_called_once()
         assert pipeline.db_path == Path("dbs/open_ire.db")
         assert pipeline.backup_dir == "test_backups"
-        assert pipeline.backup_retention == 5
+        assert pipeline.backup_days_kept == 5
 
         cast(Any, crawler.signals.connect).assert_called_once_with(
             pipeline._back_up_run, signal=signals.spider_closed
@@ -321,7 +322,7 @@ class TestSharePointPipeline:
     @pytest.mark.asyncio
     async def test_prune_keeps_most_recent_days(self, pipeline: SharePointPipeline) -> None:
         """Every backup from the newest days should survive; older days go."""
-        pipeline.backup_retention = 2
+        pipeline.backup_days_kept = 2
         names = [
             "open_ire__2026-01-03_09-00-00.db.gz",
             "open_ire__2026-01-03_09-00-00.log",
@@ -348,7 +349,7 @@ class TestSharePointPipeline:
     @pytest.mark.asyncio
     async def test_prune_ignores_unrelated_files(self, pipeline: SharePointPipeline) -> None:
         """Files not named like our backups must be left alone."""
-        pipeline.backup_retention = 1
+        pipeline.backup_days_kept = 1
         names = [
             "open_ire__2026-01-02_09-00-00.db.gz",
             "open_ire__2026-01-01_09-00-00.db.gz",
@@ -368,9 +369,12 @@ class TestSharePointPipeline:
         assert deleted == ["backups/open_ire__2026-01-01_09-00-00.db.gz"]
 
     @pytest.mark.asyncio
-    async def test_prune_disabled_by_zero_retention(self, pipeline: SharePointPipeline) -> None:
-        """A retention of zero should keep every backup."""
-        pipeline.backup_retention = 0
+    @pytest.mark.parametrize("days_kept", [None, 0])
+    async def test_prune_skipped_without_limit(
+        self, pipeline: SharePointPipeline, days_kept: int | None
+    ) -> None:
+        """None keeps every backup, and 0 must never prune everything."""
+        pipeline.backup_days_kept = days_kept
         sharepoint = cast(Any, pipeline.sharepoint)
         sharepoint.list_children = AsyncMock()
         sharepoint.delete_item = AsyncMock()
@@ -383,7 +387,7 @@ class TestSharePointPipeline:
     @pytest.mark.asyncio
     async def test_prune_survives_delete_failure(self, pipeline: SharePointPipeline) -> None:
         """A failed delete should be logged without aborting the remaining prunes."""
-        pipeline.backup_retention = 1
+        pipeline.backup_days_kept = 1
         names = [
             "open_ire__2026-01-03_09-00-00.db.gz",
             "open_ire__2026-01-02_09-00-00.db.gz",
@@ -414,6 +418,30 @@ class TestSharePointPipeline:
 
         upload_log.assert_awaited_once()
         assert prune.await_count == pruned
+
+    @pytest.mark.asyncio
+    async def test_back_up_run_disabled_by_zero(self, pipeline: SharePointPipeline) -> None:
+        """Keeping zero days should skip uploads and pruning entirely."""
+        pipeline.backup_days_kept = 0
+        with (
+            patch.object(pipeline, "_upload_database_backup", AsyncMock()) as upload_db,
+            patch.object(pipeline, "_upload_log_file", AsyncMock()) as upload_log,
+            patch.object(pipeline, "_prune_old_backups", AsyncMock()) as prune,
+        ):
+            await pipeline._back_up_run()
+
+        upload_db.assert_not_awaited()
+        upload_log.assert_not_awaited()
+        prune.assert_not_awaited()
+
+    @pytest.mark.parametrize(("value", "expected"), [(None, None), (0, 0), (5, 5), ("5", 5)])
+    def test_parse_backup_days_kept(self, value: Any, expected: int | None) -> None:
+        assert SharePointPipeline._parse_backup_days_kept(value) == expected
+
+    @pytest.mark.parametrize("value", [-1, "-1", 2.5, "abc", "None", True])
+    def test_parse_backup_days_kept_rejects_invalid(self, value: Any) -> None:
+        with pytest.raises(ConfigurationError):
+            SharePointPipeline._parse_backup_days_kept(value)
 
     @pytest.mark.asyncio
     async def test_upload_database_backup_unconfirmed(
