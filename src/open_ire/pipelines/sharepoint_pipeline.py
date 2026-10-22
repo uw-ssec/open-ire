@@ -1,9 +1,11 @@
 import gzip
 import logging
 import math
+import re
 import shutil
 import sqlite3
 import tempfile
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from posixpath import join as posix_join
@@ -19,7 +21,12 @@ from open_ire.sharepoint import SharePoint
 
 logger = logging.getLogger(__name__)
 
-LOG_BACKUP_DIR = "logs"
+# Backups are named by the pipeline rather than after the local files, so
+# pruning depends only on this format. Changing it orphans existing backups.
+BACKUP_NAME = "open_ire__{run_at:%Y-%m-%d_%H-%M-%S}.{extension}"
+BACKUP_NAME_PATTERN = re.compile(
+    r"open_ire__(?P<date>\d{4}-\d{2}-\d{2})_\d{2}-\d{2}-\d{2}\.(?:db\.gz|log)"
+)
 
 
 class SharePointPipeline:
@@ -33,11 +40,14 @@ class SharePointPipeline:
         local_base_path: str,
         crawler: Crawler | None = None,
         backup_retention: int = 0,
+        backup_dir: str = "backups",
     ) -> None:
         self.sharepoint = SharePoint(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
         self.crawler = crawler
         self.backup_retention = backup_retention
+        self.backup_dir = backup_dir
+        self.run_at = datetime.now()
         self.db_path: Path | None = None
         self.log_path: Path | None = None
 
@@ -59,11 +69,11 @@ class SharePointPipeline:
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         log_file = crawler.settings.get("LOG_FILE")
         backup_retention = crawler.settings.getint("OPEN_IRE_SHAREPOINT_BACKUP_RETENTION", 0)
-        pipeline = cls(sharepoint_base_path, local_base_path, crawler, backup_retention)
+        backup_dir = crawler.settings.get("OPEN_IRE_SHAREPOINT_BACKUP_DIR", "backups")
+        pipeline = cls(sharepoint_base_path, local_base_path, crawler, backup_retention, backup_dir)
         pipeline.db_path = Path(db_path) if db_path else None
         pipeline.log_path = Path(log_file) if log_file else None
-        crawler.signals.connect(pipeline._upload_database_backup, signal=signals.spider_closed)
-        crawler.signals.connect(pipeline._upload_log_file, signal=signals.spider_closed)
+        crawler.signals.connect(pipeline._back_up_run, signal=signals.spider_closed)
 
         return pipeline
 
@@ -74,11 +84,6 @@ class SharePointPipeline:
         except OSError as e:
             msg = f"Failed to remove local file {local_file_path}: {e}"
             logger.warning(msg)
-
-    @staticmethod
-    def _backup_filename(db_path: Path, run_at: datetime) -> str:
-        date_stamp = run_at.strftime("%Y-%m-%d")
-        return f"{db_path.stem}__{date_stamp}{db_path.suffix}.gz"
 
     @staticmethod
     def _gzip_file(source: Path, dest_dir: Path) -> Path:
@@ -120,76 +125,82 @@ class SharePointPipeline:
 
         return compressed
 
-    @staticmethod
-    def _backup_dir(db_path: Path) -> str:
-        backup_dir = db_path.parent.as_posix().strip("/")
-        return "" if backup_dir in ("", ".") else backup_dir
+    def _backup_path(self, extension: str) -> str:
+        """SharePoint path for this run's backup with the given ``extension``."""
+        name = BACKUP_NAME.format(run_at=self.run_at, extension=extension)
+        return posix_join(self.backup_dir, name)
 
-    @staticmethod
-    def _build_db_sharepoint_path(db_path: Path, run_at: datetime) -> str:
-        filename = SharePointPipeline._backup_filename(db_path, run_at)
-        backup_dir = SharePointPipeline._backup_dir(db_path)
-        if not backup_dir:
-            return filename
+    async def _prune_old_backups(self) -> None:
+        """Delete backups from all but the most recent ``backup_retention`` days.
 
-        return posix_join(backup_dir, filename)
-
-    async def _prune_old_snapshots(self, db_path: Path) -> None:
-        """Delete all but the most recent ``backup_retention`` snapshots.
-
-        Snapshot names embed an ISO date stamp, so a reverse lexicographic
-        sort by name is also a reverse chronological sort.
+        Only files matching ``BACKUP_NAME_PATTERN`` are considered, so anything
+        else in the backup folder is left alone. A day's snapshots and logs are
+        kept or deleted together.
         """
         if self.backup_retention <= 0:
             return
 
-        backup_dir = self._backup_dir(db_path)
         try:
-            children = await self.sharepoint.list_children(backup_dir)
-        except Exception as e:
-            logger.error("Could not list SharePoint snapshots in '%s': %s", backup_dir, e)
+            children = await self.sharepoint.list_children(self.backup_dir)
+        except Exception:
+            logger.exception("Could not list SharePoint backups in '%s'", self.backup_dir)
             return
 
-        prefix = f"{db_path.stem}__"
-        suffix = f"{db_path.suffix}.gz"
-        snapshots = []
+        backups_by_date: dict[str, list[str]] = defaultdict(list)
         for child in children:
             name = child.name or ""
-            if name.startswith(prefix) and name.endswith(suffix):
-                snapshots.append(name)
+            if match := BACKUP_NAME_PATTERN.fullmatch(name):
+                backups_by_date[match["date"]].append(name)
 
-        snapshots.sort(reverse=True)
-        for stale_name in snapshots[self.backup_retention :]:
-            stale_path = posix_join(backup_dir, stale_name) if backup_dir else stale_name
-            try:
-                await self.sharepoint.delete_item(stale_path)
-                logger.info("Pruned old database snapshot: %s", stale_path)
-            except Exception as e:
-                logger.error("Failed to prune snapshot %s: %s", stale_path, e)
+        stale_dates = sorted(backups_by_date, reverse=True)[self.backup_retention :]
+        for date in stale_dates:
+            for name in backups_by_date[date]:
+                stale_path = posix_join(self.backup_dir, name)
+                try:
+                    await self.sharepoint.delete_item(stale_path)
+                    logger.info("Pruned old backup: %s", stale_path)
+                except Exception:
+                    logger.exception("Failed to prune backup %s", stale_path)
+
+    async def _back_up_run(
+        self,
+        spider: Spider | None = None,
+        reason: str = "completed",
+    ) -> None:
+        """Upload the database snapshot and run log, then prune old backups.
+
+        Runs as a single ``spider_closed`` handler because Scrapy runs async
+        handlers concurrently, and pruning must follow both uploads. Pruning is
+        skipped when the snapshot upload fails, so a run of failures can never
+        prune away the last good snapshots.
+        """
+        snapshot_uploaded = await self._upload_database_backup(spider, reason)
+        await self._upload_log_file(spider, reason)
+        if snapshot_uploaded:
+            await self._prune_old_backups()
 
     async def _upload_database_backup(
         self,
         spider: Spider | None = None,
         reason: str = "completed",
-    ) -> None:
+    ) -> bool:
         if not self.db_path:
             logger.warning("OPEN_IRE_DATABASE_FILE is not configured; skipping DB backup upload.")
-            return
+            return False
 
         local_db_path = self.db_path
         if not local_db_path.exists():
             logger.warning("Database file not found: %s", local_db_path)
-            return
+            return False
 
-        backup_time = datetime.now()
-        sharepoint_path = self._build_db_sharepoint_path(local_db_path, backup_time)
+        sharepoint_path = self._backup_path("db.gz")
 
         with tempfile.TemporaryDirectory(prefix="open_ire_backup_") as staging_dir:
             try:
                 snapshot_path = self._create_snapshot(local_db_path, Path(staging_dir))
             except (OSError, sqlite3.Error) as e:
                 logger.error("Failed to snapshot database %s: %s", local_db_path, e)
-                return
+                return False
 
             logger.info(
                 "Uploading database snapshot to SharePoint: %s (%d bytes) -> %s",
@@ -208,19 +219,20 @@ class SharePointPipeline:
                 reason,
                 local_db_path,
             )
-            return
+            return False
 
+        # The upload itself succeeded, so a failed confirmation is only logged.
         drive_item = await self.sharepoint.get_item(sharepoint_path)
         if not drive_item:
-            logger.error("Could not confirm SharePoint database snapshot: %s", sharepoint_path)
-            return
+            logger.warning("Could not confirm SharePoint database snapshot: %s", sharepoint_path)
+            return True
 
         logger.info(
             "Database snapshot uploaded successfully: %s",
             drive_item.web_url or sharepoint_path,
         )
 
-        await self._prune_old_snapshots(local_db_path)
+        return True
 
     async def _upload_log_file(
         self,
@@ -240,17 +252,10 @@ class SharePointPipeline:
         for handler in logging.getLogger().handlers:
             handler.flush()
 
-        sharepoint_path = posix_join(LOG_BACKUP_DIR, f"{self.log_path.name}.gz")
-
-        with tempfile.TemporaryDirectory(prefix="open_ire_log_") as staging_dir:
-            try:
-                compressed_log = self._gzip_file(self.log_path, Path(staging_dir))
-            except OSError as e:
-                logger.error("Failed to compress log file %s: %s", self.log_path, e)
-                return
-
-            logger.info("Uploading run log to SharePoint: %s -> %s", self.log_path, sharepoint_path)
-            upload_result = await self.sharepoint.upload_file(compressed_log, sharepoint_path)
+        # Uploaded uncompressed so it can be read in the SharePoint web viewer.
+        sharepoint_path = self._backup_path("log")
+        logger.info("Uploading run log to SharePoint: %s -> %s", self.log_path, sharepoint_path)
+        upload_result = await self.sharepoint.upload_file(self.log_path, sharepoint_path)
 
         if not upload_result.location:
             spider_name = spider.name if spider else "unknown"

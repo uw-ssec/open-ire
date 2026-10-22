@@ -63,19 +63,23 @@ environment).
 
 ### Backups
 
-When a spider closes, the pipeline also backs up the run's state:
+When a spider closes, the pipeline also backs up the run's state into the
+`OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder (default `backups/`, under the base
+path). Both files are named after the time the run started, so a snapshot and
+its log sit side by side:
 
-- **Database snapshot.** The SQLite database (`OPEN_IRE_DATABASE_FILE`) is
-  compacted with `VACUUM INTO` and gzipped before upload, so the backup drops
-  free pages and is taken from a transactionally consistent copy rather than the
-  live file. Snapshots are named `<db>__<YYYY-MM-DD>.db.gz` and stored beside
-  the database's own directory on SharePoint.
-- **Run log.** When `LOG_FILE` is set (as it is in production), the log is
-  gzipped and uploaded under `logs/`.
+- **Database snapshot** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.db.gz`). The SQLite
+  database (`OPEN_IRE_DATABASE_FILE`) is compacted with `VACUUM INTO` and
+  gzipped before upload, so the backup drops free pages and is taken from a
+  transactionally consistent copy rather than the live file.
+- **Run log** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.log`). When `LOG_FILE` is set
+  (as it is in production), the log is uploaded uncompressed so it can be read
+  in the SharePoint web viewer. The local log file's name does not matter.
 
-`OPEN_IRE_SHAREPOINT_BACKUP_RETENTION` caps how many database snapshots are kept
-(default `10`); older snapshots are deleted after each successful upload. Set it
-to `0` to keep every snapshot.
+`OPEN_IRE_SHAREPOINT_BACKUP_RETENTION` sets how many **days** of backups are
+kept (default `10`). Every snapshot and log from the newest days is kept,
+however many runs those days had; everything from older days is deleted after
+each successful snapshot upload. Set it to `0` to keep every backup.
 
 ## Requesting a New Integration
 

@@ -17,7 +17,9 @@ OPEN_IRE_SEARCH_TERMS = [
 # Reading from environment variable allows command-line overrides.
 OPEN_IRE_DATABASE_FILE = os.getenv("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
 OPEN_IRE_SHAREPOINT_BASE_PATH = "open_ire"
-# Number of database snapshots to keep on SharePoint; 0 keeps every snapshot.
+# SharePoint folder for database snapshots and run logs, relative to the base path.
+OPEN_IRE_SHAREPOINT_BACKUP_DIR = "backups"
+# Number of days of backups to keep on SharePoint; 0 keeps every backup.
 OPEN_IRE_SHAREPOINT_BACKUP_RETENTION = 10
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
