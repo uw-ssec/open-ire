@@ -14,8 +14,11 @@ OPEN_IRE_SEARCH_TERMS = [
     "washington sea grant",
     "washington.edu",
 ]
-OPEN_IRE_SHAREPOINT_BASE_PATH = os.getenv("OPEN_IRE_SHAREPOINT_BASE_PATH", "open_ire")
+# Reading from environment variable allows command-line overrides.
 OPEN_IRE_DATABASE_FILE = os.getenv("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
+OPEN_IRE_SHAREPOINT_BASE_PATH = "open_ire"
+# Number of database snapshots to keep on SharePoint; 0 keeps every snapshot.
+OPEN_IRE_SHAREPOINT_BACKUP_RETENTION = 10
 OPEN_IRE_DEFAULT_TERMS = ",".join(OPEN_IRE_SEARCH_TERMS)
 OPEN_IRE_SKIP_EXISTING = False
 OPEN_IRE_SKIP_EXISTING_WITH_FILES = False
