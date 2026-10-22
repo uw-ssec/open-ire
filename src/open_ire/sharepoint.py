@@ -193,6 +193,9 @@ class SharePoint:
         """
         List the items directly inside a SharePoint Drive folder.
 
+        Graph returns children a page at a time, so this follows
+        ``@odata.nextLink`` until every page has been read.
+
         Args:
             folder_path: Path to the folder, relative to the base path. Pass an
                 empty string for the base path itself.
@@ -202,13 +205,16 @@ class SharePoint:
         """
         drive_id = await self._get_drive_id()
         item_id = self._item_id_from_path(folder_path)
-        response = (
-            await self._client.drives.by_drive_id(drive_id)
-            .items.by_drive_item_id(item_id)
-            .children.get()
+        children = (
+            self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).children
         )
 
-        if response is None or response.value is None:
-            return []
+        items: list[DriveItem] = []
+        response = await children.get()
+        while response is not None:
+            items.extend(response.value or [])
+            if not response.odata_next_link:
+                break
+            response = await children.with_url(response.odata_next_link).get()
 
-        return list(response.value)
+        return items
