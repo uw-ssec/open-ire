@@ -13,6 +13,7 @@ from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
+from open_ire.backup import create_snapshot, stale_backups
 from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
@@ -229,15 +230,13 @@ class TestSharePointPipeline:
         assert pipeline._backup_path("db.gz") == "backups/open_ire__2026-02-18_09-30-05.db.gz"
         assert pipeline._backup_path("log") == "backups/open_ire__2026-02-18_09-30-05.log"
 
-    def test_create_snapshot_compacts_and_compresses(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
+    def test_create_snapshot_compacts_and_compresses(self, tmp_path: Path) -> None:
         """A snapshot should be gzipped and preserve the database contents."""
         db_path = _make_database(tmp_path / "open_ire.db", rows=500)
         staging = tmp_path / "staging"
         staging.mkdir()
 
-        snapshot = pipeline._create_snapshot(db_path, staging)
+        snapshot = create_snapshot(db_path, staging)
 
         assert snapshot.name == "open_ire.db.gz"
         assert list(staging.iterdir()) == [snapshot], "uncompressed copy should be removed"
@@ -252,9 +251,7 @@ class TestSharePointPipeline:
         finally:
             connection.close()
 
-    def test_create_snapshot_drops_free_pages(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
+    def test_create_snapshot_drops_free_pages(self, tmp_path: Path) -> None:
         """Vacuuming should reclaim space left behind by deleted rows."""
         db_path = _make_database(tmp_path / "open_ire.db", rows=2000)
         connection = sqlite3.connect(db_path)
@@ -267,20 +264,18 @@ class TestSharePointPipeline:
         staging = tmp_path / "staging"
         staging.mkdir()
 
-        snapshot = pipeline._create_snapshot(db_path, staging)
+        snapshot = create_snapshot(db_path, staging)
 
         assert snapshot.stat().st_size < db_path.stat().st_size
 
-    def test_create_snapshot_leaves_source_untouched(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
+    def test_create_snapshot_leaves_source_untouched(self, tmp_path: Path) -> None:
         """The live database must not be modified by taking a snapshot."""
         db_path = _make_database(tmp_path / "open_ire.db", rows=100)
         before = db_path.read_bytes()
         staging = tmp_path / "staging"
         staging.mkdir()
 
-        pipeline._create_snapshot(db_path, staging)
+        create_snapshot(db_path, staging)
 
         assert db_path.read_bytes() == before
 
@@ -346,10 +341,23 @@ class TestSharePointPipeline:
             "backups/open_ire__2026-01-01_09-00-00.log",
         ]
 
-    @pytest.mark.asyncio
-    async def test_prune_ignores_unrelated_files(self, pipeline: SharePointPipeline) -> None:
-        """Files not named like our backups must be left alone."""
-        pipeline.backup_days_kept = 1
+    def test_stale_backups_keeps_most_recent_days(self) -> None:
+        """Every backup from the newest days should survive; older days go."""
+        names = [
+            "open_ire__2026-01-03_09-00-00.db.gz",
+            "open_ire__2026-01-03_15-00-00.log",
+            "open_ire__2026-01-01_09-00-00.db.gz",
+            "open_ire__2026-01-01_09-00-00.log",
+            "open_ire__2026-01-02_09-00-00.db.gz",
+        ]
+
+        assert sorted(stale_backups(names, 2)) == [
+            "open_ire__2026-01-01_09-00-00.db.gz",
+            "open_ire__2026-01-01_09-00-00.log",
+        ]
+
+    def test_stale_backups_ignores_unrelated_files(self) -> None:
+        """Files not named like our backups must never be stale."""
         names = [
             "open_ire__2026-01-02_09-00-00.db.gz",
             "open_ire__2026-01-01_09-00-00.db.gz",
@@ -359,14 +367,8 @@ class TestSharePointPipeline:
             "open_ire__2026-01-01_09-00-00.db",
             "notes.txt",
         ]
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
-        sharepoint.delete_item = AsyncMock()
 
-        await pipeline._prune_old_backups()
-
-        deleted = [call.args[0] for call in sharepoint.delete_item.await_args_list]
-        assert deleted == ["backups/open_ire__2026-01-01_09-00-00.db.gz"]
+        assert stale_backups(names, 1) == ["open_ire__2026-01-01_09-00-00.db.gz"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("days_kept", [None, 0])

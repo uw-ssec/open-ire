@@ -1,11 +1,7 @@
-import gzip
 import logging
 import math
-import re
-import shutil
 import sqlite3
 import tempfile
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from posixpath import join as posix_join
@@ -15,18 +11,12 @@ from scrapy import Spider, signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
+from open_ire.backup import BACKUP_NAME, create_snapshot, stale_backups
 from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
 from open_ire.sharepoint import SharePoint
 
 logger = logging.getLogger(__name__)
-
-# Backups are named by the pipeline rather than after the local files, so
-# pruning depends only on this format. Changing it orphans existing backups.
-BACKUP_NAME = "open_ire__{run_at:%Y-%m-%d_%H-%M-%S}.{extension}"
-BACKUP_NAME_PATTERN = re.compile(
-    r"open_ire__(?P<date>\d{4}-\d{2}-\d{2})_\d{2}-\d{2}-\d{2}\.(?:db\.gz|log)"
-)
 
 
 class SharePointPipeline:
@@ -104,46 +94,6 @@ class SharePointPipeline:
             msg = f"Failed to remove local file {local_file_path}: {e}"
             logger.warning(msg)
 
-    @staticmethod
-    def _gzip_file(source: Path, dest_dir: Path) -> Path:
-        """Write a gzipped copy of ``source`` into ``dest_dir``."""
-        compressed = dest_dir / f"{source.name}.gz"
-        with source.open("rb") as raw, gzip.open(compressed, "wb", compresslevel=6) as gz:
-            shutil.copyfileobj(raw, gz)
-
-        return compressed
-
-    @staticmethod
-    def _create_snapshot(db_path: Path, dest_dir: Path) -> Path:
-        """Write a compacted, gzipped copy of the database into ``dest_dir``.
-
-        ``VACUUM INTO`` reads through a read-only connection and produces a
-        transactionally consistent copy, so the live database is never held
-        open for writing and free pages are dropped from the result.
-
-        Parameters
-        ----------
-        db_path
-            Path to the live SQLite database.
-        dest_dir
-            Directory to write the snapshot into; must already exist.
-
-        Returns
-        -------
-        Path to the gzipped snapshot.
-        """
-        vacuumed = dest_dir / db_path.name
-        connection = sqlite3.connect(f"{db_path.absolute().as_uri()}?mode=ro", uri=True)
-        try:
-            connection.execute("VACUUM INTO ?", (str(vacuumed),))
-        finally:
-            connection.close()
-
-        compressed = SharePointPipeline._gzip_file(vacuumed, dest_dir)
-        vacuumed.unlink()
-
-        return compressed
-
     def _backup_path(self, extension: str) -> str:
         """SharePoint path for this run's backup with the given ``extension``."""
         name = BACKUP_NAME.format(run_at=self.run_at, extension=extension)
@@ -152,9 +102,7 @@ class SharePointPipeline:
     async def _prune_old_backups(self) -> None:
         """Delete backups from all but the most recent ``backup_days_kept`` days.
 
-        Only files matching ``BACKUP_NAME_PATTERN`` are considered, so anything
-        else in the backup folder is left alone. A day's snapshots and logs are
-        kept or deleted together.
+        See ``stale_backups`` for which files are considered.
         """
         # Zero disables backups in _back_up_run; it must never mean "delete all".
         if not self.backup_days_kept:
@@ -166,21 +114,14 @@ class SharePointPipeline:
             logger.exception("Could not list SharePoint backups in '%s'", self.backup_dir)
             return
 
-        backups_by_date: dict[str, list[str]] = defaultdict(list)
-        for child in children:
-            name = child.name or ""
-            if match := BACKUP_NAME_PATTERN.fullmatch(name):
-                backups_by_date[match["date"]].append(name)
-
-        stale_dates = sorted(backups_by_date, reverse=True)[self.backup_days_kept :]
-        for date in stale_dates:
-            for name in backups_by_date[date]:
-                stale_path = posix_join(self.backup_dir, name)
-                try:
-                    await self.sharepoint.delete_item(stale_path)
-                    logger.info("Pruned old backup: %s", stale_path)
-                except Exception:
-                    logger.exception("Failed to prune backup %s", stale_path)
+        names = (child.name or "" for child in children)
+        for name in stale_backups(names, self.backup_days_kept):
+            stale_path = posix_join(self.backup_dir, name)
+            try:
+                await self.sharepoint.delete_item(stale_path)
+                logger.info("Pruned old backup: %s", stale_path)
+            except Exception:
+                logger.exception("Failed to prune backup %s", stale_path)
 
     async def _back_up_run(
         self,
@@ -221,7 +162,7 @@ class SharePointPipeline:
 
         with tempfile.TemporaryDirectory(prefix="open_ire_backup_") as staging_dir:
             try:
-                snapshot_path = self._create_snapshot(local_db_path, Path(staging_dir))
+                snapshot_path = create_snapshot(local_db_path, Path(staging_dir))
             except (OSError, sqlite3.Error) as e:
                 logger.error("Failed to snapshot database %s: %s", local_db_path, e)
                 return False
