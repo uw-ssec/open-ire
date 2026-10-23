@@ -24,22 +24,9 @@ class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
     @pytest.fixture
-    def pipeline(self, crawler: Crawler, tmp_path: Path) -> SharePointPipeline:
-        sharepoint_base_path = "test_sharepoint"
-        local_base_path = str(tmp_path)
-
-        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint") as mock_sharepoint_class:
-            mock_sharepoint = MagicMock()
-            mock_sharepoint_class.return_value = mock_sharepoint
-
-            pipeline = SharePointPipeline(sharepoint_base_path, local_base_path)
-            pipeline.sharepoint = mock_sharepoint
-            pipeline.crawler = crawler
-            pipeline.open_spider()
-            assert pipeline.crawler is not None
-            assert pipeline.crawler.spider is not None
-
-            return pipeline
+    def pipeline(self, tmp_path: Path) -> SharePointPipeline:
+        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint"):
+            return SharePointPipeline("test_sharepoint", str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_passes_through_non_article_items(self, pipeline: SharePointPipeline) -> None:
@@ -181,4 +168,4 @@ class TestSharePointPipeline:
             pipeline = SharePointPipeline.from_crawler(crawler)
 
         cls.assert_called_once_with(base_path="test_sharepoint")
-        assert pipeline.base_path == tmp_path
+        assert pipeline.files_store == tmp_path

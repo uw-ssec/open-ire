@@ -203,9 +203,6 @@ class TestSharePointBackup:
         backup_path = "backups/open_ire__2026-01-27_09-30-00.db.gz"
         mock_upload_result = MagicMock()
         mock_upload_result.location = "https://sharepoint.com/uploaded-db"
-        mock_drive_item = MagicMock()
-        mock_drive_item.size = db_path.stat().st_size
-        mock_drive_item.web_url = "https://sharepoint.com/db-web-url"
 
         uploaded_bytes: list[bytes] = []
 
@@ -215,7 +212,6 @@ class TestSharePointBackup:
 
         sharepoint = cast(Any, backup.sharepoint)
         sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
-        sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
 
         assert await backup._upload_database_backup() is True
 
@@ -225,7 +221,6 @@ class TestSharePointBackup:
         assert snapshot_path.name == "open_ire.db.gz"
         assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
         assert not snapshot_path.exists(), "staging directory should be cleaned up"
-        sharepoint.get_item.assert_awaited_once_with(backup_path)
 
     @pytest.mark.asyncio
     async def test_prune_keeps_most_recent_days(self, backup: SharePointBackup) -> None:
@@ -329,7 +324,7 @@ class TestSharePointBackup:
             patch.object(backup, "_upload_log_file", AsyncMock()) as upload_log,
             patch.object(backup, "_prune_old_backups", AsyncMock()) as prune,
         ):
-            await backup.spider_closed()
+            await backup.spider_closed(MagicMock(), "finished")
 
         upload_log.assert_awaited_once()
         assert prune.await_count == pruned
@@ -344,18 +339,17 @@ class TestSharePointBackup:
             SharePointBackup._parse_backup_days_kept(value)
 
     @pytest.mark.asyncio
-    async def test_upload_database_backup_unconfirmed(
+    async def test_upload_database_backup_failure(
         self, backup: SharePointBackup, tmp_path: Path
     ) -> None:
-        """A successful upload counts even if the confirmation lookup fails."""
+        """An upload without a location should be reported as a failure."""
         backup.db_path = _make_database(tmp_path / "open_ire.db", rows=10)
         mock_upload_result = MagicMock()
-        mock_upload_result.location = "https://sharepoint.com/uploaded-db"
+        mock_upload_result.location = None
         sharepoint = cast(Any, backup.sharepoint)
         sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
-        sharepoint.get_item = AsyncMock(return_value=None)
 
-        assert await backup._upload_database_backup() is True
+        assert await backup._upload_database_backup() is False
 
     @pytest.mark.asyncio
     async def test_upload_log_file(self, backup: SharePointBackup, tmp_path: Path) -> None:

@@ -174,11 +174,7 @@ class SharePointBackup:
             except Exception:
                 logger.exception("Failed to prune backup %s", stale_path)
 
-    async def spider_closed(
-        self,
-        spider: Spider | None = None,
-        reason: str = "completed",
-    ) -> None:
+    async def spider_closed(self, spider: Spider, reason: str) -> None:
         """Upload the database snapshot and run log, then prune old backups.
 
         Runs as a single handler because Scrapy runs async signal handlers
@@ -186,71 +182,50 @@ class SharePointBackup:
         skipped when the snapshot upload fails, so a run of failures can never
         prune away the last good snapshots.
         """
-        snapshot_uploaded = await self._upload_database_backup(spider, reason)
-        await self._upload_log_file(spider, reason)
+        logger.info("Backing up spider '%s' (reason=%s) to SharePoint", spider.name, reason)
+        snapshot_uploaded = await self._upload_database_backup()
+        await self._upload_log_file()
         if snapshot_uploaded:
             await self._prune_old_backups()
 
-    async def _upload_database_backup(
-        self,
-        spider: Spider | None = None,
-        reason: str = "completed",
-    ) -> bool:
+    async def _upload_backup(self, local_path: Path, extension: str) -> bool:
+        """Upload ``local_path`` as this run's backup with the given ``extension``."""
+        sharepoint_path = self._backup_path(extension)
+        logger.info(
+            "Uploading backup to SharePoint: %s (%d bytes) -> %s",
+            local_path,
+            local_path.stat().st_size,
+            sharepoint_path,
+        )
+        upload_result = await self.sharepoint.upload_file(local_path, sharepoint_path)
+
+        if not upload_result.location:
+            logger.error("Failed to upload backup: %s", sharepoint_path)
+            return False
+
+        logger.info("Backup uploaded successfully: %s", sharepoint_path)
+
+        return True
+
+    async def _upload_database_backup(self) -> bool:
         if not self.db_path:
             logger.warning("OPEN_IRE_DATABASE_FILE is not configured; skipping DB backup upload.")
             return False
 
-        local_db_path = self.db_path
-        if not local_db_path.exists():
-            logger.warning("Database file not found: %s", local_db_path)
+        if not self.db_path.exists():
+            logger.warning("Database file not found: %s", self.db_path)
             return False
-
-        sharepoint_path = self._backup_path("db.gz")
 
         with tempfile.TemporaryDirectory(prefix="open_ire_backup_") as staging_dir:
             try:
-                snapshot_path = create_snapshot(local_db_path, Path(staging_dir))
+                snapshot_path = create_snapshot(self.db_path, Path(staging_dir))
             except (OSError, sqlite3.Error) as e:
-                logger.error("Failed to snapshot database %s: %s", local_db_path, e)
+                logger.error("Failed to snapshot database %s: %s", self.db_path, e)
                 return False
 
-            logger.info(
-                "Uploading database snapshot to SharePoint: %s (%d bytes) -> %s",
-                local_db_path,
-                snapshot_path.stat().st_size,
-                sharepoint_path,
-            )
+            return await self._upload_backup(snapshot_path, "db.gz")
 
-            upload_result = await self.sharepoint.upload_file(snapshot_path, sharepoint_path)
-
-        if not upload_result.location:
-            spider_name = spider.name if spider else "unknown"
-            logger.error(
-                "Failed to upload database snapshot for spider '%s' (reason=%s): %s",
-                spider_name,
-                reason,
-                local_db_path,
-            )
-            return False
-
-        # The upload itself succeeded, so a failed confirmation is only logged.
-        drive_item = await self.sharepoint.get_item(sharepoint_path)
-        if not drive_item:
-            logger.warning("Could not confirm SharePoint database snapshot: %s", sharepoint_path)
-            return True
-
-        logger.info(
-            "Database snapshot uploaded successfully: %s",
-            drive_item.web_url or sharepoint_path,
-        )
-
-        return True
-
-    async def _upload_log_file(
-        self,
-        spider: Spider | None = None,
-        reason: str = "completed",
-    ) -> None:
+    async def _upload_log_file(self) -> None:
         if not self.log_path:
             logger.debug("LOG_FILE is not configured; skipping log upload.")
             return
@@ -265,18 +240,4 @@ class SharePointBackup:
             handler.flush()
 
         # Uploaded uncompressed so it can be read in the SharePoint web viewer.
-        sharepoint_path = self._backup_path("log")
-        logger.info("Uploading run log to SharePoint: %s -> %s", self.log_path, sharepoint_path)
-        upload_result = await self.sharepoint.upload_file(self.log_path, sharepoint_path)
-
-        if not upload_result.location:
-            spider_name = spider.name if spider else "unknown"
-            logger.error(
-                "Failed to upload run log for spider '%s' (reason=%s): %s",
-                spider_name,
-                reason,
-                self.log_path,
-            )
-            return
-
-        logger.info("Run log uploaded successfully: %s", sharepoint_path)
+        await self._upload_backup(self.log_path, "log")
