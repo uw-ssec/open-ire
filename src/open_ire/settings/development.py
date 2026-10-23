@@ -11,8 +11,9 @@ HTTPCACHE_DIR = "httpcache"
 HTTPCACHE_EXPIRATION_SECS = 86400
 HTTPCACHE_ENABLED = True
 
-# Kept even though SharePointPipeline is removed below: if the pipeline is
-# re-enabled locally, this keeps dev crawls out of the production folder.
+# Kept even though SharePointPipeline is removed below (and SharePointBackup is
+# only enabled in production): if either is enabled locally, this keeps dev
+# crawls out of the production folder.
 # Suffixed rather than replaced so an OPEN_IRE_SHAREPOINT_BASE_PATH override
 # still applies in development.
 OPEN_IRE_SHAREPOINT_BASE_PATH += "_dev"

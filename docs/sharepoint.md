@@ -7,15 +7,15 @@ required.
 
 > [!NOTE]
 >
-> By default, the SharePoint pipeline is only active in the production
-> environment and disabled in the development environment. See the
-> `OPEN_IRE_ENVIRONMENT` environment variable and
-> `src/open_ire/settings/development.py`.
+> By default, the SharePoint pipeline and backup extension are only active in
+> the production environment and disabled in the development environment. See
+> the `OPEN_IRE_ENVIRONMENT` environment variable and `src/open_ire/settings/`.
 
 The integration is optional. If any of the required [credentials](#credentials)
-is missing or empty, the pipeline disables itself for the crawl and logs a
-single warning naming the missing variables. The crawl otherwise runs normally:
-files stay in `FILES_STORE` and the database backup upload is skipped.
+is missing or empty, the pipeline and the backup extension each disable
+themselves for the crawl and log a warning naming the missing variables. The
+crawl otherwise runs normally: files stay in `FILES_STORE` and no backups are
+uploaded.
 
 ## Managing the Integration
 
@@ -63,10 +63,12 @@ added in the development environment).
 
 ### Backups
 
-When a spider closes, the pipeline also backs up the run's state into the
-`OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder (default `backups/`, under the base
-path). Both files are named after the time the run started, so a snapshot and
-its log sit side by side:
+When a spider closes, the `SharePointBackup` extension (`open_ire.backup`) backs
+up the run's state into the `OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder (default
+`backups/`, under the base path). As an extension rather than an item pipeline,
+it runs for every spider, including those that set `ITEM_PIPELINES` to `{}`.
+Both files are named after the time the run started, so a snapshot and its log
+sit side by side:
 
 - **Database snapshot** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.db.gz`). The SQLite
   database (`OPEN_IRE_DATABASE_FILE`) is compacted with `VACUUM INTO` and

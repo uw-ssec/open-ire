@@ -1,20 +1,13 @@
-import gzip
 import logging
 import os
-import shutil
-import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
-from open_ire.backup import create_snapshot, stale_backups
-from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
 from open_ire.sharepoint import SharePoint
@@ -25,30 +18,6 @@ SHAREPOINT_ENV = {
     "SHAREPOINT_SITE_ID": "test-site-id",
     "SHAREPOINT_CLIENT_SECRET": "test-client-secret",
 }
-
-
-def _make_database(db_path: Path, rows: int) -> Path:
-    """Create a small SQLite database with a padded table for snapshot tests."""
-    connection = sqlite3.connect(db_path)
-    try:
-        connection.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT)")
-        connection.executemany(
-            "INSERT INTO articles (id, title) VALUES (?, ?)",
-            [(i, f"Article {i} " + "x" * 200) for i in range(1, rows + 1)],
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-    return db_path
-
-
-def _drive_item(name: str) -> MagicMock:
-    """Stub a DriveItem; `name` is reserved by the MagicMock constructor."""
-    item = MagicMock()
-    item.name = name
-
-    return item
 
 
 class TestSharePointPipeline:
@@ -162,30 +131,6 @@ class TestSharePointPipeline:
         await pipeline.process_item(item)
         assert local_file.exists()  # preserve local copy
 
-    def test_db_snapshot_on_spider_close(self, crawler: Crawler, tmp_path: Path) -> None:
-        crawler.settings.set("FILES_STORE", str(tmp_path))
-        crawler.settings.set("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
-        crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
-        crawler.settings.set("OPEN_IRE_SHAREPOINT_BACKUP_DIR", "test_backups")
-        crawler.settings.set("OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT", 5)
-        crawler.signals = MagicMock()
-
-        with (
-            patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
-            patch.object(SharePoint, "_authenticate"),
-        ):
-            pipeline = SharePointPipeline.from_crawler(crawler)
-
-        cls.assert_called_once()
-        assert pipeline.db_path == Path("dbs/open_ire.db")
-        assert pipeline.backup_dir == "test_backups"
-        assert pipeline.backup_days_kept == 5
-
-        cast(Any, crawler.signals.connect).assert_called_once_with(
-            pipeline._back_up_run, signal=signals.spider_closed
-        )
-
     @pytest.mark.parametrize(
         ("env", "missing"),
         [
@@ -224,296 +169,16 @@ class TestSharePointPipeline:
         assert all(name in message for name in missing)
         assert all(value not in message for value in env.values() if value)
 
-    def test_backup_path(self, pipeline: SharePointPipeline) -> None:
-        pipeline.run_at = datetime(2026, 2, 18, 9, 30, 5)
+    def test_from_crawler(self, crawler: Crawler, tmp_path: Path) -> None:
+        crawler.settings.set("FILES_STORE", str(tmp_path))
+        crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
 
-        assert pipeline._backup_path("db.gz") == "backups/open_ire__2026-02-18_09-30-05.db.gz"
-        assert pipeline._backup_path("log") == "backups/open_ire__2026-02-18_09-30-05.log"
-
-    def test_create_snapshot_compacts_and_compresses(self, tmp_path: Path) -> None:
-        """A snapshot should be gzipped and preserve the database contents."""
-        db_path = _make_database(tmp_path / "open_ire.db", rows=500)
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        snapshot = create_snapshot(db_path, staging)
-
-        assert snapshot.name == "open_ire.db.gz"
-        assert list(staging.iterdir()) == [snapshot], "uncompressed copy should be removed"
-
-        restored = tmp_path / "restored.db"
-        with gzip.open(snapshot, "rb") as gz, restored.open("wb") as out:
-            shutil.copyfileobj(gz, out)
-
-        connection = sqlite3.connect(restored)
-        try:
-            assert connection.execute("SELECT count(*) FROM articles").fetchone()[0] == 500
-        finally:
-            connection.close()
-
-    def test_create_snapshot_drops_free_pages(self, tmp_path: Path) -> None:
-        """Vacuuming should reclaim space left behind by deleted rows."""
-        db_path = _make_database(tmp_path / "open_ire.db", rows=2000)
-        connection = sqlite3.connect(db_path)
-        try:
-            connection.execute("DELETE FROM articles WHERE id > 100")
-            connection.commit()
-            assert connection.execute("PRAGMA freelist_count").fetchone()[0] > 0
-        finally:
-            connection.close()
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        snapshot = create_snapshot(db_path, staging)
-
-        assert snapshot.stat().st_size < db_path.stat().st_size
-
-    def test_create_snapshot_leaves_source_untouched(self, tmp_path: Path) -> None:
-        """The live database must not be modified by taking a snapshot."""
-        db_path = _make_database(tmp_path / "open_ire.db", rows=100)
-        before = db_path.read_bytes()
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        create_snapshot(db_path, staging)
-
-        assert db_path.read_bytes() == before
-
-    @pytest.mark.asyncio
-    async def test_upload_database_backup(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
-        db_path = _make_database(tmp_path / "open_ire.db", rows=10)
-        pipeline.db_path = db_path
-        pipeline.run_at = datetime(2026, 1, 27, 9, 30, 0)
-
-        backup_path = "backups/open_ire__2026-01-27_09-30-00.db.gz"
-        mock_upload_result = MagicMock()
-        mock_upload_result.location = "https://sharepoint.com/uploaded-db"
-        mock_drive_item = MagicMock()
-        mock_drive_item.size = db_path.stat().st_size
-        mock_drive_item.web_url = "https://sharepoint.com/db-web-url"
-
-        uploaded_bytes: list[bytes] = []
-
-        async def capture_upload(local_path: Path, _remote_path: str) -> MagicMock:
-            uploaded_bytes.append(local_path.read_bytes())
-            return mock_upload_result
-
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
-        sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
-
-        assert await pipeline._upload_database_backup() is True
-
-        sharepoint.upload_file.assert_awaited_once()
-        snapshot_path, remote_path = sharepoint.upload_file.await_args.args
-        assert remote_path == backup_path
-        assert snapshot_path.name == "open_ire.db.gz"
-        assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
-        assert not snapshot_path.exists(), "staging directory should be cleaned up"
-        sharepoint.get_item.assert_awaited_once_with(backup_path)
-
-    @pytest.mark.asyncio
-    async def test_prune_keeps_most_recent_days(self, pipeline: SharePointPipeline) -> None:
-        """Every backup from the newest days should survive; older days go."""
-        pipeline.backup_days_kept = 2
-        names = [
-            "open_ire__2026-01-03_09-00-00.db.gz",
-            "open_ire__2026-01-03_09-00-00.log",
-            "open_ire__2026-01-03_15-00-00.db.gz",
-            "open_ire__2026-01-03_15-00-00.log",
-            "open_ire__2026-01-01_09-00-00.db.gz",
-            "open_ire__2026-01-01_09-00-00.log",
-            "open_ire__2026-01-02_09-00-00.db.gz",
-            "open_ire__2026-01-02_09-00-00.log",
-        ]
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
-        sharepoint.delete_item = AsyncMock()
-
-        await pipeline._prune_old_backups()
-
-        sharepoint.list_children.assert_awaited_once_with("backups")
-        deleted = sorted(call.args[0] for call in sharepoint.delete_item.await_args_list)
-        assert deleted == [
-            "backups/open_ire__2026-01-01_09-00-00.db.gz",
-            "backups/open_ire__2026-01-01_09-00-00.log",
-        ]
-
-    def test_stale_backups_keeps_most_recent_days(self) -> None:
-        """Every backup from the newest days should survive; older days go."""
-        names = [
-            "open_ire__2026-01-03_09-00-00.db.gz",
-            "open_ire__2026-01-03_15-00-00.log",
-            "open_ire__2026-01-01_09-00-00.db.gz",
-            "open_ire__2026-01-01_09-00-00.log",
-            "open_ire__2026-01-02_09-00-00.db.gz",
-        ]
-
-        assert sorted(stale_backups(names, 2)) == [
-            "open_ire__2026-01-01_09-00-00.db.gz",
-            "open_ire__2026-01-01_09-00-00.log",
-        ]
-
-    def test_stale_backups_ignores_unrelated_files(self) -> None:
-        """Files not named like our backups must never be stale."""
-        names = [
-            "open_ire__2026-01-02_09-00-00.db.gz",
-            "open_ire__2026-01-01_09-00-00.db.gz",
-            "open_ire_nursing__2026-01-01_09-00-00.db.gz",
-            "open_ire__2026-01-01.db.gz",
-            "open_ire__2026-01-01_09-00-00.log.gz",
-            "open_ire__2026-01-01_09-00-00.db",
-            "notes.txt",
-        ]
-
-        assert stale_backups(names, 1) == ["open_ire__2026-01-01_09-00-00.db.gz"]
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("days_kept", [None, 0])
-    async def test_prune_skipped_without_limit(
-        self, pipeline: SharePointPipeline, days_kept: int | None
-    ) -> None:
-        """None keeps every backup, and 0 must never prune everything."""
-        pipeline.backup_days_kept = days_kept
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.list_children = AsyncMock()
-        sharepoint.delete_item = AsyncMock()
-
-        await pipeline._prune_old_backups()
-
-        sharepoint.list_children.assert_not_awaited()
-        sharepoint.delete_item.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_prune_survives_delete_failure(self, pipeline: SharePointPipeline) -> None:
-        """A failed delete should be logged without aborting the remaining prunes."""
-        pipeline.backup_days_kept = 1
-        names = [
-            "open_ire__2026-01-03_09-00-00.db.gz",
-            "open_ire__2026-01-02_09-00-00.db.gz",
-            "open_ire__2026-01-01_09-00-00.db.gz",
-        ]
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.list_children = AsyncMock(return_value=[_drive_item(n) for n in names])
-        sharepoint.delete_item = AsyncMock(side_effect=[RuntimeError("boom"), None])
-
-        await pipeline._prune_old_backups()
-
-        assert sharepoint.delete_item.await_count == 2
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(("snapshot_uploaded", "pruned"), [(True, 1), (False, 0)])
-    async def test_back_up_run(
-        self, pipeline: SharePointPipeline, snapshot_uploaded: bool, pruned: int
-    ) -> None:
-        """Both uploads should always run; pruning only after a good snapshot."""
         with (
-            patch.object(
-                pipeline, "_upload_database_backup", AsyncMock(return_value=snapshot_uploaded)
-            ),
-            patch.object(pipeline, "_upload_log_file", AsyncMock()) as upload_log,
-            patch.object(pipeline, "_prune_old_backups", AsyncMock()) as prune,
+            patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
+            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
+            patch.object(SharePoint, "_authenticate"),
         ):
-            await pipeline._back_up_run()
+            pipeline = SharePointPipeline.from_crawler(crawler)
 
-        upload_log.assert_awaited_once()
-        assert prune.await_count == pruned
-
-    @pytest.mark.asyncio
-    async def test_back_up_run_disabled_by_zero(self, pipeline: SharePointPipeline) -> None:
-        """Keeping zero days should skip uploads and pruning entirely."""
-        pipeline.backup_days_kept = 0
-        with (
-            patch.object(pipeline, "_upload_database_backup", AsyncMock()) as upload_db,
-            patch.object(pipeline, "_upload_log_file", AsyncMock()) as upload_log,
-            patch.object(pipeline, "_prune_old_backups", AsyncMock()) as prune,
-        ):
-            await pipeline._back_up_run()
-
-        upload_db.assert_not_awaited()
-        upload_log.assert_not_awaited()
-        prune.assert_not_awaited()
-
-    @pytest.mark.parametrize(("value", "expected"), [(None, None), (0, 0), (5, 5), ("5", 5)])
-    def test_parse_backup_days_kept(self, value: Any, expected: int | None) -> None:
-        assert SharePointPipeline._parse_backup_days_kept(value) == expected
-
-    @pytest.mark.parametrize("value", [-1, "-1", 2.5, "abc", "None", True])
-    def test_parse_backup_days_kept_rejects_invalid(self, value: Any) -> None:
-        with pytest.raises(ConfigurationError):
-            SharePointPipeline._parse_backup_days_kept(value)
-
-    @pytest.mark.asyncio
-    async def test_upload_database_backup_unconfirmed(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
-        """A successful upload counts even if the confirmation lookup fails."""
-        pipeline.db_path = _make_database(tmp_path / "open_ire.db", rows=10)
-        mock_upload_result = MagicMock()
-        mock_upload_result.location = "https://sharepoint.com/uploaded-db"
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
-        sharepoint.get_item = AsyncMock(return_value=None)
-
-        assert await pipeline._upload_database_backup() is True
-
-    @pytest.mark.asyncio
-    async def test_upload_log_file(self, pipeline: SharePointPipeline, tmp_path: Path) -> None:
-        """The run log should be uploaded as-is under this run's backup name."""
-        log_path = tmp_path / "scrapy.log"
-        log_path.write_text("INFO: crawl finished\n" * 100)
-        pipeline.log_path = log_path
-        pipeline.run_at = datetime(2026, 1, 27, 9, 30, 0)
-
-        mock_upload_result = MagicMock()
-        mock_upload_result.location = "https://sharepoint.com/uploaded-log"
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
-
-        await pipeline._upload_log_file()
-
-        sharepoint.upload_file.assert_awaited_once_with(
-            log_path, "backups/open_ire__2026-01-27_09-30-00.log"
-        )
-
-    @pytest.mark.asyncio
-    async def test_upload_log_file_not_configured(self, pipeline: SharePointPipeline) -> None:
-        """No LOG_FILE setting should skip the upload rather than fail."""
-        pipeline.log_path = None
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock()
-
-        await pipeline._upload_log_file()
-
-        sharepoint.upload_file.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_upload_log_file_missing(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
-        """A configured but absent log file should skip the upload."""
-        pipeline.log_path = tmp_path / "absent.log"
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock()
-
-        await pipeline._upload_log_file()
-
-        sharepoint.upload_file.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_upload_database_backup_snapshot_failure(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
-        """A corrupt database should be reported without attempting an upload."""
-        db_path = tmp_path / "open_ire.db"
-        db_path.write_text("not-a-database")
-        pipeline.db_path = db_path
-
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock()
-
-        assert await pipeline._upload_database_backup() is False
-
-        sharepoint.upload_file.assert_not_awaited()
+        cls.assert_called_once_with(base_path="test_sharepoint")
+        assert pipeline.base_path == tmp_path
