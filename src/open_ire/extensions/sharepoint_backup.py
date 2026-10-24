@@ -28,57 +28,6 @@ BACKUP_NAME_PATTERN = re.compile(
 )
 
 
-def create_snapshot(db_path: Path, dest_dir: Path) -> Path:
-    """Write a compacted, gzipped copy of the database into ``dest_dir``.
-
-    ``VACUUM INTO`` reads through a read-only connection and produces a
-    transactionally consistent copy, so the live database is never held
-    open for writing and free pages are dropped from the result.
-
-    Parameters
-    ----------
-    db_path
-        Path to the live SQLite database.
-    dest_dir
-        Directory to write the snapshot into; must already exist.
-
-    Returns
-    -------
-    Path to the gzipped snapshot.
-    """
-    vacuumed = dest_dir / db_path.name
-    connection = sqlite3.connect(f"{db_path.absolute().as_uri()}?mode=ro", uri=True)
-    try:
-        connection.execute("VACUUM INTO ?", (str(vacuumed),))
-    finally:
-        connection.close()
-
-    compressed = dest_dir / f"{vacuumed.name}.gz"
-    with vacuumed.open("rb") as raw, gzip.open(compressed, "wb", compresslevel=6) as gz:
-        shutil.copyfileobj(raw, gz)
-    vacuumed.unlink()
-
-    return compressed
-
-
-def stale_backups(names: Iterable[str], days_kept: int) -> list[str]:
-    """Return the backups dated outside the most recent ``days_kept`` days.
-
-    Only names matching ``BACKUP_NAME_PATTERN`` are considered, so anything
-    else is never stale. A day's snapshots and logs are kept or dropped
-    together. ``days_kept`` must be positive; zero would mark every backup
-    stale.
-    """
-    backups_by_date: dict[str, list[str]] = defaultdict(list)
-    for name in names:
-        if match := BACKUP_NAME_PATTERN.fullmatch(name):
-            backups_by_date[match["date"]].append(name)
-
-    stale_dates = sorted(backups_by_date, reverse=True)[days_kept:]
-
-    return [name for date in stale_dates for name in backups_by_date[date]]
-
-
 class SharePointBackup:
     """
     Backs up the database and run log to a SharePoint drive when a spider
@@ -145,35 +94,6 @@ class SharePointBackup:
         conf = "OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT as None or a non-negative integer"
         raise ConfigurationError(conf)
 
-    def _backup_path(self, extension: str) -> str:
-        """SharePoint path for this run's backup with the given ``extension``."""
-        name = BACKUP_NAME.format(run_at=self.run_at, extension=extension)
-        return posix_join(self.backup_dir, name)
-
-    async def _prune_old_backups(self) -> None:
-        """Delete backups from all but the most recent ``backup_days_kept`` days.
-
-        See ``stale_backups`` for which files are considered.
-        """
-        # Zero disables backups in from_crawler; it must never mean "delete all".
-        if not self.backup_days_kept:
-            return
-
-        try:
-            children = await self.sharepoint.list_children(self.backup_dir)
-        except Exception:
-            logger.exception("Could not list SharePoint backups in '%s'", self.backup_dir)
-            return
-
-        names = (child.name or "" for child in children)
-        for name in stale_backups(names, self.backup_days_kept):
-            stale_path = posix_join(self.backup_dir, name)
-            try:
-                await self.sharepoint.delete_item(stale_path)
-                logger.info("Pruned old backup: %s", stale_path)
-            except Exception:
-                logger.exception("Failed to prune backup %s", stale_path)
-
     async def spider_closed(self, spider: Spider, reason: str) -> None:
         """Upload the database snapshot and run log, then prune old backups.
 
@@ -187,25 +107,6 @@ class SharePointBackup:
         await self._upload_log_file()
         if snapshot_uploaded:
             await self._prune_old_backups()
-
-    async def _upload_backup(self, local_path: Path, extension: str) -> bool:
-        """Upload ``local_path`` as this run's backup with the given ``extension``."""
-        sharepoint_path = self._backup_path(extension)
-        logger.info(
-            "Uploading backup to SharePoint: %s (%d bytes) -> %s",
-            local_path,
-            local_path.stat().st_size,
-            sharepoint_path,
-        )
-        upload_result = await self.sharepoint.upload_file(local_path, sharepoint_path)
-
-        if not upload_result.location:
-            logger.error("Failed to upload backup: %s", sharepoint_path)
-            return False
-
-        logger.info("Backup uploaded successfully: %s", sharepoint_path)
-
-        return True
 
     async def _upload_database_backup(self) -> bool:
         if not self.db_path:
@@ -241,3 +142,102 @@ class SharePointBackup:
 
         # Uploaded uncompressed so it can be read in the SharePoint web viewer.
         await self._upload_backup(self.log_path, "log")
+
+    async def _upload_backup(self, local_path: Path, extension: str) -> bool:
+        """Upload ``local_path`` as this run's backup with the given ``extension``."""
+        sharepoint_path = self._backup_path(extension)
+        logger.info(
+            "Uploading backup to SharePoint: %s (%d bytes) -> %s",
+            local_path,
+            local_path.stat().st_size,
+            sharepoint_path,
+        )
+        upload_result = await self.sharepoint.upload_file(local_path, sharepoint_path)
+
+        if not upload_result.location:
+            logger.error("Failed to upload backup: %s", sharepoint_path)
+            return False
+
+        logger.info("Backup uploaded successfully: %s", sharepoint_path)
+
+        return True
+
+    def _backup_path(self, extension: str) -> str:
+        """SharePoint path for this run's backup with the given ``extension``."""
+        name = BACKUP_NAME.format(run_at=self.run_at, extension=extension)
+        return posix_join(self.backup_dir, name)
+
+    async def _prune_old_backups(self) -> None:
+        """Delete backups from all but the most recent ``backup_days_kept`` days.
+
+        See ``stale_backups`` for which files are considered.
+        """
+        # Zero disables backups in from_crawler; it must never mean "delete all".
+        if not self.backup_days_kept:
+            return
+
+        try:
+            children = await self.sharepoint.list_children(self.backup_dir)
+        except Exception:
+            logger.exception("Could not list SharePoint backups in '%s'", self.backup_dir)
+            return
+
+        names = (child.name or "" for child in children)
+        for name in stale_backups(names, self.backup_days_kept):
+            stale_path = posix_join(self.backup_dir, name)
+            try:
+                await self.sharepoint.delete_item(stale_path)
+                logger.info("Pruned old backup: %s", stale_path)
+            except Exception:
+                logger.exception("Failed to prune backup %s", stale_path)
+
+
+def create_snapshot(db_path: Path, dest_dir: Path) -> Path:
+    """Write a compacted, gzipped copy of the database into ``dest_dir``.
+
+    ``VACUUM INTO`` reads through a read-only connection and produces a
+    transactionally consistent copy, so the live database is never held
+    open for writing and free pages are dropped from the result.
+
+    Parameters
+    ----------
+    db_path
+        Path to the live SQLite database.
+    dest_dir
+        Directory to write the snapshot into; must already exist.
+
+    Returns
+    -------
+    Path to the gzipped snapshot.
+    """
+    vacuumed = dest_dir / db_path.name
+    connection = sqlite3.connect(f"{db_path.absolute().as_uri()}?mode=ro", uri=True)
+    try:
+        connection.execute("VACUUM INTO ?", (str(vacuumed),))
+    finally:
+        connection.close()
+
+    compressed = dest_dir / f"{vacuumed.name}.gz"
+    with vacuumed.open("rb") as raw, gzip.open(compressed, "wb", compresslevel=6) as gz:
+        shutil.copyfileobj(raw, gz)
+    vacuumed.unlink()
+
+    return compressed
+
+
+def stale_backups(names: Iterable[str], days_kept: int) -> list[str]:
+    """Return the backups dated outside the most recent ``days_kept`` days.
+
+    Only names matching ``BACKUP_NAME_PATTERN`` are considered, so anything
+    else is never stale. A day's snapshots and logs are kept or dropped
+    together. ``days_kept`` must be positive; zero would mark every backup
+    stale.
+    """
+    backups_by_date: dict[str, list[str]] = defaultdict(list)
+    for name in names:
+        if match := BACKUP_NAME_PATTERN.fullmatch(name):
+            backups_by_date[match["date"]].append(name)
+
+    stale_dates = sorted(backups_by_date, reverse=True)[days_kept:]
+
+    return [name for date in stale_dates for name in backups_by_date[date]]
