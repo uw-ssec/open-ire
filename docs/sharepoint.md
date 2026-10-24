@@ -63,12 +63,12 @@ added in the development environment).
 
 ### Backups
 
-When a spider closes, the `SharePointBackup` extension (`open_ire.backup`) backs
-up the run's state into the `OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder (default
-`backups/`, under the base path). As an extension rather than an item pipeline,
-it runs for every spider, including those that set `ITEM_PIPELINES` to `{}`.
-Both files are named after the time the run started, so a snapshot and its log
-sit side by side:
+When a spider closes, the `SharePointBackup` extension (`open_ire.extensions`)
+backs up the run's state into the `OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder
+(default `backups/`, under the base path). As an extension rather than an item
+pipeline, it runs for every spider, including those that set `ITEM_PIPELINES` to
+`{}`. Both files are named after the time the run started, so a snapshot and its
+log sit side by side:
 
 - **Database snapshot** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.db.gz`). The SQLite
   database (`OPEN_IRE_DATABASE_FILE`) is compacted with `VACUUM INTO` and

@@ -14,8 +14,8 @@ from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 from scrapy.settings import Settings
 
-from open_ire.backup import SharePointBackup, create_snapshot, stale_backups
 from open_ire.errors import ConfigurationError
+from open_ire.extensions.sharepoint_backup import SharePointBackup, create_snapshot, stale_backups
 from open_ire.sharepoint import SharePoint
 
 SHAREPOINT_ENV = {
@@ -64,7 +64,7 @@ class TestSharePointBackup:
 
     @pytest.fixture
     def backup(self) -> SharePointBackup:
-        with patch("open_ire.backup.SharePoint"):
+        with patch("open_ire.extensions.sharepoint_backup.SharePoint"):
             return SharePointBackup("test_sharepoint")
 
     def test_from_crawler(self, crawler: Crawler) -> None:
@@ -76,7 +76,7 @@ class TestSharePointBackup:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.backup.SharePoint", wraps=SharePoint) as cls,
+            patch("open_ire.extensions.sharepoint_backup.SharePoint", wraps=SharePoint) as cls,
             patch.object(SharePoint, "_authenticate"),
         ):
             backup = SharePointBackup.from_crawler(crawler)
@@ -111,7 +111,7 @@ class TestSharePointBackup:
     ) -> None:
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("open_ire.backup.SharePoint", wraps=SharePoint) as cls,
+            patch("open_ire.extensions.sharepoint_backup.SharePoint", wraps=SharePoint) as cls,
             caplog.at_level(logging.WARNING),
             pytest.raises(NotConfigured),
         ):
@@ -131,7 +131,7 @@ class TestSharePointBackup:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.backup.SharePoint") as cls,
+            patch("open_ire.extensions.sharepoint_backup.SharePoint") as cls,
             pytest.raises(NotConfigured),
         ):
             SharePointBackup.from_crawler(crawler)

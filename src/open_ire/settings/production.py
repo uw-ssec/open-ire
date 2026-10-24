@@ -12,7 +12,7 @@ LOG_FILE = f"output/open_ire__{timestamp}.log"
 EXTENSIONS = {
     "scrapy.extensions.corestats.CoreStats": 500,
     "scrapy.extensions.periodic_log.PeriodicLog": 500,
-    "open_ire.backup.SharePointBackup": 500,
+    "open_ire.extensions.SharePointBackup": 500,
 }
 
 # Playwright settings
