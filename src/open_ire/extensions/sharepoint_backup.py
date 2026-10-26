@@ -124,7 +124,26 @@ class SharePointBackup:
                 logger.error("Failed to snapshot database %s: %s", self.db_path, e)
                 return False
 
-            return await self._upload_backup(snapshot_path, "db.gz")
+            expected_size = snapshot_path.stat().st_size
+            if not await self._upload_backup(snapshot_path, "db.gz"):
+                return False
+
+            sharepoint_path = self._backup_path("db.gz")
+            try:
+                item = await self.sharepoint.get_item(sharepoint_path)
+            except Exception:
+                logger.exception("Could not verify database backup: %s", sharepoint_path)
+                return False
+
+            if item is None or item.file is None or item.size != expected_size:
+                logger.error(
+                    "Database backup verification failed: %s (expected %d bytes)",
+                    sharepoint_path,
+                    expected_size,
+                )
+                return False
+
+            return True
 
     async def _upload_log_file(self) -> None:
         if not self.log_path:

@@ -9,6 +9,8 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from msgraph.generated.models.drive_item import DriveItem
+from msgraph.generated.models.file import File
 from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
@@ -156,10 +158,14 @@ class TestSharePointBackup:
 
         async def capture_upload(local_path: Path, _remote_path: str) -> MagicMock:
             uploaded_bytes.append(local_path.read_bytes())
+            sharepoint.get_item.return_value = DriveItem(
+                file=File(), size=local_path.stat().st_size
+            )
             return mock_upload_result
 
         sharepoint = cast(Any, backup.sharepoint)
         sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
+        sharepoint.get_item = AsyncMock()
 
         assert await backup._upload_database_backup() is True
 
@@ -169,6 +175,44 @@ class TestSharePointBackup:
         assert snapshot_path.name == "open_ire.db.gz"
         assert uploaded_bytes[0][:2] == b"\x1f\x8b", "snapshot should be gzipped"
         assert not snapshot_path.exists(), "staging directory should be cleaned up"
+        sharepoint.get_item.assert_awaited_once_with(backup_path)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "remote_state", ["verified", "missing", "wrong_size", "unknown_size", "folder", "error"]
+    )
+    async def test_snapshot_verification_controls_pruning(
+        self, backup: SharePointBackup, tmp_path: Path, remote_state: str
+    ) -> None:
+        """An upload-session URL alone must never authorize pruning."""
+        backup.db_path = _make_database(tmp_path / "open_ire.db", rows=10)
+        sharepoint = cast(Any, backup.sharepoint)
+        sharepoint.get_item = AsyncMock()
+
+        async def capture_upload(local_path: Path, _remote_path: str) -> MagicMock:
+            size = local_path.stat().st_size
+            item = DriveItem(file=File(), size=size)
+            if remote_state == "wrong_size":
+                item.size = size + 1
+            elif remote_state == "unknown_size":
+                item.size = None
+            elif remote_state == "folder":
+                item.file = None
+            elif remote_state == "error":
+                sharepoint.get_item.side_effect = RuntimeError("metadata request failed")
+            sharepoint.get_item.return_value = None if remote_state == "missing" else item
+            return MagicMock(location="https://sharepoint.com/upload-session")
+
+        sharepoint.upload_file = AsyncMock(side_effect=capture_upload)
+        with (
+            patch.object(backup, "_upload_log_file", AsyncMock()) as upload_log,
+            patch.object(backup, "_prune_old_backups", AsyncMock()) as prune,
+        ):
+            await backup.spider_closed(MagicMock(), "finished")
+
+        sharepoint.get_item.assert_awaited_once_with(backup._backup_path("db.gz"))
+        upload_log.assert_awaited_once()
+        assert prune.await_count == (1 if remote_state == "verified" else 0)
 
     @pytest.mark.asyncio
     async def test_upload_database_backup_failure(
