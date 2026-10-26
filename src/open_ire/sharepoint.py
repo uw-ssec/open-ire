@@ -1,5 +1,4 @@
 import os
-from io import BytesIO
 from pathlib import Path
 
 from azure.identity import ClientSecretCredential
@@ -98,7 +97,6 @@ class SharePoint:
             msg = f"Local file not found: {local_file_path}"
             raise FileNotFoundError(msg)
 
-        file_content = local_file_path.read_bytes()
         drive_id = await self._get_drive_id()
         item = self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(
             self._item_id_from_path(sharepoint_path)
@@ -106,8 +104,8 @@ class SharePoint:
 
         # LargeFileUploadTask can't upload an empty file, and it resends the final chunk
         # malformed when the whole file fits in one, so those files get a simple upload.
-        if len(file_content) <= self._UPLOAD_CHUNK_SIZE:
-            drive_item = await item.content.put(file_content)
+        if local_file_path.stat().st_size <= self._UPLOAD_CHUNK_SIZE:
+            drive_item = await item.content.put(local_file_path.read_bytes())
             result: UploadResult = UploadResult()
             result.item_response = drive_item
             result.location = drive_item.web_url if drive_item else None
@@ -131,13 +129,16 @@ class SharePoint:
             next_expected_ranges=upload_session.next_expected_ranges,
         )
 
-        task = LargeFileUploadTask(
-            large_file_upload_session,
-            self._client.request_adapter,
-            BytesIO(file_content),
-            max_chunk_size=self._UPLOAD_CHUNK_SIZE,
-        )
-        return await task.upload()
+        # The task is typed for BytesIO but reads any seekable file, getting the size from
+        # its name, so the file streams from disk instead of being held in memory.
+        with local_file_path.open("rb") as file_stream:
+            task = LargeFileUploadTask(
+                large_file_upload_session,
+                self._client.request_adapter,
+                file_stream,
+                max_chunk_size=self._UPLOAD_CHUNK_SIZE,
+            )
+            return await task.upload()
 
     async def download_file(self, sharepoint_path: str, local_file_path: Path) -> None:
         """

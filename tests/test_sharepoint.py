@@ -318,6 +318,7 @@ class TestSharePoint:
         assert result == mock_upload_result
         mock_task.upload.assert_called_once()
         assert mock_task_class.call_args.kwargs["max_chunk_size"] == SharePoint._UPLOAD_CHUNK_SIZE
+        assert mock_task_class.call_args.args[2].name == str(test_file)
         chain_mock.content.put.assert_not_called()
 
     @pytest.mark.asyncio
