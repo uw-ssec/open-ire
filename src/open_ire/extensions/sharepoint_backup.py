@@ -163,15 +163,19 @@ class SharePointBackup:
         await self._upload_backup(self.log_path, "log")
 
     async def _upload_backup(self, local_path: Path, extension: str) -> bool:
-        """Upload ``local_path`` as this run's backup with the given ``extension``."""
+        """Upload a backup, logging failures without interrupting other backups."""
         sharepoint_path = self._backup_path(extension)
-        logger.info(
-            "Uploading backup to SharePoint: %s (%d bytes) -> %s",
-            local_path,
-            local_path.stat().st_size,
-            sharepoint_path,
-        )
-        upload_result = await self.sharepoint.upload_file(local_path, sharepoint_path)
+        try:
+            logger.info(
+                "Uploading backup to SharePoint: %s (%d bytes) -> %s",
+                local_path,
+                local_path.stat().st_size,
+                sharepoint_path,
+            )
+            upload_result = await self.sharepoint.upload_file(local_path, sharepoint_path)
+        except Exception:
+            logger.exception("Failed to upload backup: %s -> %s", local_path, sharepoint_path)
+            return False
 
         if not upload_result.location:
             logger.error("Failed to upload backup: %s", sharepoint_path)

@@ -145,6 +145,53 @@ class TestSharePointBackup:
         assert prune.await_count == pruned
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("database_fails", "log_fails"), [(True, False), (False, True), (True, True)]
+    )
+    async def test_upload_failures_are_isolated(
+        self,
+        backup: SharePointBackup,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        database_fails: bool,
+        log_fails: bool,
+    ) -> None:
+        """Always try both uploads; only a verified database controls pruning."""
+        backup.db_path = _make_database(tmp_path / "open_ire.db", rows=10)
+        backup.log_path = tmp_path / "run.log"
+        backup.log_path.write_text("crawl finished\n")
+        sharepoint = cast(Any, backup.sharepoint)
+        sharepoint.get_item = AsyncMock()
+
+        async def upload(local_path: Path, remote_path: str) -> MagicMock:
+            if remote_path.endswith(".db.gz"):
+                if database_fails:
+                    message = "database upload failed"
+                    raise RuntimeError(message)
+                sharepoint.get_item.return_value = DriveItem(
+                    file=File(), size=local_path.stat().st_size
+                )
+            elif log_fails:
+                message = "log upload failed"
+                raise RuntimeError(message)
+            return MagicMock(location="https://sharepoint.com/upload-session")
+
+        sharepoint.upload_file = AsyncMock(side_effect=upload)
+        with patch.object(backup, "_prune_old_backups", AsyncMock()) as prune:
+            await backup.spider_closed(MagicMock(), "finished")
+
+        assert [call.args[1] for call in sharepoint.upload_file.await_args_list] == [
+            backup._backup_path("db.gz"),
+            backup._backup_path("log"),
+        ]
+        assert prune.await_count == (0 if database_fails else 1)
+        assert sharepoint.get_item.await_count == (0 if database_fails else 1)
+        if database_fails:
+            assert "database upload failed" in caplog.text
+        if log_fails:
+            assert "log upload failed" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_upload_database_backup(self, backup: SharePointBackup, tmp_path: Path) -> None:
         db_path = _make_database(tmp_path / "open_ire.db", rows=10)
         backup.db_path = db_path
