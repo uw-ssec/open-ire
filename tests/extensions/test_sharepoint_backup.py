@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -146,7 +146,7 @@ class TestSharePointBackup:
     async def test_upload_database_backup(self, backup: SharePointBackup, tmp_path: Path) -> None:
         db_path = _make_database(tmp_path / "open_ire.db", rows=10)
         backup.db_path = db_path
-        backup.run_at = datetime(2026, 1, 27, 9, 30, 0)
+        backup.run_at = datetime(2026, 1, 27, 9, 30, 0, tzinfo=UTC)
 
         backup_path = "backups/open_ire__2026-01-27_09-30-00.db.gz"
         mock_upload_result = MagicMock()
@@ -205,7 +205,7 @@ class TestSharePointBackup:
         log_path = tmp_path / "scrapy.log"
         log_path.write_text("INFO: crawl finished\n" * 100)
         backup.log_path = log_path
-        backup.run_at = datetime(2026, 1, 27, 9, 30, 0)
+        backup.run_at = datetime(2026, 1, 27, 9, 30, 0, tzinfo=UTC)
 
         mock_upload_result = MagicMock()
         mock_upload_result.location = "https://sharepoint.com/uploaded-log"
@@ -241,7 +241,7 @@ class TestSharePointBackup:
         sharepoint.upload_file.assert_not_awaited()
 
     def test_backup_path(self, backup: SharePointBackup) -> None:
-        backup.run_at = datetime(2026, 2, 18, 9, 30, 5)
+        backup.run_at = datetime(2026, 2, 18, 9, 30, 5, tzinfo=UTC)
 
         assert backup._backup_path("db.gz") == "backups/open_ire__2026-02-18_09-30-05.db.gz"
         assert backup._backup_path("log") == "backups/open_ire__2026-02-18_09-30-05.log"
