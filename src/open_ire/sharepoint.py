@@ -22,6 +22,8 @@ class SharePoint:
         "SHAREPOINT_SITE_ID",
         "SHAREPOINT_CLIENT_SECRET",
     )
+    # Graph requires upload session chunks to be multiples of 320 KiB.
+    _UPLOAD_CHUNK_SIZE = 12 * 320 * 1024
 
     @staticmethod
     def missing_credentials() -> list[str]:
@@ -96,20 +98,27 @@ class SharePoint:
             msg = f"Local file not found: {local_file_path}"
             raise FileNotFoundError(msg)
 
+        file_content = local_file_path.read_bytes()
         drive_id = await self._get_drive_id()
-        file_size = local_file_path.stat().st_size
+        item = self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(
+            self._item_id_from_path(sharepoint_path)
+        )
+
+        # LargeFileUploadTask can't upload an empty file, and it resends the final chunk
+        # malformed when the whole file fits in one, so those files get a simple upload.
+        if len(file_content) <= self._UPLOAD_CHUNK_SIZE:
+            drive_item = await item.content.put(file_content)
+            result: UploadResult = UploadResult()
+            result.item_response = drive_item
+            result.location = drive_item.web_url if drive_item else None
+            return result
 
         upload_body = CreateUploadSessionPostRequestBody(
             item=DriveItemUploadableProperties(
                 additional_data={"@microsoft.graph.conflictBehavior": "replace"}
             )
         )
-        item_id = self._item_id_from_path(sharepoint_path)
-        upload_session = (
-            await self._client.drives.by_drive_id(drive_id)
-            .items.by_drive_item_id(item_id)
-            .create_upload_session.post(upload_body)
-        )
+        upload_session = await item.create_upload_session.post(upload_body)
         if not upload_session:
             msg = f"Failed to create upload session for {local_file_path}"
             raise RuntimeError(msg)
@@ -122,15 +131,13 @@ class SharePoint:
             next_expected_ranges=upload_session.next_expected_ranges,
         )
 
-        with Path(local_file_path).open("rb") as file_content:
-            max_chunk_size = min(file_size // 2, 5 * 1024 * 1024)
-            task = LargeFileUploadTask(
-                large_file_upload_session,
-                self._client.request_adapter,
-                BytesIO(file_content.read()),
-                max_chunk_size=max_chunk_size,
-            )
-            return await task.upload()
+        task = LargeFileUploadTask(
+            large_file_upload_session,
+            self._client.request_adapter,
+            BytesIO(file_content),
+            max_chunk_size=self._UPLOAD_CHUNK_SIZE,
+        )
+        return await task.upload()
 
     async def download_file(self, sharepoint_path: str, local_file_path: Path) -> None:
         """
@@ -148,13 +155,10 @@ class SharePoint:
             .content.get()
         )
 
-        if stream is None:
-            msg = f"Failed to download file from SharePoint: {sharepoint_path}"
-            raise RuntimeError(msg)
-
+        # Kiota raises on HTTP errors and returns None for an empty body.
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         with local_file_path.open("wb") as local_file:
-            local_file.write(stream)
+            local_file.write(stream or b"")
 
     async def delete_item(self, item_path: str) -> bool:
         """
