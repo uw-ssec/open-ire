@@ -30,7 +30,7 @@ class TestOpenIRELogger:
             monkeypatch.setattr(logging.getLogger(name), "level", logging.NOTSET)
 
     @pytest.fixture
-    def root_logger(self) -> Generator[logging.Logger, None, None]:
+    def root_logger(self) -> Generator[logging.Logger]:
         """Yield the root logger, removing any handler a test adds to it."""
         root = logging.getLogger()
         existing = list(root.handlers)

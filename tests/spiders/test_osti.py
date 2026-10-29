@@ -13,7 +13,7 @@ from open_ire.spiders.osti import OstiSpider
 
 
 @pytest.fixture
-def spider() -> Generator[OstiSpider, None, None]:
+def spider() -> Generator[OstiSpider]:
     with patch.object(OstiSpider, "logger", new_callable=MagicMock):
         yield OstiSpider(terms="university of washington")
 

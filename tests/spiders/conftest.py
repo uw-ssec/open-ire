@@ -10,7 +10,7 @@ from open_ire.models import Article
 
 
 @pytest.fixture
-def spider_with_db(spider: Any) -> Generator[Any, None, None]:
+def spider_with_db(spider: Any) -> Generator[Any]:
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     spider.engine = engine

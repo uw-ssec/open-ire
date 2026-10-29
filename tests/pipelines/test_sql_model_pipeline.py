@@ -15,7 +15,7 @@ class TestSQLModelPipeline:
     """Tests the processing and validation logic of the SQLModelPipeline."""
 
     @pytest.fixture
-    def pipeline(self, crawler: Crawler) -> Generator[SQLModelPipeline, None, None]:
+    def pipeline(self, crawler: Crawler) -> Generator[SQLModelPipeline]:
         """
         Create a pipeline instance with an in-memory SQLite DB for each test.
         """

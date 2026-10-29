@@ -11,7 +11,7 @@ from open_ire.spiders.datamart import DatamartSpider
 
 
 @pytest.fixture
-def spider() -> Generator[DatamartSpider, None, None]:
+def spider() -> Generator[DatamartSpider]:
     with (
         patch.object(DatamartSpider, "logger", new_callable=MagicMock),
         patch.object(DatamartSpider, "_create_datamart_engine", return_value=MagicMock()),

@@ -15,7 +15,7 @@ from open_ire.spiders.oa_doaj import OADOAJSpider, _ArticleCandidate
 
 
 @pytest.fixture
-def spider() -> Generator[OADOAJSpider, None, None]:
+def spider() -> Generator[OADOAJSpider]:
     with patch.object(OADOAJSpider, "logger", new_callable=MagicMock):
         spider_instance = OADOAJSpider()
         yield spider_instance

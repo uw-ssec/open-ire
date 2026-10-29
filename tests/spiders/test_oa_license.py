@@ -14,7 +14,7 @@ from open_ire.spiders.oa_license import OALicenseSpider
 
 
 @pytest.fixture
-def spider() -> Generator[OALicenseSpider, None, None]:
+def spider() -> Generator[OALicenseSpider]:
     with patch.object(OALicenseSpider, "logger", new_callable=MagicMock):
         spider_instance = OALicenseSpider()
         yield spider_instance
