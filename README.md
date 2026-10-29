@@ -186,13 +186,13 @@ pixi install -e notebooks
 To open a notebook in the interactive editor:
 
 ```bash
-pixi run -e dev marimo edit notebooks/metadata_analysis.py
+pixi run -e notebooks marimo edit notebooks/metadata_analysis.py
 ```
 
 To run a notebook as a read-only app:
 
 ```bash
-pixi run -e dev marimo run notebooks/metadata_analysis.py
+pixi run -e notebooks marimo run notebooks/metadata_analysis.py
 ```
 
 ## Contributing
