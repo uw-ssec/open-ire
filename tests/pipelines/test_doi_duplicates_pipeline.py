@@ -14,7 +14,7 @@ from open_ire.pipelines import DOIDuplicatesPipeline
 
 
 @pytest.fixture
-def pipeline(crawler: Crawler) -> Generator[DOIDuplicatesPipeline, None, None]:
+def pipeline(crawler: Crawler) -> Generator[DOIDuplicatesPipeline]:
     instance = DOIDuplicatesPipeline(":memory:", "output")
     instance.crawler = crawler
     instance.open_spider()
@@ -28,7 +28,7 @@ def pipeline_with_existing(
     request: pytest.FixtureRequest,
     crawler: Crawler,
     tmp_path: Path,
-) -> Generator[DOIDuplicatesPipeline, None, None]:
+) -> Generator[DOIDuplicatesPipeline]:
     """Pipeline with an existing OpenAlex article in the database."""
     db_path = str(tmp_path / "test.db")
     instance = DOIDuplicatesPipeline(db_path, "output")

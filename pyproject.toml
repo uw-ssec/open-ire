@@ -10,13 +10,13 @@ name = "open_ire"
 dynamic = ["version"]
 description = "A configurable crawler for collecting articles from open-access research repositories."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -90,7 +90,7 @@ version-file = "src/open_ire/version.py"
 [tool.mypy]
 files = ["src", "tests"]
 mypy_path = ["src"]
-python_version = "3.12"
+python_version = "3.13"
 warn_unused_configs = true
 strict = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]

@@ -13,7 +13,7 @@ from open_ire.pipelines.author_identifier_pipeline import AuthorIdentifierPipeli
 
 
 @pytest.fixture
-def pipeline(temp_db: str) -> Generator[AuthorIdentifierPipeline, None, None]:
+def pipeline(temp_db: str) -> Generator[AuthorIdentifierPipeline]:
     """Create a pipeline instance with a test database."""
     db_path = temp_db.replace("sqlite:///", "")
     p = AuthorIdentifierPipeline(db_path)

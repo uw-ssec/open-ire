@@ -403,9 +403,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     # === HIGH-LEVEL WORKFLOW METHODS ===
 
-    def _parse_author_search_results(
-        self, response: Response
-    ) -> Generator[Request | AuthorItem, None, None]:
+    def _parse_author_search_results(self, response: Response) -> Generator[Request | AuthorItem]:
         """Parse author search results and yield AuthorItems and publications requests."""
         searched_author = response.meta["searched_author"]
         raw = json.loads(response.text or "{}")
@@ -437,7 +435,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     def _resolved_author_search_results(
         self, searched_author: str
-    ) -> Generator[Request | AuthorItem, None, None]:
+    ) -> Generator[Request | AuthorItem]:
         """Yield results for a manually resolved ambiguous author from the CSV."""
         chosen = self.ambiguous_authors.resolved_choices[searched_author]
         self.logger.info(
@@ -589,7 +587,7 @@ class OpenAlexSpider(AuthorSearchSpider):
 
     def _parse_publications(
         self, response: Response, author_id: str
-    ) -> Generator[Request | ArticleItem, None, None]:
+    ) -> Generator[Request | ArticleItem]:
         """Parse publication results and yield ArticleItems, handling pagination."""
         searched_author = response.meta["searched_author"]
         is_first_page = response.meta["cursor"] == "*"
