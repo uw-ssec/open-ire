@@ -119,7 +119,13 @@ minversion = "6.0"
 markers = ["integration"]
 addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-m", "not integration"]
 xfail_strict = false
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Kiota-generated msgraph code warns in class bodies, so merely importing a
+    # request builder triggers these; they don't reflect anything we call.
+    "ignore:GetQueryParameters is deprecated:DeprecationWarning:kiota_abstractions",
+    "ignore:This class is deprecated:DeprecationWarning:msgraph",
+]
 log_cli_level = "INFO"
 testpaths = ["tests"]
 
