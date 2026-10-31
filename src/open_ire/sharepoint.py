@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+from typing import cast
 
 from azure.identity import ClientSecretCredential
+from kiota_http.httpx_request_adapter import HttpxRequestAdapter
 from msgraph.generated.drives.item.items.item.create_upload_session.create_upload_session_post_request_body import (
     CreateUploadSessionPostRequestBody,
 )
@@ -10,6 +12,7 @@ from msgraph.generated.models.drive_item_uploadable_properties import (
     DriveItemUploadableProperties,
 )
 from msgraph.graph_service_client import GraphServiceClient
+from msgraph_core.middleware.async_graph_transport import AsyncGraphTransport
 from msgraph_core.models import LargeFileUploadSession, UploadResult
 from msgraph_core.tasks import LargeFileUploadTask
 
@@ -55,14 +58,14 @@ class SharePoint:
         self._client = self._authenticate(secret)
 
     def _authenticate(self, client_secret: str) -> GraphServiceClient:
-        credential = ClientSecretCredential(
+        self._credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
             client_id=self.client_id,
             client_secret=client_secret,
         )
         scopes = ["https://graph.microsoft.com/.default"]
 
-        return GraphServiceClient(credential, scopes)
+        return GraphServiceClient(self._credential, scopes)
 
     def _item_id_from_path(self, item_path: str) -> str:
         item_path = item_path.removeprefix("/")
@@ -192,3 +195,14 @@ class SharePoint:
         item_id = self._item_id_from_path(item_path)
 
         return await self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).get()
+
+    async def close(self) -> None:
+        """Close the connections to Microsoft; the client can't be used afterward."""
+        http_client = cast(HttpxRequestAdapter, self._client.request_adapter)._http_client
+        # GraphServiceClient has no close method, and AsyncGraphTransport doesn't forward aclose,
+        # so closing http_client alone would leave the sockets open.
+        for transport in (http_client._transport, *http_client._mounts.values()):
+            if isinstance(transport, AsyncGraphTransport):
+                await transport.transport.aclose()
+        await http_client.aclose()
+        self._credential.close()

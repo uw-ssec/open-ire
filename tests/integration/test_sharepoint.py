@@ -34,9 +34,11 @@ async def sharepoint_folder(
     monkeypatch.setattr(SharePoint, "_UPLOAD_CHUNK_SIZE", CHUNK)
     sharepoint = SharePoint(base_path=OPEN_IRE_SHAREPOINT_BASE_PATH)
     folder = f"live_tests/{uuid.uuid4().hex}"
-    yield sharepoint, folder
-    await sharepoint.delete_item(folder)
-    await sharepoint.close()
+    try:
+        yield sharepoint, folder
+        await sharepoint.delete_item(folder)
+    finally:
+        await sharepoint.close()
 
 
 @pytest.mark.asyncio

@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from kiota_abstractions.request_information import RequestInformation
+from kiota_http.httpx_request_adapter import HttpxRequestAdapter
 from msgraph.generated.models.drive import Drive
 from msgraph.generated.models.drive_item import DriveItem
 from msgraph_core.models import LargeFileUploadSession, UploadResult
@@ -144,6 +146,20 @@ class TestSharePoint:
             client = SharePoint(base_path=DefaultValues.BASE_PATH.value)
 
         self._assert_client_attributes(client, expected_client_attributes)
+
+    @pytest.mark.asyncio
+    async def test_close_releases_connections(self, mock_client_args: dict[str, str]) -> None:
+        """Use the real Graph client, so an SDK change to how it holds httpx fails here."""
+        with patch("open_ire.sharepoint.ClientSecretCredential") as mock_credential:
+            client = SharePoint(base_path=DefaultValues.BASE_PATH.value, **mock_client_args)
+        http_client = cast(HttpxRequestAdapter, client._client.request_adapter)._http_client
+
+        with patch.object(httpx.AsyncHTTPTransport, "aclose", autospec=True) as mock_aclose:
+            await client.close()
+
+        assert http_client.is_closed
+        mock_aclose.assert_awaited()
+        mock_credential.return_value.close.assert_called_once_with()
 
     @pytest.mark.parametrize(
         "env_vars",
