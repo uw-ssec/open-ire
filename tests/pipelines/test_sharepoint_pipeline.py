@@ -152,7 +152,7 @@ class TestSharePointPipeline:
         connect = cast(Any, crawler.signals.connect)
         connect.assert_called_once()
         assert connect.call_args.kwargs["signal"] == signals.spider_closed
-        assert connect.call_args.args[0] == pipeline._upload_database_backup
+        assert connect.call_args.args[0] == pipeline._on_spider_closed
 
     @pytest.mark.parametrize(
         ("env", "missing"),
@@ -199,6 +199,39 @@ class TestSharePointPipeline:
         result = pipeline._build_db_sharepoint_path(db_path, run_at)
 
         assert result == "dbs/open_ire__2026-02-18.db"
+
+    @pytest.mark.asyncio
+    async def test_spider_closed_closes_client_after_backup(
+        self, pipeline: SharePointPipeline
+    ) -> None:
+        close = AsyncMock()
+        cast(Any, pipeline.sharepoint).close = close
+
+        async def check_client_still_open(*_args: object) -> None:
+            close.assert_not_awaited()
+
+        with patch.object(
+            pipeline, "_upload_database_backup", side_effect=check_client_still_open
+        ) as upload:
+            await pipeline._on_spider_closed(reason="finished")
+
+        upload.assert_awaited_once_with(None, "finished")
+        close.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_spider_closed_closes_client_when_backup_fails(
+        self, pipeline: SharePointPipeline
+    ) -> None:
+        close = AsyncMock()
+        cast(Any, pipeline.sharepoint).close = close
+
+        with (
+            patch.object(pipeline, "_upload_database_backup", side_effect=RuntimeError("no drive")),
+            pytest.raises(RuntimeError, match="no drive"),
+        ):
+            await pipeline._on_spider_closed()
+
+        close.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     async def test_upload_database_backup(

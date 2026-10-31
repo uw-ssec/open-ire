@@ -50,7 +50,7 @@ class SharePointPipeline:
         db_path = crawler.settings.get("OPEN_IRE_DATABASE_FILE")
         pipeline = cls(sharepoint_base_path, local_base_path, crawler)
         pipeline.db_path = Path(db_path) if db_path else None
-        crawler.signals.connect(pipeline._upload_database_backup, signal=signals.spider_closed)
+        crawler.signals.connect(pipeline._on_spider_closed, signal=signals.spider_closed)
 
         return pipeline
 
@@ -75,6 +75,18 @@ class SharePointPipeline:
             return filename
 
         return posix_join(backup_dir, filename)
+
+    async def _on_spider_closed(
+        self,
+        spider: Spider | None = None,
+        reason: str = "completed",
+    ) -> None:
+        # Scrapy calls close_spider before this signal, and it runs signal handlers concurrently,
+        # so the client can only be closed here, once the backup is done.
+        try:
+            await self._upload_database_backup(spider, reason)
+        finally:
+            await self.sharepoint.close()
 
     async def _upload_database_backup(
         self,
