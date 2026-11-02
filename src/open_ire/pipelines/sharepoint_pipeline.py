@@ -43,7 +43,7 @@ class SharePointPipeline:
             ValueError: If required SharePoint credentials are missing.
         """
         self.sharepoint = SharePointClient(base_path=sharepoint_base_path)
-        self.base_path = Path(local_base_path)
+        self.local_base_path = Path(local_base_path)
         self.crawler = crawler
         self.db_path: Path | None = None
 
@@ -195,7 +195,7 @@ class SharePointPipeline:
             cleanup fails. Otherwise, an empty string.
         """
         sharepoint_path = str(file_data.get("path") or "")
-        local_file_path = self.base_path / sharepoint_path
+        local_file_path = self.local_base_path / sharepoint_path
 
         if not local_file_path.exists():
             msg = f"Local file not found: {local_file_path}"
