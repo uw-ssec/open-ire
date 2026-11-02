@@ -13,7 +13,7 @@ from msgraph.generated.models.drive import Drive
 from msgraph.generated.models.drive_item import DriveItem
 from msgraph_core.models import LargeFileUploadSession, UploadResult
 
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 
 class DefaultValues(Enum):
@@ -55,12 +55,12 @@ class TestSharePoint:
 
     @staticmethod
     def _mock_client_drive_id(
-        sharepoint_client: SharePoint, drive_id: str = DefaultValues.DRIVE_ID.value
+        sharepoint_client: SharePointClient, drive_id: str = DefaultValues.DRIVE_ID.value
     ) -> None:
         sharepoint_client.__setattr__("_get_drive_id", AsyncMock(return_value=drive_id))
 
     @staticmethod
-    def _mock_client_drive_item(sharepoint_client: SharePoint) -> MagicMock:
+    def _mock_client_drive_item(sharepoint_client: SharePointClient) -> MagicMock:
         client = cast(MagicMock, sharepoint_client._client)
         return cast(
             MagicMock, client.drives.by_drive_id.return_value.items.by_drive_item_id.return_value
@@ -77,7 +77,9 @@ class TestSharePoint:
         return test_file
 
     @staticmethod
-    def _assert_client_attributes(client: SharePoint, expected_values: dict[str, str]) -> None:
+    def _assert_client_attributes(
+        client: SharePointClient, expected_values: dict[str, str]
+    ) -> None:
         for attr, expected_value in expected_values.items():
             assert getattr(client, attr) == expected_value
 
@@ -116,10 +118,10 @@ class TestSharePoint:
         _mock_credential: MagicMock,  # needed for @patch decorator
         mock_graph_client: MagicMock,  # needed for @patch decorator
         mock_env_vars: dict[str, str],
-    ) -> SharePoint:
+    ) -> SharePointClient:
         with patch.dict(os.environ, mock_env_vars):
             mock_graph_client.return_value = MagicMock()
-            return SharePoint(base_path=DefaultValues.BASE_PATH.value)
+            return SharePointClient(base_path=DefaultValues.BASE_PATH.value)
 
     def test_init_with_args(
         self, mock_client_args: dict[str, str], expected_client_attributes: dict[str, str]
@@ -128,7 +130,7 @@ class TestSharePoint:
             patch("open_ire.sharepoint.GraphServiceClient"),
             patch("open_ire.sharepoint.ClientSecretCredential"),
         ):
-            client = SharePoint(
+            client = SharePointClient(
                 base_path=DefaultValues.BASE_PATH.value,
                 **mock_client_args,
             )
@@ -143,7 +145,7 @@ class TestSharePoint:
             patch("open_ire.sharepoint.GraphServiceClient"),
             patch("open_ire.sharepoint.ClientSecretCredential"),
         ):
-            client = SharePoint(base_path=DefaultValues.BASE_PATH.value)
+            client = SharePointClient(base_path=DefaultValues.BASE_PATH.value)
 
         self._assert_client_attributes(client, expected_client_attributes)
 
@@ -151,7 +153,7 @@ class TestSharePoint:
     async def test_close_releases_connections(self, mock_client_args: dict[str, str]) -> None:
         """Use the real Graph client, so an SDK change to how it holds httpx fails here."""
         with patch("open_ire.sharepoint.ClientSecretCredential") as mock_credential:
-            client = SharePoint(base_path=DefaultValues.BASE_PATH.value, **mock_client_args)
+            client = SharePointClient(base_path=DefaultValues.BASE_PATH.value, **mock_client_args)
         http_client = cast(HttpxRequestAdapter, client._client.request_adapter)._http_client
 
         with patch.object(httpx.AsyncHTTPTransport, "aclose", autospec=True) as mock_aclose:
@@ -176,15 +178,15 @@ class TestSharePoint:
             patch.dict(os.environ, env_vars, clear=True),
             pytest.raises(ValueError, match="Missing required parameters for SharePoint client"),
         ):
-            SharePoint(base_path=DefaultValues.BASE_PATH.value)
+            SharePointClient(base_path=DefaultValues.BASE_PATH.value)
 
     def test_missing_credentials_none_when_all_set(self, mock_env_vars: dict[str, str]) -> None:
         with patch.dict(os.environ, mock_env_vars, clear=True):
-            assert SharePoint.missing_credentials() == []
+            assert SharePointClient.missing_env_vars() == []
 
     def test_missing_credentials_all_when_unset(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            assert SharePoint.missing_credentials() == [
+            assert SharePointClient.missing_env_vars() == [
                 "SHAREPOINT_CLIENT_ID",
                 "SHAREPOINT_TENANT_ID",
                 "SHAREPOINT_SITE_ID",
@@ -194,7 +196,7 @@ class TestSharePoint:
     def test_missing_credentials_partial(self) -> None:
         env = {"SHAREPOINT_CLIENT_ID": DefaultValues.CLIENT_ID.value}
         with patch.dict(os.environ, env, clear=True):
-            assert SharePoint.missing_credentials() == [
+            assert SharePointClient.missing_env_vars() == [
                 "SHAREPOINT_TENANT_ID",
                 "SHAREPOINT_SITE_ID",
                 "SHAREPOINT_CLIENT_SECRET",
@@ -204,7 +206,7 @@ class TestSharePoint:
         self, mock_env_vars: dict[str, str]
     ) -> None:
         with patch.dict(os.environ, {**mock_env_vars, "SHAREPOINT_CLIENT_SECRET": ""}, clear=True):
-            assert SharePoint.missing_credentials() == ["SHAREPOINT_CLIENT_SECRET"]
+            assert SharePointClient.missing_env_vars() == ["SHAREPOINT_CLIENT_SECRET"]
 
     @pytest.mark.parametrize(
         ("path", "expected"),
@@ -228,7 +230,7 @@ class TestSharePoint:
         ],
     )
     def test_item_id_from_path(
-        self, sharepoint_client: SharePoint, path: str, expected: str
+        self, sharepoint_client: SharePointClient, path: str, expected: str
     ) -> None:
         result = sharepoint_client._item_id_from_path(path)
         assert result == expected
@@ -239,14 +241,14 @@ class TestSharePoint:
         self,
         mock_credential: MagicMock,
         mock_graph_client: MagicMock,
-        sharepoint_client: SharePoint,
+        sharepoint_client: SharePointClient,
     ) -> None:
         mock_cred_instance = MagicMock()
         mock_credential.return_value = mock_cred_instance
         mock_graph_instance = MagicMock()
         mock_graph_client.return_value = mock_graph_instance
 
-        result = sharepoint_client._authenticate(DefaultValues.CLIENT_SECRET.value)
+        result = sharepoint_client._create_client(DefaultValues.CLIENT_SECRET.value)
 
         mock_credential.assert_called_once_with(
             tenant_id=sharepoint_client.tenant_id,
@@ -259,7 +261,7 @@ class TestSharePoint:
         assert result == mock_graph_instance
 
     @pytest.mark.asyncio
-    async def test_get_drive_id(self, sharepoint_client: SharePoint) -> None:
+    async def test_get_drive_id(self, sharepoint_client: SharePointClient) -> None:
         mock_drive = self._mock_drive()
         client = cast(MagicMock, sharepoint_client._client)
         client.sites.by_site_id.return_value.drive.get = AsyncMock(return_value=mock_drive)
@@ -269,7 +271,7 @@ class TestSharePoint:
         assert sharepoint_client._drive_id == DefaultValues.DRIVE_ID.value
 
     @pytest.mark.asyncio
-    async def test_get_drive_id_failure(self, sharepoint_client: SharePoint) -> None:
+    async def test_get_drive_id_failure(self, sharepoint_client: SharePointClient) -> None:
         client = cast(MagicMock, sharepoint_client._client)
         client.sites.by_site_id.return_value.drive.get = AsyncMock(return_value=None)
 
@@ -277,7 +279,7 @@ class TestSharePoint:
             await sharepoint_client._get_drive_id()
 
     @pytest.mark.asyncio
-    async def test_get_drive_id_cached(self, sharepoint_client: SharePoint) -> None:
+    async def test_get_drive_id_cached(self, sharepoint_client: SharePointClient) -> None:
         sharepoint_client._drive_id = DefaultValues.DRIVE_ID.value
         result = await sharepoint_client._get_drive_id()
 
@@ -287,10 +289,10 @@ class TestSharePoint:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "content", [b"", b"Unit Test", b"x" * SharePoint._UPLOAD_CHUNK_SIZE], ids=len
+        "content", [b"", b"Unit Test", b"x" * SharePointClient._UPLOAD_CHUNK_SIZE], ids=len
     )
     async def test_upload_small_file(
-        self, sharepoint_client: SharePoint, tmp_path: Path, content: bytes
+        self, sharepoint_client: SharePointClient, tmp_path: Path, content: bytes
     ) -> None:
         test_file = self._create_test_file(tmp_path, content=content)
         mock_drive_item = self._mock_drive_item(size=len(content))
@@ -312,11 +314,11 @@ class TestSharePoint:
     async def test_upload_large_file(
         self,
         mock_task_class: MagicMock,
-        sharepoint_client: SharePoint,
+        sharepoint_client: SharePointClient,
         tmp_path: Path,
     ) -> None:
         test_file = self._create_test_file(
-            tmp_path, content=b"x" * (SharePoint._UPLOAD_CHUNK_SIZE + 1)
+            tmp_path, content=b"x" * (SharePointClient._UPLOAD_CHUNK_SIZE + 1)
         )
         mock_upload_result = MagicMock(spec=UploadResult)
         mock_upload_session = self._mock_upload_session()
@@ -333,17 +335,20 @@ class TestSharePoint:
 
         assert result == mock_upload_result
         mock_task.upload.assert_called_once()
-        assert mock_task_class.call_args.kwargs["max_chunk_size"] == SharePoint._UPLOAD_CHUNK_SIZE
+        assert (
+            mock_task_class.call_args.kwargs["max_chunk_size"]
+            == SharePointClient._UPLOAD_CHUNK_SIZE
+        )
         assert mock_task_class.call_args.args[2].name == str(test_file)
         chain_mock.content.put.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("chunks", [1.5, 2, 3.5])
     async def test_upload_large_file_sends_well_formed_chunks(
-        self, sharepoint_client: SharePoint, tmp_path: Path, chunks: float
+        self, sharepoint_client: SharePointClient, tmp_path: Path, chunks: float
     ) -> None:
         """Run the real LargeFileUploadTask against a fake upload session."""
-        content = os.urandom(int(SharePoint._UPLOAD_CHUNK_SIZE * chunks))
+        content = os.urandom(int(SharePointClient._UPLOAD_CHUNK_SIZE * chunks))
         test_file = self._create_test_file(tmp_path, content=content)
         mock_upload_session = self._mock_upload_session()
         mock_upload_session.expiration_date_time = datetime.now(UTC) + timedelta(hours=1)
@@ -375,7 +380,7 @@ class TestSharePoint:
         assert received == content
 
     @pytest.mark.asyncio
-    async def test_upload_missing_file(self, sharepoint_client: SharePoint) -> None:
+    async def test_upload_missing_file(self, sharepoint_client: SharePointClient) -> None:
         non_existent_file = Path("/non/existent/file.txt")
 
         with pytest.raises(FileNotFoundError):
@@ -389,7 +394,7 @@ class TestSharePoint:
     )
     async def test_download_file(
         self,
-        sharepoint_client: SharePoint,
+        sharepoint_client: SharePointClient,
         tmp_path: Path,
         response: bytes | None,
         expected: bytes,
@@ -406,7 +411,7 @@ class TestSharePoint:
         assert local_path.read_bytes() == expected
 
     @pytest.mark.asyncio
-    async def test_delete_item(self, sharepoint_client: SharePoint) -> None:
+    async def test_delete_item(self, sharepoint_client: SharePointClient) -> None:
         self._mock_client_drive_id(sharepoint_client)
         chain_mock = self._mock_client_drive_item(sharepoint_client)
         chain_mock.delete = AsyncMock()
@@ -417,7 +422,7 @@ class TestSharePoint:
         chain_mock.delete.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_item(self, sharepoint_client: SharePoint) -> None:
+    async def test_get_item(self, sharepoint_client: SharePointClient) -> None:
         mock_drive_item = self._mock_drive_item()
 
         self._mock_client_drive_id(sharepoint_client)
@@ -430,7 +435,7 @@ class TestSharePoint:
         client = cast(MagicMock, sharepoint_client._client)
         client.drives.by_drive_id.assert_called_once_with(DefaultValues.DRIVE_ID.value)
 
-    def test_base_path_id(self, sharepoint_client: SharePoint) -> None:
+    def test_base_path_id(self, sharepoint_client: SharePointClient) -> None:
         custom_base_path = "unittest/base/path"
         sharepoint_client.base_path = custom_base_path
 

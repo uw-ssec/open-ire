@@ -23,7 +23,7 @@ from msgraph_core.models import LargeFileUploadSession, UploadResult
 from msgraph_core.tasks import LargeFileUploadTask
 
 
-class SharePoint:
+class SharePointClient:
     """Manage files under one folder of a SharePoint site's default drive.
 
     Paths are relative to `base_path`, which is relative to the drive root.
@@ -40,12 +40,9 @@ class SharePoint:
     _UPLOAD_CHUNK_SIZE = 12 * 320 * 1024
 
     @staticmethod
-    def missing_credentials() -> list[str]:
-        """Return required environment variable names whose values are unset or empty.
-
-        Check only the environment, regardless of credentials passed to a client.
-        """
-        return [name for name in SharePoint._REQUIRED_ENV_VARS if not os.getenv(name)]
+    def missing_env_vars() -> list[str]:
+        """Return required environment variable names whose values are unset or empty."""
+        return [name for name in SharePointClient._REQUIRED_ENV_VARS if not os.getenv(name)]
 
     def __init__(
         self,
@@ -86,9 +83,9 @@ class SharePoint:
             raise ValueError(msg)
 
         self._drive_id: str | None = None
-        self._client = self._authenticate(secret)
+        self._client = self._create_client(secret)
 
-    def _authenticate(self, client_secret: str) -> GraphServiceClient:
+    def _create_client(self, client_secret: str) -> GraphServiceClient:
         """Build the Graph client using the application credentials.
 
         No network call is made, so invalid credentials go unnoticed until the
@@ -127,7 +124,7 @@ class SharePoint:
 
         return self._drive_id
 
-    async def upload_file(self, local_file_path: Path, sharepoint_path: str) -> UploadResult:
+    async def upload_file(self, local_file_path: Path, item_path: str) -> UploadResult:
         """Upload a file, replacing any file at the destination path.
 
         Files no larger than one upload chunk, including empty files, are read
@@ -136,7 +133,7 @@ class SharePoint:
 
         Args:
             local_file_path: Path to the local file to upload.
-            sharepoint_path: Destination path relative to `base_path`, including the filename.
+            item_path: Destination path relative to `base_path`, including the filename.
 
         Returns:
             Upload result. For a single-request upload, `location` is the returned
@@ -152,14 +149,14 @@ class SharePoint:
             raise FileNotFoundError(msg)
 
         drive_id = await self._get_drive_id()
-        item = self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(
-            self._item_id_from_path(sharepoint_path)
+        item_request = self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(
+            self._item_id_from_path(item_path)
         )
 
         # LargeFileUploadTask can't upload an empty file, and it resends the final chunk
         # malformed when the whole file fits in one, so those files get a simple upload.
         if local_file_path.stat().st_size <= self._UPLOAD_CHUNK_SIZE:
-            drive_item = await item.content.put(local_file_path.read_bytes())
+            drive_item = await item_request.content.put(local_file_path.read_bytes())
             result: UploadResult = UploadResult()
             result.item_response = drive_item
             result.location = drive_item.web_url if drive_item else None
@@ -170,7 +167,7 @@ class SharePoint:
                 additional_data={"@microsoft.graph.conflictBehavior": "replace"}
             )
         )
-        upload_session = await item.create_upload_session.post(upload_body)
+        upload_session = await item_request.create_upload_session.post(upload_body)
         if not upload_session:
             msg = f"Failed to create upload session for {local_file_path}"
             raise RuntimeError(msg)
@@ -209,7 +206,7 @@ class SharePoint:
         """
         drive_id = await self._get_drive_id()
         item_id = self._item_id_from_path(sharepoint_path)
-        stream = (
+        content = (
             await self._client.drives.by_drive_id(drive_id)
             .items.by_drive_item_id(item_id)
             .content.get()
@@ -218,7 +215,7 @@ class SharePoint:
         # Kiota raises on HTTP errors and returns None for an empty body.
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         with local_file_path.open("wb") as local_file:
-            local_file.write(stream or b"")
+            local_file.write(content or b"")
 
     async def delete_item(self, item_path: str) -> bool:
         """Delete a file or a folder and its contents from SharePoint.

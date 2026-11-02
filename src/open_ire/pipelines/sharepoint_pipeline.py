@@ -11,7 +11,7 @@ from scrapy.exceptions import NotConfigured
 
 from open_ire.errors import ConfigurationError
 from open_ire.items import ArticleItem
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +27,14 @@ class SharePointPipeline:
         local_base_path: str,
         crawler: Crawler | None = None,
     ) -> None:
-        self.sharepoint = SharePoint(base_path=sharepoint_base_path)
+        self.sharepoint = SharePointClient(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
         self.crawler = crawler
         self.db_path: Path | None = None
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
-        if missing := SharePoint.missing_credentials():
+        if missing := SharePointClient.missing_env_vars():
             logger.warning(
                 "SharePoint integration disabled: missing or empty %s. "
                 "Files stay local and the database backup upload is skipped.",

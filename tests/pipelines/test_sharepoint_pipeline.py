@@ -12,7 +12,7 @@ from scrapy.exceptions import NotConfigured
 
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 SHAREPOINT_ENV = {
     "SHAREPOINT_CLIENT_ID": "test-client-id",
@@ -30,7 +30,9 @@ class TestSharePointPipeline:
         sharepoint_base_path = "test_sharepoint"
         local_base_path = str(tmp_path)
 
-        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint") as mock_sharepoint_class:
+        with patch(
+            "open_ire.pipelines.sharepoint_pipeline.SharePointClient"
+        ) as mock_sharepoint_class:
             mock_sharepoint = MagicMock()
             mock_sharepoint_class.return_value = mock_sharepoint
 
@@ -141,8 +143,10 @@ class TestSharePointPipeline:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
-            patch.object(SharePoint, "_authenticate"),
+            patch(
+                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
+            ) as cls,
+            patch.object(SharePointClient, "_create_client"),
         ):
             pipeline = SharePointPipeline.from_crawler(crawler)
 
@@ -178,7 +182,9 @@ class TestSharePointPipeline:
 
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
+            patch(
+                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
+            ) as cls,
             caplog.at_level(logging.WARNING),
             pytest.raises(NotConfigured),
         ):

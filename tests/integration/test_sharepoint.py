@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 
 from open_ire.settings.development import OPEN_IRE_SHAREPOINT_BASE_PATH
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 pytestmark = pytest.mark.integration
 
@@ -44,7 +44,7 @@ async def sharepoint_folder(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("size", [0, 9, CHUNK, CHUNK + 1, int(CHUNK * 2.5)], ids=str)
 async def test_upload_round_trip(
-    sharepoint_folder: tuple[SharePoint, str], tmp_path: Path, size: int
+    sharepoint_folder: tuple[SharePointClient, str], tmp_path: Path, size: int
 ) -> None:
     """Upload a file, then replace it, checking the stored bytes each time."""
     sharepoint, folder = sharepoint_folder
