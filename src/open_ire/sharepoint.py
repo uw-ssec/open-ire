@@ -1,3 +1,9 @@
+"""Store and retrieve SharePoint files through the Microsoft Graph API.
+
+SharePoint moves files in and out of a folder in a SharePoint site's default drive. The
+SharePoint pipeline uses it to store downloaded files and database backups off the local machine.
+"""
+
 import os
 from pathlib import Path
 from typing import cast
@@ -18,6 +24,12 @@ from msgraph_core.tasks import LargeFileUploadTask
 
 
 class SharePoint:
+    """Manage files under one folder of a SharePoint site's default drive.
+
+    Paths are relative to `base_path`, which is relative to the drive root.
+    Await `close()` when finished to release HTTP connections and credentials.
+    """
+
     _REQUIRED_ENV_VARS = (
         "SHAREPOINT_CLIENT_ID",
         "SHAREPOINT_TENANT_ID",
@@ -29,7 +41,10 @@ class SharePoint:
 
     @staticmethod
     def missing_credentials() -> list[str]:
-        """Return the names of required SharePoint environment variables that are unset or empty."""
+        """Return required environment variable names whose values are unset or empty.
+
+        Check only the environment, regardless of credentials passed to a client.
+        """
         return [name for name in SharePoint._REQUIRED_ENV_VARS if not os.getenv(name)]
 
     def __init__(
@@ -40,6 +55,22 @@ class SharePoint:
         site_id: str | None = None,
         client_secret: str | None = None,
     ) -> None:
+        """Create a client with explicit credentials or environment variable defaults.
+
+        Each credential argument falls back to its environment variable when
+        omitted or empty. Authentication and drive lookup occur on first use.
+
+        Args:
+            base_path: Base folder relative to the site's default drive root,
+                without leading or trailing slashes.
+            tenant_id: Microsoft Entra tenant ID; defaults to `SHAREPOINT_TENANT_ID`.
+            client_id: Application client ID; defaults to `SHAREPOINT_CLIENT_ID`.
+            site_id: Graph site ID; defaults to `SHAREPOINT_SITE_ID`.
+            client_secret: Application secret; defaults to `SHAREPOINT_CLIENT_SECRET`.
+
+        Raises:
+            ValueError: If any credential is missing from both the arguments and the environment.
+        """
         self.base_path: str = base_path
         self.client_id: str = client_id or os.getenv("SHAREPOINT_CLIENT_ID") or ""
         self.tenant_id: str = tenant_id or os.getenv("SHAREPOINT_TENANT_ID") or ""
@@ -58,6 +89,12 @@ class SharePoint:
         self._client = self._authenticate(secret)
 
     def _authenticate(self, client_secret: str) -> GraphServiceClient:
+        """Build the Graph client using the application credentials.
+
+        No network call is made, so invalid credentials go unnoticed until the
+        first Graph request.
+        """
+        # Keep the credentials so that we can release them when `close` is called.
         self._credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
             client_id=self.client_id,
@@ -68,13 +105,18 @@ class SharePoint:
         return GraphServiceClient(self._credential, scopes)
 
     def _item_id_from_path(self, item_path: str) -> str:
+        """Format a path relative to `base_path` as a Graph `root:/path:/` item ID."""
         item_path = item_path.removeprefix("/")
         item_path = item_path.removesuffix("/")
 
         return f"root:/{self.base_path}/{item_path}:/"
 
     async def _get_drive_id(self) -> str:
-        """Get the default drive for the SharePoint site."""
+        """Return the cached default drive ID, fetching it on first use.
+
+        Raises:
+            RuntimeError: If Graph returns no drive or no drive ID.
+        """
         if not self._drive_id:
             drive = await self._client.sites.by_site_id(self.site_id).drive.get()
             self._drive_id = drive.id if drive else None
@@ -86,15 +128,24 @@ class SharePoint:
         return self._drive_id
 
     async def upload_file(self, local_file_path: Path, sharepoint_path: str) -> UploadResult:
-        """
-        Upload a file to SharePoint Drive.
+        """Upload a file, replacing any file at the destination path.
+
+        Files no larger than one upload chunk, including empty files, are read
+        into memory and sent in one request. Larger files stream from disk
+        through an upload session.
 
         Args:
             local_file_path: Path to the local file to upload.
-            sharepoint_path: Destination path in SharePoint (including filename).
+            sharepoint_path: Destination path relative to `base_path`, including the filename.
 
         Returns:
-            Result of uploading the drive item.
+            Upload result. For a single-request upload, `location` is the returned
+            item's web URL, if available. For a session upload, it is the upload
+            session URL; use `get_item()` to retrieve the file's web URL.
+
+        Raises:
+            FileNotFoundError: If the local file does not exist.
+            RuntimeError: If Graph returns no default drive ID or no upload session.
         """
         if not local_file_path.exists():
             msg = f"Local file not found: {local_file_path}"
@@ -144,12 +195,17 @@ class SharePoint:
             return await task.upload()
 
     async def download_file(self, sharepoint_path: str, local_file_path: Path) -> None:
-        """
-        Download a file from SharePoint Drive.
+        """Download a file, replacing any local file at the destination path.
+
+        The whole response is held in memory before writing it. Missing local
+        parent folders are created, and an empty response produces an empty file.
 
         Args:
-            sharepoint_path: Path to the file in SharePoint.
+            sharepoint_path: Path to the file, relative to `base_path`.
             local_file_path: Local destination path for the downloaded file.
+
+        Raises:
+            RuntimeError: If Graph returns no default drive ID.
         """
         drive_id = await self._get_drive_id()
         item_id = self._item_id_from_path(sharepoint_path)
@@ -165,14 +221,16 @@ class SharePoint:
             local_file.write(stream or b"")
 
     async def delete_item(self, item_path: str) -> bool:
-        """
-        Delete a file from SharePoint Drive.
+        """Delete a file or a folder and its contents from SharePoint.
 
         Args:
-            item_path: Path to the item to delete.
+            item_path: Path to the item to delete, relative to `base_path`.
 
         Returns:
-            True if deletion was successful.
+            True if deletion was successful; a failed deletion raises instead.
+
+        Raises:
+            RuntimeError: If Graph returns no default drive ID.
         """
         drive_id = await self._get_drive_id()
         item_id = self._item_id_from_path(item_path)
@@ -182,14 +240,17 @@ class SharePoint:
         return True
 
     async def get_item(self, item_path: str) -> DriveItem | None:
-        """
-        Get information about a specific item in SharePoint Drive.
+        """Retrieve metadata for a file or folder in SharePoint.
 
         Args:
-            item_path: Path to the item
+            item_path: Path to the item, relative to `base_path`.
 
         Returns:
-            DriveItem containing file metadata.
+            Item metadata, or None if Graph sends an empty response.
+
+        Raises:
+            ODataError: If Graph reports an error, including an item that does not exist.
+            RuntimeError: If Graph returns no default drive ID.
         """
         drive_id = await self._get_drive_id()
         item_id = self._item_id_from_path(item_path)
@@ -197,7 +258,10 @@ class SharePoint:
         return await self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).get()
 
     async def close(self) -> None:
-        """Close the connections to Microsoft; the client can't be used afterward."""
+        """Release HTTP connections and credentials when finished with the client.
+
+        The client cannot be reused after closing.
+        """
         http_client = cast(HttpxRequestAdapter, self._client.request_adapter)._http_client
         # GraphServiceClient has no close method, and AsyncGraphTransport doesn't forward aclose,
         # so closing http_client alone would leave the sockets open.
