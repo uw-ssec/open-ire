@@ -1,3 +1,5 @@
+"""Upload article files and a database backup to SharePoint during a crawl."""
+
 import logging
 import math
 from datetime import datetime
@@ -17,8 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class SharePointPipeline:
-    """
-    Uploads files to a SharePoint drive, if configured.
+    """Upload downloaded article files and record their SharePoint URLs.
+
+    Remove local article files after confirming the remote size. When created
+    through `from_crawler()`, also upload a dated database backup on spider
+    shutdown and close the SharePoint client afterward.
     """
 
     def __init__(
@@ -27,6 +32,16 @@ class SharePointPipeline:
         local_base_path: str,
         crawler: Crawler | None = None,
     ) -> None:
+        """Create a pipeline using SharePoint credentials from the environment.
+
+        Args:
+            sharepoint_base_path: Destination folder relative to the SharePoint drive root.
+            local_base_path: Local download directory containing the article files.
+            crawler: Scrapy crawler associated with this pipeline, if available.
+
+        Raises:
+            ValueError: If required SharePoint credentials are missing.
+        """
         self.sharepoint = SharePointClient(base_path=sharepoint_base_path)
         self.base_path = Path(local_base_path)
         self.crawler = crawler
@@ -34,6 +49,16 @@ class SharePointPipeline:
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
+        """Create a configured pipeline and register its spider shutdown handler.
+
+        Read the local download directory from `FILES_STORE` and the remote
+        folder from `OPEN_IRE_SHAREPOINT_BASE_PATH` (default: `open_ire`).
+        `OPEN_IRE_DATABASE_FILE`, when set, identifies the database to back up.
+
+        Raises:
+            NotConfigured: If required SharePoint environment variables are unset or empty.
+            ConfigurationError: If `FILES_STORE` is unset or empty.
+        """
         if missing := SharePointClient.missing_env_vars():
             logger.warning(
                 "SharePoint integration disabled: missing or empty %s. "
@@ -56,6 +81,7 @@ class SharePointPipeline:
 
     @staticmethod
     def _remove_local_file(local_file_path: Path) -> None:
+        """Remove a local file, logging any filesystem error instead of raising it."""
         try:
             local_file_path.unlink()
         except OSError as e:
@@ -64,11 +90,17 @@ class SharePointPipeline:
 
     @staticmethod
     def _backup_filename(db_path: Path, run_at: datetime) -> str:
+        """Insert `__YYYY-MM-DD` before the database filename's final extension."""
         date_stamp = run_at.strftime("%Y-%m-%d")
         return f"{db_path.stem}__{date_stamp}{db_path.suffix}"
 
     @staticmethod
     def _build_db_sharepoint_path(db_path: Path, run_at: datetime) -> str:
+        """Build a dated backup path relative to the SharePoint base folder.
+
+        Preserve the database's parent directories, stripping leading and
+        trailing slashes so absolute local paths become remote relative paths.
+        """
         filename = SharePointPipeline._backup_filename(db_path, run_at)
         backup_dir = db_path.parent.as_posix().strip("/")
         if backup_dir in ("", "."):
@@ -81,6 +113,12 @@ class SharePointPipeline:
         spider: Spider | None = None,
         reason: str = "completed",
     ) -> None:
+        """Upload the database backup, then close the client even if the upload fails.
+
+        Args:
+            spider: Closed spider, used for backup failure logging.
+            reason: Spider shutdown reason, used for backup failure logging.
+        """
         # Scrapy calls close_spider before this signal, and it runs signal handlers concurrently,
         # so the client can only be closed here, once the backup is done.
         try:
@@ -93,6 +131,16 @@ class SharePointPipeline:
         spider: Spider | None = None,
         reason: str = "completed",
     ) -> None:
+        """Upload the database under a name dated with the current local time.
+
+        Keep the local database. Repeated uploads on the same day replace the
+        remote backup. Log and skip an unconfigured or missing database; log
+        missing upload confirmation, and let client exceptions propagate.
+
+        Args:
+            spider: Spider whose name is included when the upload has no location.
+            reason: Shutdown reason included when the upload has no location.
+        """
         if not self.db_path:
             logger.warning("OPEN_IRE_DATABASE_FILE is not configured; skipping DB backup upload.")
             return
@@ -132,6 +180,20 @@ class SharePointPipeline:
         )
 
     async def _save_file(self, file_data: dict[str, str | int | None]) -> str:
+        """Upload an article file and remove its local copy if the sizes are close.
+
+        Sizes match within a relative tolerance of 1% or an absolute tolerance
+        of 1 KiB. A mismatch retains the local file and logs an error. Upload,
+        metadata lookup, and cleanup exceptions are logged instead of raised.
+
+        Args:
+            file_data: Download metadata whose `path` is relative to both the
+                local download directory and the SharePoint base folder.
+
+        Returns:
+            The remote web URL if retrieved, even if size verification or local
+            cleanup fails. Otherwise, an empty string.
+        """
         sharepoint_path = str(file_data.get("path") or "")
         local_file_path = self.base_path / sharepoint_path
 
@@ -171,12 +233,20 @@ class SharePointPipeline:
         return store_url
 
     def open_spider(self) -> None:
-        pass
+        """Accept Scrapy's open hook; initialization needs no additional setup."""
 
     def close_spider(self) -> None:
-        pass
+        """Leave cleanup to the spider-closed signal so the backup can finish first."""
 
     async def process_item(self, item: Any) -> Any:
+        """Upload an article's files sequentially and replace its `store_urls`.
+
+        Each file contributes a URL or an empty string, preserving file order.
+        Pass through non-article items and articles without files unchanged.
+
+        Returns:
+            The original item, with `store_urls` updated when files are present.
+        """
         if not isinstance(item, ArticleItem):
             return item
         if not item.files:
