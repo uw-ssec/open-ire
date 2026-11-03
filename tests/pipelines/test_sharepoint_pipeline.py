@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from scrapy import signals
@@ -84,7 +84,10 @@ class TestSharePointPipeline:
             "https://sharepoint.com/web-url",
             "https://sharepoint.com/web-url",
         ]
-        assert sharepoint.upload_file.call_count == 2
+        assert sharepoint.upload_file.await_args_list == [
+            call(file1, "file1.pdf"),
+            call(file2, "file2.pdf"),
+        ]
 
     @pytest.mark.asyncio
     async def test_process_item_no_files(
@@ -251,7 +254,6 @@ class TestSharePointPipeline:
         mock_upload_result = MagicMock()
         mock_upload_result.location = "https://sharepoint.com/uploaded-db"
         mock_drive_item = MagicMock()
-        mock_drive_item.size = db_path.stat().st_size
         mock_drive_item.web_url = "https://sharepoint.com/db-web-url"
 
         sharepoint = cast(Any, pipeline.sharepoint)
@@ -266,4 +268,24 @@ class TestSharePointPipeline:
             await pipeline._upload_database_backup()
 
         sharepoint.upload_file.assert_awaited_once_with(db_path, backup_path)
-        sharepoint.get_item.assert_awaited_once_with(backup_path)
+
+    @pytest.mark.asyncio
+    async def test_upload_database_backup_unconfirmed(
+        self, pipeline: SharePointPipeline, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A backup SharePoint can't find after uploading is logged as an error."""
+        db_path = tmp_path / "open_ire.db"
+        db_path.write_text("sqlite-content")
+        pipeline.db_path = db_path
+
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.upload_file = AsyncMock(
+            return_value=MagicMock(location="https://sharepoint.com/uploaded-db")
+        )
+        sharepoint.get_item = AsyncMock(return_value=None)
+
+        with caplog.at_level(logging.ERROR):
+            await pipeline._upload_database_backup()
+
+        (record,) = caplog.records
+        assert record.getMessage().startswith("Could not confirm SharePoint database snapshot")
