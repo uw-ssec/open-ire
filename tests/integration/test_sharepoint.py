@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 
 from open_ire.settings.development import OPEN_IRE_SHAREPOINT_BASE_PATH
 from open_ire.sharepoint import SharePointClient
@@ -46,11 +47,14 @@ async def sharepoint_folder(
 async def test_upload_round_trip(
     sharepoint_folder: tuple[SharePointClient, str], tmp_path: Path, size: int
 ) -> None:
-    """Upload a file, then replace it, checking the stored bytes each time."""
+    """Upload a file, then replace it, checking the stored bytes each time.
+
+    The download goes into a folder that doesn't exist yet, so it must be created.
+    """
     sharepoint, folder = sharepoint_folder
     remote_path = f"{folder}/upload.bin"
     local_path = tmp_path / "upload.bin"
-    downloaded_path = tmp_path / "downloaded.bin"
+    downloaded_path = tmp_path / "missing_dir" / "downloaded.bin"
 
     for attempt in ("create", "replace"):
         content = os.urandom(size)
@@ -61,3 +65,38 @@ async def test_upload_round_trip(
 
         assert result.location, attempt
         assert downloaded_path.read_bytes() == content, attempt
+
+
+@pytest.mark.asyncio
+async def test_outer_slashes_are_ignored(
+    sharepoint_folder: tuple[SharePointClient, str], tmp_path: Path
+) -> None:
+    """Leading and trailing slashes address the same item as the bare path."""
+    sharepoint, folder = sharepoint_folder
+    local_path = tmp_path / "slashes.txt"
+    downloaded_path = tmp_path / "downloaded.txt"
+    local_path.write_bytes(b"slashes")
+
+    await sharepoint.upload_file(local_path, f"/{folder}/slashes.txt")
+    await sharepoint.download_file(f"{folder}/slashes.txt/", downloaded_path)
+    folder_item = await sharepoint.get_item(f"/{folder}/")
+
+    assert downloaded_path.read_bytes() == b"slashes"
+    assert folder_item is not None
+    assert folder_item.folder is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_folder_and_contents(
+    sharepoint_folder: tuple[SharePointClient, str], tmp_path: Path
+) -> None:
+    sharepoint, folder = sharepoint_folder
+    local_path = tmp_path / "doomed.txt"
+    local_path.write_bytes(b"doomed")
+    await sharepoint.upload_file(local_path, f"{folder}/subfolder/doomed.txt")
+
+    await sharepoint.delete_item(f"{folder}/subfolder")
+
+    with pytest.raises(ODataError) as excinfo:
+        await sharepoint.get_item(f"{folder}/subfolder/doomed.txt")
+    assert excinfo.value.response_status_code == 404

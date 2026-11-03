@@ -92,6 +92,17 @@ def test_missing_env_vars(env: dict[str, str], expected: list[str]) -> None:
     assert sorted(SharePointClient.missing_env_vars()) == sorted(expected)
 
 
+@pytest.mark.parametrize("path", ["/folder/file.txt", "folder/file.txt/", "/folder/file.txt/"])
+def test_item_id_ignores_outer_slashes(path: str) -> None:
+    """Graph rejects a trailing slash, so it must not reach the item ID.
+
+    The live tests verify the item ID syntax; this guards the normalization in CI.
+    """
+    client = SharePointClient(BASE_PATH, **ARGS)
+
+    assert client._item_id_from_path(path) == client._item_id_from_path("folder/file.txt")
+
+
 @pytest.mark.asyncio
 async def test_close_releases_connections() -> None:
     """Use the real Graph client, so an SDK change to how it holds httpx fails here."""
