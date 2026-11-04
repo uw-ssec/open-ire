@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "alembic",
-    "msgraph-sdk",
+    "msgraph-sdk>=1.65.0,<2",
     "nameparser",
     "playwright",
     "psycopg2-binary",
@@ -98,10 +98,9 @@ warn_unreachable = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
-# msgraph is huge and auto-generated; slows mypy significantly
+# msgraph_core lacks py.typed, so mypy treats it as untyped
 [[tool.mypy.overrides]]
-module = ["msgraph_core.*", "msgraph.*"]
-follow_imports = "skip"
+module = ["msgraph_core.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -120,7 +119,13 @@ minversion = "6.0"
 markers = ["integration"]
 addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-m", "not integration"]
 xfail_strict = false
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Kiota-generated msgraph code warns in class bodies, so merely importing a
+    # request builder triggers these; they don't reflect anything we call.
+    "ignore:GetQueryParameters is deprecated:DeprecationWarning:kiota_abstractions",
+    "ignore:This class is deprecated:DeprecationWarning:msgraph",
+]
 log_cli_level = "INFO"
 testpaths = ["tests"]
 
