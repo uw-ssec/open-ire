@@ -28,12 +28,12 @@ CHUNK = 320 * 1024
 @pytest_asyncio.fixture
 async def sharepoint_folder(
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[tuple[SharePoint, str]]:
-    if missing := SharePoint.missing_credentials():
-        pytest.skip(f"SharePoint credentials not set: {', '.join(missing)}")
+) -> AsyncIterator[tuple[SharePointClient, str]]:
+    if missing := SharePointClient.missing_env_vars():
+        pytest.skip(f"SharePoint environmental variables not set: {', '.join(missing)}")
 
-    monkeypatch.setattr(SharePoint, "_UPLOAD_CHUNK_SIZE", CHUNK)
-    sharepoint = SharePoint(base_path=OPEN_IRE_SHAREPOINT_BASE_PATH)
+    monkeypatch.setattr(SharePointClient, "_UPLOAD_CHUNK_SIZE", CHUNK)
+    sharepoint = SharePointClient(base_path=OPEN_IRE_SHAREPOINT_BASE_PATH)
     folder = f"live_tests/{uuid.uuid4().hex}"
     try:
         yield sharepoint, folder
