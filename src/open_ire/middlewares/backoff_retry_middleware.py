@@ -48,6 +48,7 @@ class BackoffRetryMiddleware:
     - ``OPEN_IRE_BACKOFF_RETRY_TIMES``: max retries per request (default 5)
     - ``OPEN_IRE_BACKOFF_BASE_DELAY``: first delay in seconds (default 5)
     - ``OPEN_IRE_BACKOFF_MAX_DELAY``: delay cap in seconds (default 120)
+    - ``OPEN_IRE_BACKOFF_RETRY_STATUSES``: HTTP statuses to retry (default 429, 503)
     """
 
     RETRY_STATUSES = frozenset({429, 503})
@@ -67,11 +68,13 @@ class BackoffRetryMiddleware:
         base_delay: float,
         max_delay: float,
         crawler: Crawler | None = None,
+        retry_statuses: frozenset[int] = RETRY_STATUSES,
     ) -> None:
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
         self.crawler = crawler
+        self.retry_statuses = retry_statuses
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
@@ -81,6 +84,12 @@ class BackoffRetryMiddleware:
             base_delay=settings.getfloat("OPEN_IRE_BACKOFF_BASE_DELAY", 5.0),
             max_delay=settings.getfloat("OPEN_IRE_BACKOFF_MAX_DELAY", 120.0),
             crawler=crawler,
+            retry_statuses=frozenset(
+                int(status)
+                for status in settings.getlist(
+                    "OPEN_IRE_BACKOFF_RETRY_STATUSES", sorted(cls.RETRY_STATUSES)
+                )
+            ),
         )
 
     def _delay(self, retry_times: int) -> float:
@@ -146,7 +155,7 @@ class BackoffRetryMiddleware:
         return new_request
 
     async def process_response(self, request: Request, response: Response) -> Request | Response:
-        if response.status not in self.RETRY_STATUSES:
+        if response.status not in self.retry_statuses:
             return response
 
         retried = await self._retry(

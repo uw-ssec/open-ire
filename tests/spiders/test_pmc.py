@@ -1,6 +1,6 @@
 import json
 from collections.abc import Generator
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -100,7 +100,12 @@ class TestRequestBuilding:
         query = parse_qs(parsed.query)
 
         assert parsed.path.endswith("/esearch.fcgi")
-        assert request.meta == {"search_term": "university of washington", "retstart": 0}
+        assert request.meta == {
+            "search_term": "university of washington",
+            "retstart": 0,
+            "dates": None,
+        }
+        assert "mindate" not in query
         assert query["db"] == ["pmc"]
         assert query["retmode"] == ["json"]
         assert query["retmax"] == ["100"]
@@ -112,6 +117,13 @@ class TestRequestBuilding:
         request = spider.build_search_request("university of washington")
         term = parse_qs(urlparse(request.url).query)["term"][0]
         assert term == '"university of washington"[Affiliation] AND open access[filter]'
+
+    def test_query_excludes_university_of_warsaw(self, spider: PMCSpider) -> None:
+        request = spider.build_search_request("UW.edu")
+        term = parse_qs(urlparse(request.url).query)["term"][0]
+        assert term == (
+            '("UW.edu"[Affiliation] NOT "uw.edu.pl"[Affiliation]) AND open access[filter]'
+        )
 
     def test_api_key_included_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("NCBI_API_KEY", "secret-key")
@@ -178,6 +190,59 @@ class TestParseEsearch:
         )
 
         assert list(spider.parse(response)) == []
+
+    def test_splits_search_over_result_limit_by_date(self, spider: PMCSpider) -> None:
+        payload = {"esearchresult": {"count": "45947", "idlist": ["1", "2"]}}
+        response = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            payload,
+            meta={"search_term": "uw", "retstart": 0},
+        )
+
+        first, second = list(spider.parse(response))
+
+        assert first.callback == second.callback == spider.parse
+        start, mid = first.meta["dates"]
+        after_mid, end = second.meta["dates"]
+        assert (start, end) == (date(1600, 1, 1), date(2999, 12, 31))
+        assert after_mid == mid + timedelta(days=1)
+        query = parse_qs(urlparse(first.url).query)
+        assert query["datetype"] == ["pdat"]
+        assert query["mindate"] == ["1600/01/01"]
+        assert query["maxdate"] == [mid.strftime("%Y/%m/%d")]
+
+    def test_dated_search_keeps_dates_when_paginating(self, spider: PMCSpider) -> None:
+        dates = (date(2020, 1, 1), date(2020, 12, 31))
+        payload = {"esearchresult": {"count": "250", "idlist": ["1"]}}
+        response = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            payload,
+            meta={"search_term": "uw", "retstart": 0, "dates": dates},
+        )
+
+        _, next_page = list(spider.parse(response))
+
+        assert next_page.meta["dates"] == dates
+
+    def test_single_day_over_limit_stops_paging_at_limit(self, spider: PMCSpider) -> None:
+        day = date(2020, 1, 1)
+        payload = {"esearchresult": {"count": "20000", "idlist": ["1"]}}
+        first_page = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            payload,
+            meta={"search_term": "uw", "retstart": 0, "dates": (day, day)},
+        )
+        last_page = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            payload,
+            meta={"search_term": "uw", "retstart": 9900, "dates": (day, day)},
+        )
+
+        assert [r.callback for r in spider.parse(first_page)] == [
+            spider.parse_summary,
+            spider.parse,
+        ]
+        assert [r.callback for r in spider.parse(last_page)] == [spider.parse_summary]
 
     def test_invalid_json(self, spider: PMCSpider) -> None:
         request = Request(
