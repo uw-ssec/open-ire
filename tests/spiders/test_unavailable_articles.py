@@ -18,7 +18,7 @@ from open_ire.spiders.unavailable_articles import (
 
 
 @pytest.fixture
-def spider(tmp_path: Path) -> Generator[UnavailableArticlesSpider, None, None]:
+def spider(tmp_path: Path) -> Generator[UnavailableArticlesSpider]:
     spider_instance = UnavailableArticlesSpider(
         output_csv=str(tmp_path / "unavailable_articles.csv"),
     )

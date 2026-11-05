@@ -26,7 +26,7 @@ class TestBackoffRetryMiddleware:
     """Tests the BackoffRetryMiddleware backoff, give-up, and pass-through behavior."""
 
     @pytest.fixture
-    def run(self) -> Generator[RunCoroutine, None, None]:
+    def run(self) -> Generator[RunCoroutine]:
         """Run a coroutine on a private event loop, without touching global loop state."""
         loop = asyncio.new_event_loop()
         yield loop.run_until_complete

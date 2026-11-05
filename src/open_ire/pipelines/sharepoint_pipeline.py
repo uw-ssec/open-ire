@@ -91,3 +91,7 @@ class SharePointPipeline:
         item.store_urls = store_urls
 
         return item
+
+    async def close_spider(self) -> None:
+        """Close the SharePoint client once no more items will arrive."""
+        await self.sharepoint.close()

@@ -111,7 +111,7 @@ class WoSSpider(AuthorSearchSpider):
 
     def parse_publications(
         self, response: Response, query: str, page: int
-    ) -> Generator[Request | ArticleItem, None, None]:
+    ) -> Generator[Request | ArticleItem]:
         """Parse WoS publication results and yield ArticleItems, handling pagination."""
         searched_author = response.meta["searched_author"]
 

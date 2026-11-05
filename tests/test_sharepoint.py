@@ -1,14 +1,18 @@
 import os
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+from kiota_abstractions.request_information import RequestInformation
+from kiota_http.httpx_request_adapter import HttpxRequestAdapter
 from msgraph.generated.models.drive import Drive
 from msgraph.generated.models.drive_item import DriveItem
 from msgraph.generated.models.drive_item_collection_response import DriveItemCollectionResponse
-from msgraph_core.models import UploadResult
+from msgraph_core.models import LargeFileUploadSession, UploadResult
 
 from open_ire.sharepoint import SharePoint
 
@@ -144,6 +148,20 @@ class TestSharePoint:
 
         self._assert_client_attributes(client, expected_client_attributes)
 
+    @pytest.mark.asyncio
+    async def test_close_releases_connections(self, mock_client_args: dict[str, str]) -> None:
+        """Use the real Graph client, so an SDK change to how it holds httpx fails here."""
+        with patch("open_ire.sharepoint.ClientSecretCredential") as mock_credential:
+            client = SharePoint(base_path=DefaultValues.BASE_PATH.value, **mock_client_args)
+        http_client = cast(HttpxRequestAdapter, client._client.request_adapter)._http_client
+
+        with patch.object(httpx.AsyncHTTPTransport, "aclose", autospec=True) as mock_aclose:
+            await client.close()
+
+        assert http_client.is_closed
+        mock_aclose.assert_awaited()
+        mock_credential.return_value.close.assert_called_once_with()
+
     @pytest.mark.parametrize(
         "env_vars",
         [
@@ -269,14 +287,38 @@ class TestSharePoint:
         client.sites.by_site_id.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "content", [b"", b"Unit Test", b"x" * SharePoint._UPLOAD_CHUNK_SIZE], ids=len
+    )
+    async def test_upload_small_file(
+        self, sharepoint_client: SharePoint, tmp_path: Path, content: bytes
+    ) -> None:
+        test_file = self._create_test_file(tmp_path, content=content)
+        mock_drive_item = self._mock_drive_item(size=len(content))
+        mock_drive_item.web_url = "https://unittest.url/test.txt"
+
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.content.put = AsyncMock(return_value=mock_drive_item)
+
+        result = await sharepoint_client.upload_file(test_file, "uploads/test.txt")
+
+        chain_mock.content.put.assert_awaited_once_with(content)
+        chain_mock.create_upload_session.post.assert_not_called()
+        assert result.item_response is mock_drive_item
+        assert result.location == mock_drive_item.web_url
+
+    @pytest.mark.asyncio
     @patch("open_ire.sharepoint.LargeFileUploadTask")
-    async def test_upload_file(
+    async def test_upload_large_file(
         self,
         mock_task_class: MagicMock,
         sharepoint_client: SharePoint,
         tmp_path: Path,
     ) -> None:
-        test_file = self._create_test_file(tmp_path)
+        test_file = self._create_test_file(
+            tmp_path, content=b"x" * (SharePoint._UPLOAD_CHUNK_SIZE + 1)
+        )
         mock_upload_result = MagicMock(spec=UploadResult)
         mock_upload_session = self._mock_upload_session()
 
@@ -292,6 +334,46 @@ class TestSharePoint:
 
         assert result == mock_upload_result
         mock_task.upload.assert_called_once()
+        assert mock_task_class.call_args.kwargs["max_chunk_size"] == SharePoint._UPLOAD_CHUNK_SIZE
+        assert mock_task_class.call_args.args[2].name == str(test_file)
+        chain_mock.content.put.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("chunks", [1.5, 2, 3.5])
+    async def test_upload_large_file_sends_well_formed_chunks(
+        self, sharepoint_client: SharePoint, tmp_path: Path, chunks: float
+    ) -> None:
+        """Run the real LargeFileUploadTask against a fake upload session."""
+        content = os.urandom(int(SharePoint._UPLOAD_CHUNK_SIZE * chunks))
+        test_file = self._create_test_file(tmp_path, content=content)
+        mock_upload_session = self._mock_upload_session()
+        mock_upload_session.expiration_date_time = datetime.now(UTC) + timedelta(hours=1)
+
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.create_upload_session.post = AsyncMock(return_value=mock_upload_session)
+
+        received = bytearray()
+
+        def put_chunk(info: RequestInformation, *_: object) -> LargeFileUploadSession:
+            (content_range,) = info.headers.get("Content-Range")
+            start, end = map(int, content_range.removeprefix("bytes ").split("/")[0].split("-"))
+            body = info.content or b""
+            assert len(body) == end - start + 1, content_range
+            # The task resends the final chunk after the upload completes; tolerate that.
+            received[start : end + 1] = body
+            remaining = [f"{len(received)}-{len(content) - 1}"]
+            return LargeFileUploadSession(
+                next_expected_ranges=remaining if len(received) < len(content) else None
+            )
+
+        adapter = cast(MagicMock, sharepoint_client._client).request_adapter
+        adapter.send_async = AsyncMock(side_effect=put_chunk)
+        adapter.send_primitive_async = AsyncMock(side_effect=put_chunk)
+
+        await sharepoint_client.upload_file(test_file, "uploads/test.txt")
+
+        assert received == content
 
     @pytest.mark.asyncio
     async def test_upload_missing_file(self, sharepoint_client: SharePoint) -> None:
@@ -299,6 +381,30 @@ class TestSharePoint:
 
         with pytest.raises(FileNotFoundError):
             await sharepoint_client.upload_file(non_existent_file, "uploads/test.txt")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("response", "expected"),
+        [(b"Unit Test", b"Unit Test"), (None, b"")],
+        ids=["content", "empty"],
+    )
+    async def test_download_file(
+        self,
+        sharepoint_client: SharePoint,
+        tmp_path: Path,
+        response: bytes | None,
+        expected: bytes,
+    ) -> None:
+        """Kiota returns None for an empty body, which is an empty file, not a failure."""
+        local_path = tmp_path / "downloads" / "test.txt"
+
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.content.get = AsyncMock(return_value=response)
+
+        await sharepoint_client.download_file("folder/test.txt", local_path)
+
+        assert local_path.read_bytes() == expected
 
     @pytest.mark.asyncio
     async def test_delete_item(self, sharepoint_client: SharePoint) -> None:

@@ -42,7 +42,8 @@ class TestSharePointBackup:
 
     @pytest.fixture
     def backup(self) -> SharePointBackup:
-        with patch("open_ire.extensions.sharepoint_backup.SharePoint"):
+        with patch("open_ire.extensions.sharepoint_backup.SharePoint") as cls:
+            cls.return_value.close = AsyncMock()
             return SharePointBackup("test_sharepoint")
 
     def test_from_crawler(self, crawler: Crawler) -> None:
@@ -132,17 +133,45 @@ class TestSharePointBackup:
         self, backup: SharePointBackup, snapshot_uploaded: bool, pruned: int
     ) -> None:
         """Both uploads should always run; pruning only after a good snapshot."""
+        close = AsyncMock()
+        cast(Any, backup.sharepoint).close = close
+
+        async def check_client_still_open() -> None:
+            close.assert_not_awaited()
+
         with (
             patch.object(
                 backup, "_upload_database_backup", AsyncMock(return_value=snapshot_uploaded)
             ),
-            patch.object(backup, "_upload_log_file", AsyncMock()) as upload_log,
+            patch.object(
+                backup, "_upload_log_file", AsyncMock(side_effect=check_client_still_open)
+            ) as upload_log,
             patch.object(backup, "_prune_old_backups", AsyncMock()) as prune,
         ):
             await backup.spider_closed(MagicMock(), "finished")
 
         upload_log.assert_awaited_once()
         assert prune.await_count == pruned
+        close.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_spider_closed_closes_client_when_backup_raises(
+        self, backup: SharePointBackup
+    ) -> None:
+        close = AsyncMock()
+        cast(Any, backup.sharepoint).close = close
+
+        with (
+            patch.object(backup, "_upload_database_backup", AsyncMock(return_value=True)),
+            patch.object(backup, "_upload_log_file", AsyncMock()),
+            patch.object(
+                backup, "_prune_old_backups", AsyncMock(side_effect=RuntimeError("no drive"))
+            ),
+            pytest.raises(RuntimeError, match="no drive"),
+        ):
+            await backup.spider_closed(MagicMock(), "finished")
+
+        close.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

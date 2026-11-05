@@ -2,7 +2,7 @@
 
 # Open IRE
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![Pixi](https://img.shields.io/badge/pixi-package%20manager-4051b5.svg)](https://pixi.sh/)
 [![Hatch project](https://img.shields.io/badge/%F0%9F%A5%9A-Hatch-4051b5.svg)](https://github.com/pypa/hatch)
@@ -186,13 +186,13 @@ pixi install -e notebooks
 To open a notebook in the interactive editor:
 
 ```bash
-pixi run -e dev marimo edit notebooks/metadata_analysis.py
+pixi run -e notebooks marimo edit notebooks/metadata_analysis.py
 ```
 
 To run a notebook as a read-only app:
 
 ```bash
-pixi run -e dev marimo run notebooks/metadata_analysis.py
+pixi run -e notebooks marimo run notebooks/metadata_analysis.py
 ```
 
 ## Contributing

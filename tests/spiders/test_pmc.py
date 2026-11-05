@@ -14,7 +14,7 @@ from open_ire.spiders.pmc import PMCSpider
 
 
 @pytest.fixture
-def spider() -> Generator[PMCSpider, None, None]:
+def spider() -> Generator[PMCSpider]:
     with patch.object(PMCSpider, "logger", new_callable=MagicMock):
         yield PMCSpider(terms="university of washington")
 

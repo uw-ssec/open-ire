@@ -100,13 +100,17 @@ class SharePointBackup:
         Runs as a single handler because Scrapy runs async signal handlers
         concurrently, and pruning must follow both uploads. Pruning is
         skipped when the snapshot upload fails, so a run of failures can never
-        prune away the last good snapshots.
+        prune away the last good snapshots. The SharePoint client is closed
+        afterward, even if a step raises.
         """
         logger.info("Backing up spider '%s' (reason=%s) to SharePoint", spider.name, reason)
-        snapshot_uploaded = await self._upload_database_backup()
-        await self._upload_log_file()
-        if snapshot_uploaded:
-            await self._prune_old_backups()
+        try:
+            snapshot_uploaded = await self._upload_database_backup()
+            await self._upload_log_file()
+            if snapshot_uploaded:
+                await self._prune_old_backups()
+        finally:
+            await self.sharepoint.close()
 
     async def _upload_database_backup(self) -> bool:
         if not self.db_path:

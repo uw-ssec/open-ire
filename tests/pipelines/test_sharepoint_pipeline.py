@@ -118,6 +118,15 @@ class TestSharePointPipeline:
         await pipeline.process_item(item)
         assert local_file.exists()  # preserve local copy
 
+    @pytest.mark.asyncio
+    async def test_close_spider_closes_client(self, pipeline: SharePointPipeline) -> None:
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.close = AsyncMock()
+
+        await pipeline.close_spider()
+
+        sharepoint.close.assert_awaited_once_with()
+
     @pytest.mark.parametrize(
         ("env", "missing"),
         [

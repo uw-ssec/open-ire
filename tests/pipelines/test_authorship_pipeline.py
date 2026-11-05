@@ -14,7 +14,7 @@ from open_ire.pipelines import AuthorshipPipeline
 
 
 @pytest.fixture
-def pipeline(temp_db: str) -> Generator[AuthorshipPipeline, None, None]:
+def pipeline(temp_db: str) -> Generator[AuthorshipPipeline]:
     """Create a pipeline instance with a test database."""
     db_path = temp_db.replace("sqlite:///", "")
     p = AuthorshipPipeline(db_path)

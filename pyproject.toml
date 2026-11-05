@@ -10,20 +10,20 @@ name = "open_ire"
 dynamic = ["version"]
 description = "A configurable crawler for collecting articles from open-access research repositories."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "alembic",
-    "msgraph-sdk",
+    "msgraph-sdk>=1.65.0,<2",
     "nameparser",
     "playwright",
     "psycopg2-binary",
@@ -90,7 +90,7 @@ version-file = "src/open_ire/version.py"
 [tool.mypy]
 files = ["src", "tests"]
 mypy_path = ["src"]
-python_version = "3.12"
+python_version = "3.13"
 warn_unused_configs = true
 strict = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
@@ -98,10 +98,9 @@ warn_unreachable = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
-# msgraph is huge and auto-generated; slows mypy significantly
+# msgraph_core lacks py.typed, so mypy treats it as untyped
 [[tool.mypy.overrides]]
-module = ["msgraph_core.*", "msgraph.*"]
-follow_imports = "skip"
+module = ["msgraph_core.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -120,7 +119,13 @@ minversion = "6.0"
 markers = ["integration"]
 addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-m", "not integration"]
 xfail_strict = false
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Kiota-generated msgraph code warns in class bodies, so merely importing a
+    # request builder triggers these; they don't reflect anything we call.
+    "ignore:GetQueryParameters is deprecated:DeprecationWarning:kiota_abstractions",
+    "ignore:This class is deprecated:DeprecationWarning:msgraph",
+]
 log_cli_level = "INFO"
 testpaths = ["tests"]
 

@@ -1,8 +1,9 @@
 import os
-from io import BytesIO
 from pathlib import Path
+from typing import cast
 
 from azure.identity import ClientSecretCredential
+from kiota_http.httpx_request_adapter import HttpxRequestAdapter
 from msgraph.generated.drives.item.items.item.create_upload_session.create_upload_session_post_request_body import (
     CreateUploadSessionPostRequestBody,
 )
@@ -11,6 +12,7 @@ from msgraph.generated.models.drive_item_uploadable_properties import (
     DriveItemUploadableProperties,
 )
 from msgraph.graph_service_client import GraphServiceClient
+from msgraph_core.middleware.async_graph_transport import AsyncGraphTransport
 from msgraph_core.models import LargeFileUploadSession, UploadResult
 from msgraph_core.tasks import LargeFileUploadTask
 
@@ -22,6 +24,8 @@ class SharePoint:
         "SHAREPOINT_SITE_ID",
         "SHAREPOINT_CLIENT_SECRET",
     )
+    # Graph requires upload session chunks to be multiples of 320 KiB.
+    _UPLOAD_CHUNK_SIZE = 12 * 320 * 1024
 
     @staticmethod
     def missing_credentials() -> list[str]:
@@ -54,14 +58,14 @@ class SharePoint:
         self._client = self._authenticate(secret)
 
     def _authenticate(self, client_secret: str) -> GraphServiceClient:
-        credential = ClientSecretCredential(
+        self._credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
             client_id=self.client_id,
             client_secret=client_secret,
         )
         scopes = ["https://graph.microsoft.com/.default"]
 
-        return GraphServiceClient(credential, scopes)
+        return GraphServiceClient(self._credential, scopes)
 
     def _item_id_from_path(self, item_path: str) -> str:
         item_path = item_path.strip("/")
@@ -98,19 +102,25 @@ class SharePoint:
             raise FileNotFoundError(msg)
 
         drive_id = await self._get_drive_id()
-        file_size = local_file_path.stat().st_size
+        item = self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(
+            self._item_id_from_path(sharepoint_path)
+        )
+
+        # LargeFileUploadTask can't upload an empty file, and it resends the final chunk
+        # malformed when the whole file fits in one, so those files get a simple upload.
+        if local_file_path.stat().st_size <= self._UPLOAD_CHUNK_SIZE:
+            drive_item = await item.content.put(local_file_path.read_bytes())
+            result: UploadResult = UploadResult()
+            result.item_response = drive_item
+            result.location = drive_item.web_url if drive_item else None
+            return result
 
         upload_body = CreateUploadSessionPostRequestBody(
             item=DriveItemUploadableProperties(
                 additional_data={"@microsoft.graph.conflictBehavior": "replace"}
             )
         )
-        item_id = self._item_id_from_path(sharepoint_path)
-        upload_session = (
-            await self._client.drives.by_drive_id(drive_id)
-            .items.by_drive_item_id(item_id)
-            .create_upload_session.post(upload_body)
-        )
+        upload_session = await item.create_upload_session.post(upload_body)
         if not upload_session:
             msg = f"Failed to create upload session for {local_file_path}"
             raise RuntimeError(msg)
@@ -123,13 +133,14 @@ class SharePoint:
             next_expected_ranges=upload_session.next_expected_ranges,
         )
 
-        with Path(local_file_path).open("rb") as file_content:
-            max_chunk_size = min(file_size // 2, 5 * 1024 * 1024)
+        # The task is typed for BytesIO but reads any seekable file, getting the size from
+        # its name, so the file streams from disk instead of being held in memory.
+        with local_file_path.open("rb") as file_stream:
             task = LargeFileUploadTask(
                 large_file_upload_session,
                 self._client.request_adapter,
-                BytesIO(file_content.read()),
-                max_chunk_size=max_chunk_size,
+                file_stream,
+                max_chunk_size=self._UPLOAD_CHUNK_SIZE,
             )
             return await task.upload()
 
@@ -149,13 +160,10 @@ class SharePoint:
             .content.get()
         )
 
-        if stream is None:
-            msg = f"Failed to download file from SharePoint: {sharepoint_path}"
-            raise RuntimeError(msg)
-
+        # Kiota raises on HTTP errors and returns None for an empty body.
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         with local_file_path.open("wb") as local_file:
-            local_file.write(stream)
+            local_file.write(stream or b"")
 
     async def delete_item(self, item_path: str) -> bool:
         """
@@ -218,3 +226,14 @@ class SharePoint:
             response = await children.with_url(response.odata_next_link).get()
 
         return items
+
+    async def close(self) -> None:
+        """Close the connections to Microsoft; the client can't be used afterward."""
+        http_client = cast(HttpxRequestAdapter, self._client.request_adapter)._http_client
+        # GraphServiceClient has no close method, and AsyncGraphTransport doesn't forward aclose,
+        # so closing http_client alone would leave the sockets open.
+        for transport in (http_client._transport, *http_client._mounts.values()):
+            if isinstance(transport, AsyncGraphTransport):
+                await transport.transport.aclose()
+        await http_client.aclose()
+        self._credential.close()

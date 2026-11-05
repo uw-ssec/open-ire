@@ -16,7 +16,7 @@ class TestSkipExistingPipeline:
     """Tests the SkipExistingPipeline for skipping existing articles."""
 
     @pytest.fixture
-    def pipeline_enabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline, None, None]:
+    def pipeline_enabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline]:
         crawler.settings.set("OPEN_IRE_SKIP_EXISTING", True)
 
         instance = SkipExistingPipeline(":memory:", "output")
@@ -27,7 +27,7 @@ class TestSkipExistingPipeline:
         instance.engine.dispose()
 
     @pytest.fixture
-    def pipeline_disabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline, None, None]:
+    def pipeline_disabled(self, crawler: Crawler) -> Generator[SkipExistingPipeline]:
         crawler.settings.set("OPEN_IRE_SKIP_EXISTING", False)
 
         instance = SkipExistingPipeline(":memory:", "output")
