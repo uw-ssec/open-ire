@@ -40,6 +40,7 @@ import json
 import os
 import re
 from collections.abc import Generator
+from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -50,6 +51,16 @@ from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_CONTACT_EMAIL
 from open_ire.spiders.search import TermSearchSpider
 from open_ire.utils import parse_date
+
+type DateRange = tuple[date, date]
+
+# esearch refuses to page past this many results for one query.
+_MAX_RESULTS = 9999
+# Publication dates searched when a query must be split to stay under _MAX_RESULTS.
+_FULL_DATE_RANGE: DateRange = (date(1600, 1, 1), date(2999, 12, 31))
+# Affiliation terms that also match other institutions, and the text to exclude.
+# "uw.edu" matches University of Warsaw addresses (uw.edu.pl).
+_AFFILIATION_EXCLUSIONS = {"uw.edu": "uw.edu.pl"}
 
 
 class PMCSpider(TermSearchSpider):
@@ -76,6 +87,13 @@ class PMCSpider(TermSearchSpider):
         # E-utilities is the sanctioned programmatic interface; NCBI's robots.txt
         # targets crawlers of the HTML site, not the API or the OA Subset bucket.
         "ROBOTSTXT_OBEY": False,
+        # NCBI answers bursts with 429 and, under load, transient 5xx errors.
+        # A lost esearch/esummary page drops up to 100 articles, so back off and retry.
+        "DOWNLOADER_MIDDLEWARES": {
+            "open_ire.middlewares.BackoffRetryMiddleware": 560,
+        },
+        "OPEN_IRE_BACKOFF_RETRY_STATUSES": [429, 500, 502, 503, 504],
+        "OPEN_IRE_BACKOFF_RETRY_TIMES": 10,
     }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -106,21 +124,30 @@ class PMCSpider(TermSearchSpider):
         params.update(extra)
         return params
 
-    def _build_esearch_request(self, term: str, retstart: int) -> Request:
-        """Build an esearch request for *term* starting at *retstart*."""
-        params = self._eutils_params(
-            {
-                "term": self._build_query(term),
-                "retmax": str(self.page_size),
-                "retstart": str(retstart),
+    def _build_esearch_request(
+        self, term: str, retstart: int, dates: DateRange | None = None
+    ) -> Request:
+        """Build an esearch request for *term* starting at *retstart*.
+
+        *dates* limits the search to an inclusive publication-date range.
+        """
+        extra = {
+            "term": self._build_query(term),
+            "retmax": str(self.page_size),
+            "retstart": str(retstart),
+        }
+        if dates:
+            extra |= {
+                "datetype": "pdat",
+                "mindate": dates[0].strftime("%Y/%m/%d"),
+                "maxdate": dates[1].strftime("%Y/%m/%d"),
             }
-        )
-        url = f"{self.eutils_url}/esearch.fcgi?{urlencode(params)}"
+        url = f"{self.eutils_url}/esearch.fcgi?{urlencode(self._eutils_params(extra))}"
         return Request(
             url,
             callback=self.parse,
             headers={"Accept": "application/json"},
-            meta={"search_term": term, "retstart": retstart},
+            meta={"search_term": term, "retstart": retstart, "dates": dates},
         )
 
     def _build_esummary_request(self, term: str, uids: list[str]) -> Request:
@@ -139,9 +166,13 @@ class PMCSpider(TermSearchSpider):
         """Build the PMC query string for *term*.
 
         Restricts results to UW-affiliated records in the open-access subset so
-        a downloadable full-text PDF is available for every match.
+        a downloadable full-text PDF is available for every match, excluding
+        other institutions that the term also matches.
         """
-        return f'"{term}"[Affiliation] AND open access[filter]'
+        query = f'"{term}"[Affiliation]'
+        if exclude := _AFFILIATION_EXCLUSIONS.get(term.casefold()):
+            query = f'({query} NOT "{exclude}"[Affiliation])'
+        return f"{query} AND open access[filter]"
 
     # === RESPONSE PARSING ===
 
@@ -149,6 +180,7 @@ class PMCSpider(TermSearchSpider):
         """Parse an esearch page, fetch summaries, and follow pagination."""
         search_term: str = response.meta["search_term"]
         retstart: int = response.meta["retstart"]
+        dates: DateRange | None = response.meta.get("dates")
 
         try:
             payload = json.loads(response.text or "{}")
@@ -157,6 +189,8 @@ class PMCSpider(TermSearchSpider):
             return
 
         result = payload.get("esearchresult", {})
+        if error := result.get("ERROR"):
+            self.logger.warning("PMC esearch error for %r: %s", search_term, error)
         uids = [str(uid) for uid in result.get("idlist", []) if uid]
         try:
             count = int(result.get("count", 0))
@@ -164,12 +198,26 @@ class PMCSpider(TermSearchSpider):
             count = 0
 
         self.logger.info(
-            "PMC esearch returned %d UID(s) for %r (retstart=%d, total=%d)",
+            "PMC esearch returned %d UID(s) for %r (dates=%s, retstart=%d, total=%d)",
             len(uids),
             search_term,
+            dates,
             retstart,
             count,
         )
+
+        if count > _MAX_RESULTS and retstart == 0:
+            if halves := self._split_dates(dates or _FULL_DATE_RANGE):
+                for half in halves:
+                    yield self._build_esearch_request(search_term, 0, half)
+                return
+            self.logger.warning(
+                "PMC search %r (dates=%s) has %d results; only the first %d can be fetched",
+                search_term,
+                dates,
+                count,
+                _MAX_RESULTS,
+            )
 
         if not uids:
             return
@@ -177,11 +225,20 @@ class PMCSpider(TermSearchSpider):
         yield self._build_esummary_request(search_term, uids)
 
         next_retstart = retstart + self.page_size
-        if next_retstart < count:
+        if next_retstart < min(count, _MAX_RESULTS):
             self.logger.debug(
                 "Requesting next PMC page (retstart=%d) for %r", next_retstart, search_term
             )
-            yield self._build_esearch_request(search_term, next_retstart)
+            yield self._build_esearch_request(search_term, next_retstart, dates)
+
+    @staticmethod
+    def _split_dates(dates: DateRange) -> tuple[DateRange, DateRange] | None:
+        """Split *dates* into two non-overlapping halves, or ``None`` for a single day."""
+        start, end = dates
+        if start >= end:
+            return None
+        mid = start + (end - start) // 2
+        return (start, mid), (mid + timedelta(days=1), end)
 
     def parse_summary(self, response: Response, **kwargs: Any) -> Generator[Request]:  # noqa: ARG002
         """Parse an esummary response and request the OA link for each record."""

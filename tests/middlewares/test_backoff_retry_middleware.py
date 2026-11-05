@@ -62,6 +62,18 @@ class TestBackoffRetryMiddleware:
         assert middleware.max_retries == 3
         assert middleware.base_delay == 0.001
         assert middleware.max_delay == 0.002
+        assert middleware.retry_statuses == {429, 503}
+
+    def test_retry_statuses_setting(
+        self, crawler: Crawler, request_: Request, run: RunCoroutine
+    ) -> None:
+        crawler.settings.set("OPEN_IRE_BACKOFF_RETRY_STATUSES", [500])
+        middleware = BackoffRetryMiddleware.from_crawler(crawler)
+
+        assert middleware.retry_statuses == {500}
+        assert isinstance(
+            run(middleware.process_response(request_, _response(request_, 500))), Request
+        )
 
     def test_passes_through_ok_response(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
