@@ -35,6 +35,9 @@ _AFFILIATION_CAPTURE_RE = re.compile(r"\[([^\]]*)\]?")
 _ORCID_RE = re.compile(r"\s*\(ORCID:\d+\)\s*$")
 # OSTI packs several institutions into one field, separated by semicolons.
 _INSTITUTION_SEPARATOR_RE = re.compile(r"\s*;\s*")
+# OSTI sometimes labels Washington University in St. Louis as
+# "Univ. of Washington, St. Louis, MO", which contains our name.
+_ST_LOUIS_LABEL_RE = re.compile(r"of washington,? st\.? louis")
 
 
 class OstiSpider(TermSearchSpider):
@@ -219,7 +222,7 @@ class OstiSpider(TermSearchSpider):
         or abstract: an ambiguous name is resolved by the city beside it, and
         only within one institution's own string.
         """
-        name = cls._normalize(institution_string)
+        name = _ST_LOUIS_LABEL_RE.sub("", cls._normalize(institution_string))
         return any(n in name for n in OPEN_IRE_INSTITUTION_NAMES)
 
     @classmethod

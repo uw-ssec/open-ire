@@ -174,6 +174,7 @@ class TestAffiliationFiltering:
             "Washington Sea Grant",
             "Harborview Injury Prevention and Research Center",
             "Board of Regents of University of Washington (Seattle, WA)",
+            "Washington University in St Louis, University of Washington, University of Reading",
         ],
     )
     def test_recognizes_our_institution(self, institution: str) -> None:
@@ -190,6 +191,8 @@ class TestAffiliationFiltering:
             # The abbreviated forms are only ours in Seattle.
             "Washington University, St. Louis, MO (United States)",
             "Washington U., St. Louis",
+            # OSTI's mislabel of Washington University in St. Louis.
+            "Univ. of Washington, St. Louis, MO (United States)",
             # Misspelled in OSTI's own data; seen live on osti_id 897663.
             "Easthern Washington University, Upper Columbia United Tribes Fisheries Research Center",
             "Pacific Northwest National Laboratory (PNNL), Richland, WA (United States)",
