@@ -7,15 +7,15 @@ required.
 
 > [!NOTE]
 >
-> By default, the SharePoint pipeline is only active in the production
-> environment and disabled in the development environment. See the
-> `OPEN_IRE_ENVIRONMENT` environment variable and
-> `src/open_ire/settings/development.py`.
+> By default, the SharePoint pipeline and backup extension are only active in
+> the production environment and disabled in the development environment. See
+> the `OPEN_IRE_ENVIRONMENT` environment variable and `src/open_ire/settings/`.
 
 The integration is optional. If any of the required [credentials](#credentials)
-is missing or empty, the pipeline disables itself for the crawl and logs a
-single warning naming the missing variables. The crawl otherwise runs normally:
-files stay in `FILES_STORE` and the database backup upload is skipped.
+is missing or empty, the pipeline and the backup extension each disable
+themselves for the crawl and log a warning naming the missing variables. The
+crawl otherwise runs normally: files stay in `FILES_STORE` and no backups are
+uploaded.
 
 ## Managing the Integration
 
@@ -57,9 +57,32 @@ The integration requires four environment variables (see `.env.example`):
 Files are uploaded to the
 [UW Scholarship Archiving Shared Documents](https://uwnetid.sharepoint.com/sites/uw-scholarship-archiving/Shared%20Documents/Forms/AllItems.aspx)
 library, organized under a base path controlled by the
-`OPEN_IRE_SHAREPOINT_BASE_PATH` setting (defaults to `open_ire` in the
-production environment, with a `_dev` suffix added in the development
-environment).
+`OPEN_IRE_SHAREPOINT_BASE_PATH` setting in `src/open_ire/settings/base.py`
+(defaults to `open_ire` in the production environment, with a `_dev` suffix
+added in the development environment).
+
+### Backups
+
+When a spider closes, the `SharePointBackup` extension (`open_ire.extensions`)
+backs up the run's state into the `OPEN_IRE_SHAREPOINT_BACKUP_DIR` folder
+(default `backups/`, under the base path). As an extension rather than an item
+pipeline, it runs for every spider, including those that set `ITEM_PIPELINES` to
+`{}`. Both files are named after the time the run started, so a snapshot and its
+log sit side by side:
+
+- **Database snapshot** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.db.gz`). The SQLite
+  database (`OPEN_IRE_DATABASE_FILE`) is compacted with `VACUUM INTO` and
+  gzipped before upload, so the backup drops free pages and is taken from a
+  transactionally consistent copy rather than the live file.
+- **Run log** (`open_ire__<YYYY-MM-DD_HH-MM-SS>.log`). When `LOG_FILE` is set
+  (as it is in production), the log is uploaded uncompressed so it can be read
+  in the SharePoint web viewer. The local log file's name does not matter.
+
+`OPEN_IRE_SHAREPOINT_BACKUP_DAYS_KEPT` sets how many days of backups are kept
+(default `10`). Every snapshot and log from the newest days is kept, however
+many runs those days had; everything from older days is deleted after each
+successful snapshot upload. Set it to `None` to keep every backup, or to `0` to
+skip backups entirely; `0` uploads nothing and leaves existing backups alone.
 
 ## Requesting a New Integration
 
@@ -108,9 +131,9 @@ Include the Application (client) ID and the SharePoint site URL in the request.
 Reference:
 [Generate a client secret](https://learn.microsoft.com/en-us/azure/industry/training-services/microsoft-community-training/public-preview-version/frequently-asked-questions/generate-new-clientsecret-link-to-key-vault)
 
-### 5. Configure environment variables
+### 5. Configure the integration
 
 Set the environment variables described in the [Credentials](#credentials)
-section above, plus `OPEN_IRE_SHAREPOINT_BASE_PATH` for the desired upload
-directory (default is `open_ire`, with a `_dev` suffix added to the base path in
-the development environment).
+section above. To upload to a different directory, change
+`OPEN_IRE_SHAREPOINT_BASE_PATH` in `src/open_ire/settings/base.py` (see
+[SharePoint Drive](#sharepoint-drive)).

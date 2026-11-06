@@ -1,12 +1,10 @@
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
@@ -26,24 +24,9 @@ class TestSharePointPipeline:
     """Tests the SharePoint pipeline for file uploads."""
 
     @pytest.fixture
-    def pipeline(self, crawler: Crawler, tmp_path: Path) -> SharePointPipeline:
-        sharepoint_base_path = "test_sharepoint"
-        local_base_path = str(tmp_path)
-
-        with patch(
-            "open_ire.pipelines.sharepoint_pipeline.SharePointClient"
-        ) as mock_sharepoint_class:
-            mock_sharepoint = MagicMock()
-            mock_sharepoint_class.return_value = mock_sharepoint
-
-            pipeline = SharePointPipeline(sharepoint_base_path, local_base_path)
-            pipeline.sharepoint = mock_sharepoint
-            pipeline.crawler = crawler
-            pipeline.open_spider()
-            assert pipeline.crawler is not None
-            assert pipeline.crawler.spider is not None
-
-            return pipeline
+    def pipeline(self, tmp_path: Path) -> SharePointPipeline:
+        with patch("open_ire.pipelines.sharepoint_pipeline.SharePointClient"):
+            return SharePointPipeline("test_sharepoint", str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_passes_through_non_article_items(self, pipeline: SharePointPipeline) -> None:
@@ -138,28 +121,14 @@ class TestSharePointPipeline:
         await pipeline.process_item(item)
         assert local_file.exists()  # preserve local copy
 
-    def test_db_snapshot_on_spider_close(self, crawler: Crawler, tmp_path: Path) -> None:
-        crawler.settings.set("FILES_STORE", str(tmp_path))
-        crawler.settings.set("OPEN_IRE_DATABASE_FILE", "dbs/open_ire.db")
-        crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
-        crawler.signals = MagicMock()
+    @pytest.mark.asyncio
+    async def test_close_spider_closes_client(self, pipeline: SharePointPipeline) -> None:
+        sharepoint = cast(Any, pipeline.sharepoint)
+        sharepoint.close = AsyncMock()
 
-        with (
-            patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch(
-                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
-            ) as cls,
-            patch.object(SharePointClient, "_create_client"),
-        ):
-            pipeline = SharePointPipeline.from_crawler(crawler)
+        await pipeline.close_spider()
 
-        cls.assert_called_once()
-        assert pipeline.db_path == Path("dbs/open_ire.db")
-
-        connect = cast(Any, crawler.signals.connect)
-        connect.assert_called_once()
-        assert connect.call_args.kwargs["signal"] == signals.spider_closed
-        assert connect.call_args.args[0] == pipeline._on_spider_closed
+        sharepoint.close.assert_awaited_once_with()
 
     @pytest.mark.parametrize(
         ("env", "missing"),
@@ -201,91 +170,18 @@ class TestSharePointPipeline:
         assert all(name in message for name in missing)
         assert all(value not in message for value in env.values() if value)
 
-    def test_build_db_sharepoint_path(self, pipeline: SharePointPipeline) -> None:
-        db_path = Path("dbs/open_ire.db")
-        run_at = datetime(2026, 2, 18)
-
-        result = pipeline._build_db_sharepoint_path(db_path, run_at)
-
-        assert result == "dbs/open_ire__2026-02-18.db"
-
-    @pytest.mark.asyncio
-    async def test_spider_closed_closes_client_after_backup(
-        self, pipeline: SharePointPipeline
-    ) -> None:
-        close = AsyncMock()
-        cast(Any, pipeline.sharepoint).close = close
-
-        async def check_client_still_open(*_args: object) -> None:
-            close.assert_not_awaited()
-
-        with patch.object(
-            pipeline, "_upload_database_backup", side_effect=check_client_still_open
-        ) as upload:
-            await pipeline._on_spider_closed(reason="finished")
-
-        upload.assert_awaited_once_with(None, "finished")
-        close.assert_awaited_once_with()
-
-    @pytest.mark.asyncio
-    async def test_spider_closed_closes_client_when_backup_fails(
-        self, pipeline: SharePointPipeline
-    ) -> None:
-        close = AsyncMock()
-        cast(Any, pipeline.sharepoint).close = close
+    def test_from_crawler(self, crawler: Crawler, tmp_path: Path) -> None:
+        crawler.settings.set("FILES_STORE", str(tmp_path))
+        crawler.settings.set("OPEN_IRE_SHAREPOINT_BASE_PATH", "test_sharepoint")
 
         with (
-            patch.object(pipeline, "_upload_database_backup", side_effect=RuntimeError("no drive")),
-            pytest.raises(RuntimeError, match="no drive"),
+            patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
+            patch(
+                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
+            ) as cls,
+            patch.object(SharePointClient, "_create_client"),
         ):
-            await pipeline._on_spider_closed()
+            pipeline = SharePointPipeline.from_crawler(crawler)
 
-        close.assert_awaited_once_with()
-
-    @pytest.mark.asyncio
-    async def test_upload_database_backup(
-        self, pipeline: SharePointPipeline, tmp_path: Path
-    ) -> None:
-        db_path = tmp_path / "open_ire.db"
-        db_path.write_text("sqlite-content")
-        pipeline.db_path = db_path
-
-        backup_path = "open_ire__2026-01-27.db"
-        mock_upload_result = MagicMock()
-        mock_upload_result.location = "https://sharepoint.com/uploaded-db"
-        mock_drive_item = MagicMock()
-        mock_drive_item.web_url = "https://sharepoint.com/db-web-url"
-
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(return_value=mock_upload_result)
-        sharepoint.get_item = AsyncMock(return_value=mock_drive_item)
-
-        with patch.object(
-            pipeline,
-            "_build_db_sharepoint_path",
-            return_value=backup_path,
-        ):
-            await pipeline._upload_database_backup()
-
-        sharepoint.upload_file.assert_awaited_once_with(db_path, backup_path)
-
-    @pytest.mark.asyncio
-    async def test_upload_database_backup_unconfirmed(
-        self, pipeline: SharePointPipeline, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A backup SharePoint can't find after uploading is logged as an error."""
-        db_path = tmp_path / "open_ire.db"
-        db_path.write_text("sqlite-content")
-        pipeline.db_path = db_path
-
-        sharepoint = cast(Any, pipeline.sharepoint)
-        sharepoint.upload_file = AsyncMock(
-            return_value=MagicMock(location="https://sharepoint.com/uploaded-db")
-        )
-        sharepoint.get_item = AsyncMock(return_value=None)
-
-        with caplog.at_level(logging.ERROR):
-            await pipeline._upload_database_backup()
-
-        (record,) = caplog.records
-        assert record.getMessage().startswith("Could not confirm SharePoint database snapshot")
+        cls.assert_called_once_with(base_path="test_sharepoint")
+        assert pipeline.files_store == tmp_path

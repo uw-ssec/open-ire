@@ -103,8 +103,9 @@ class SharePointClient:
 
     def _item_id_from_path(self, item_path: str) -> str:
         """Format a path relative to `base_path` as a Graph `root:/path:/` item ID."""
-        item_path = item_path.removeprefix("/")
-        item_path = item_path.removesuffix("/")
+        item_path = item_path.strip("/")
+        if not item_path:
+            return f"root:/{self.base_path}:/"
 
         return f"root:/{self.base_path}/{item_path}:/"
 
@@ -253,6 +254,35 @@ class SharePointClient:
         item_id = self._item_id_from_path(item_path)
 
         return await self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).get()
+
+    async def list_children(self, folder_path: str) -> list[DriveItem]:
+        """List the items directly inside a folder.
+
+        Graph returns children a page at a time, so this follows
+        `@odata.nextLink` until every page has been read.
+
+        Args:
+            folder_path: Path to the folder, relative to `base_path`. Pass an
+                empty string for `base_path` itself.
+
+        Returns:
+            The folder's child items, or an empty list if it has none.
+        """
+        drive_id = await self._get_drive_id()
+        item_id = self._item_id_from_path(folder_path)
+        children = (
+            self._client.drives.by_drive_id(drive_id).items.by_drive_item_id(item_id).children
+        )
+
+        items: list[DriveItem] = []
+        response = await children.get()
+        while response is not None:
+            items.extend(response.value or [])
+            if not response.odata_next_link:
+                break
+            response = await children.with_url(response.odata_next_link).get()
+
+        return items
 
     async def close(self) -> None:
         """Release HTTP connections and credentials when finished with the client.

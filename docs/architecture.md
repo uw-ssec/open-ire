@@ -33,9 +33,9 @@ extensions, so every setting this project defines takes an `OPEN_IRE_` prefix to
 avoid colliding with a built-in name.
 
 Environment variables follow the same rule, but only for names this project
-owns. `OPEN_IRE_ENVIRONMENT` and `OPEN_IRE_SHAREPOINT_BASE_PATH` are our
-concepts, and unprefixed names like `ENVIRONMENT` are generic enough that CI
-runners and deployment tooling routinely set them for unrelated purposes.
+owns. `OPEN_IRE_ENVIRONMENT` and `OPEN_IRE_DATABASE_FILE` are our concepts, and
+unprefixed names like `ENVIRONMENT` are generic enough that CI runners and
+deployment tooling routinely set them for unrelated purposes.
 
 Credentials for external services keep their conventional, unprefixed names
 (`SHAREPOINT_CLIENT_ID`, `WOS_API_KEY`, `NCBI_API_KEY`, `DATAMART_USER`, and so

@@ -1,11 +1,13 @@
 import os
 from collections.abc import Iterator
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from kiota_http.httpx_request_adapter import HttpxRequestAdapter
+from msgraph.generated.models.drive_item import DriveItem
+from msgraph.generated.models.drive_item_collection_response import DriveItemCollectionResponse
 
 from open_ire.sharepoint import SharePointClient
 
@@ -107,6 +109,54 @@ def test_item_id_ignores_outer_slashes(path: str) -> None:
     client = SharePointClient(BASE_PATH, **ARGS)
 
     assert client._item_id_from_path(path) == client._item_id_from_path("folder/file.txt")
+
+
+@pytest.mark.asyncio
+async def test_list_children() -> None:
+    items = [DriveItem(name="a.txt"), DriveItem(name="b.txt")]
+    client = SharePointClient(BASE_PATH, **ARGS)
+    children = _mock_children(client)
+    children.get = AsyncMock(return_value=DriveItemCollectionResponse(value=items))
+
+    assert await client.list_children("folder") == items
+    children.with_url.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_children_follows_next_link() -> None:
+    first_page = [DriveItem(name="a.txt")]
+    second_page = [DriveItem(name="b.txt")]
+    next_link = "https://graph.microsoft.com/next-page"
+    client = SharePointClient(BASE_PATH, **ARGS)
+    children = _mock_children(client)
+    children.get = AsyncMock(
+        return_value=DriveItemCollectionResponse(value=first_page, odata_next_link=next_link)
+    )
+    children.with_url.return_value.get = AsyncMock(
+        return_value=DriveItemCollectionResponse(value=second_page)
+    )
+
+    assert await client.list_children("folder") == first_page + second_page
+    children.with_url.assert_called_once_with(next_link)
+
+
+@pytest.mark.asyncio
+async def test_list_children_empty() -> None:
+    client = SharePointClient(BASE_PATH, **ARGS)
+    children = _mock_children(client)
+    children.get = AsyncMock(return_value=None)
+
+    assert await client.list_children("folder") == []
+
+
+def _mock_children(client: SharePointClient) -> MagicMock:
+    """Swap in a mock Graph client and return the `children` builder for any item."""
+    client._drive_id = "drive-id"
+    client._client = MagicMock()
+    return cast(
+        MagicMock,
+        client._client.drives.by_drive_id.return_value.items.by_drive_item_id.return_value.children,
+    )
 
 
 @pytest.mark.asyncio
