@@ -25,9 +25,15 @@ ENV = {
 
 
 @pytest.fixture(autouse=True)
-def empty_environ() -> Iterator[None]:
-    """Clear the environment so credentials from the developer's shell or .env can't leak in."""
-    with patch.dict(os.environ, clear=True):
+def no_sharepoint_environ() -> Iterator[None]:
+    """Remove SharePoint credentials so the developer's shell or .env can't leak in.
+
+    Don't clear the whole environment: on Windows, building the Graph
+    client's SSL context then fails.
+    """
+    with patch.dict(os.environ):
+        for name in ENV:
+            os.environ.pop(name, None)
         yield
 
 
