@@ -11,6 +11,7 @@ from kiota_abstractions.request_information import RequestInformation
 from kiota_http.httpx_request_adapter import HttpxRequestAdapter
 from msgraph.generated.models.drive import Drive
 from msgraph.generated.models.drive_item import DriveItem
+from msgraph.generated.models.drive_item_collection_response import DriveItemCollectionResponse
 from msgraph_core.models import LargeFileUploadSession, UploadResult
 
 from open_ire.sharepoint import SharePoint
@@ -429,6 +430,47 @@ class TestSharePoint:
         assert result == mock_drive_item
         client = cast(MagicMock, sharepoint_client._client)
         client.drives.by_drive_id.assert_called_once_with(DefaultValues.DRIVE_ID.value)
+
+    @pytest.mark.asyncio
+    async def test_list_children(self, sharepoint_client: SharePoint) -> None:
+        items = [DriveItem(name="a.txt"), DriveItem(name="b.txt")]
+
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.children.get = AsyncMock(return_value=DriveItemCollectionResponse(value=items))
+
+        result = await sharepoint_client.list_children("folder")
+
+        assert result == items
+        chain_mock.children.with_url.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_list_children_follows_next_link(self, sharepoint_client: SharePoint) -> None:
+        first_page = [DriveItem(name="a.txt")]
+        second_page = [DriveItem(name="b.txt")]
+        next_link = "https://graph.microsoft.com/next-page"
+
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.children.get = AsyncMock(
+            return_value=DriveItemCollectionResponse(value=first_page, odata_next_link=next_link)
+        )
+        chain_mock.children.with_url.return_value.get = AsyncMock(
+            return_value=DriveItemCollectionResponse(value=second_page)
+        )
+
+        result = await sharepoint_client.list_children("folder")
+
+        assert result == first_page + second_page
+        chain_mock.children.with_url.assert_called_once_with(next_link)
+
+    @pytest.mark.asyncio
+    async def test_list_children_empty(self, sharepoint_client: SharePoint) -> None:
+        self._mock_client_drive_id(sharepoint_client)
+        chain_mock = self._mock_client_drive_item(sharepoint_client)
+        chain_mock.children.get = AsyncMock(return_value=None)
+
+        assert await sharepoint_client.list_children("folder") == []
 
     def test_base_path_id(self, sharepoint_client: SharePoint) -> None:
         custom_base_path = "unittest/base/path"
