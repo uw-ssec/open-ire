@@ -114,7 +114,11 @@ LOG_LEVEL = "INFO"
 # LOG_LEVEL alone controls how verbose open_ire.* is; OPEN_IRE_LOGGER_LEVELS
 # clamps noisy logger trees below it. Add `open_ire` there only to make Open
 # IRE logging quieter than LOG_LEVEL.
-OPEN_IRE_LOGGER_LEVELS: dict[str, str] = {}
+OPEN_IRE_LOGGER_LEVELS: dict[str, str] = {
+    "azure": "WARNING",  # logs every token fetch and HTTP request at INFO
+    "msal": "WARNING",
+    "urllib3": "WARNING",
+}
 # The formatter allows suppressing (the very noisy) logging of dropped items.
 LOG_FORMATTER = "open_ire.logging.OpenIRELogFormatter"
 OPEN_IRE_LOG_DROPPED_ITEMS = True
