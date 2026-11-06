@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from scrapy.crawler import Crawler
@@ -10,7 +10,7 @@ from scrapy.exceptions import NotConfigured
 
 from open_ire.items import ArticleItem
 from open_ire.pipelines import SharePointPipeline
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 SHAREPOINT_ENV = {
     "SHAREPOINT_CLIENT_ID": "test-client-id",
@@ -25,7 +25,7 @@ class TestSharePointPipeline:
 
     @pytest.fixture
     def pipeline(self, tmp_path: Path) -> SharePointPipeline:
-        with patch("open_ire.pipelines.sharepoint_pipeline.SharePoint"):
+        with patch("open_ire.pipelines.sharepoint_pipeline.SharePointClient"):
             return SharePointPipeline("test_sharepoint", str(tmp_path))
 
     @pytest.mark.asyncio
@@ -67,7 +67,10 @@ class TestSharePointPipeline:
             "https://sharepoint.com/web-url",
             "https://sharepoint.com/web-url",
         ]
-        assert sharepoint.upload_file.call_count == 2
+        assert sharepoint.upload_file.await_args_list == [
+            call(file1, "file1.pdf"),
+            call(file2, "file2.pdf"),
+        ]
 
     @pytest.mark.asyncio
     async def test_process_item_no_files(
@@ -151,7 +154,9 @@ class TestSharePointPipeline:
 
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
+            patch(
+                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
+            ) as cls,
             caplog.at_level(logging.WARNING),
             pytest.raises(NotConfigured),
         ):
@@ -171,8 +176,10 @@ class TestSharePointPipeline:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.pipelines.sharepoint_pipeline.SharePoint", wraps=SharePoint) as cls,
-            patch.object(SharePoint, "_authenticate"),
+            patch(
+                "open_ire.pipelines.sharepoint_pipeline.SharePointClient", wraps=SharePointClient
+            ) as cls,
+            patch.object(SharePointClient, "_create_client"),
         ):
             pipeline = SharePointPipeline.from_crawler(crawler)
 

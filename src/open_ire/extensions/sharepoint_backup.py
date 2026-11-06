@@ -16,7 +16,7 @@ from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured
 
 from open_ire.errors import ConfigurationError
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class SharePointBackup:
         backup_days_kept: int | None = None,
         backup_dir: str = "backups",
     ) -> None:
-        self.sharepoint = SharePoint(base_path=sharepoint_base_path)
+        self.sharepoint = SharePointClient(base_path=sharepoint_base_path)
         self.db_path = db_path
         self.log_path = log_path
         self.backup_days_kept = backup_days_kept
@@ -51,7 +51,7 @@ class SharePointBackup:
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> Self:
-        if missing := SharePoint.missing_credentials():
+        if missing := SharePointClient.missing_env_vars():
             logger.warning("SharePoint backups disabled: missing or empty %s.", ", ".join(missing))
             raise NotConfigured
 

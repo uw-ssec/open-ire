@@ -18,7 +18,7 @@ from scrapy.settings import Settings
 
 from open_ire.errors import ConfigurationError
 from open_ire.extensions.sharepoint_backup import SharePointBackup, create_snapshot, stale_backups
-from open_ire.sharepoint import SharePoint
+from open_ire.sharepoint import SharePointClient
 
 SHAREPOINT_ENV = {
     "SHAREPOINT_CLIENT_ID": "test-client-id",
@@ -42,7 +42,7 @@ class TestSharePointBackup:
 
     @pytest.fixture
     def backup(self) -> SharePointBackup:
-        with patch("open_ire.extensions.sharepoint_backup.SharePoint") as cls:
+        with patch("open_ire.extensions.sharepoint_backup.SharePointClient") as cls:
             cls.return_value.close = AsyncMock()
             return SharePointBackup("test_sharepoint")
 
@@ -55,8 +55,10 @@ class TestSharePointBackup:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.extensions.sharepoint_backup.SharePoint", wraps=SharePoint) as cls,
-            patch.object(SharePoint, "_authenticate"),
+            patch(
+                "open_ire.extensions.sharepoint_backup.SharePointClient", wraps=SharePointClient
+            ) as cls,
+            patch.object(SharePointClient, "_create_client"),
         ):
             backup = SharePointBackup.from_crawler(crawler)
 
@@ -90,7 +92,9 @@ class TestSharePointBackup:
     ) -> None:
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("open_ire.extensions.sharepoint_backup.SharePoint", wraps=SharePoint) as cls,
+            patch(
+                "open_ire.extensions.sharepoint_backup.SharePointClient", wraps=SharePointClient
+            ) as cls,
             caplog.at_level(logging.WARNING),
             pytest.raises(NotConfigured),
         ):
@@ -110,7 +114,7 @@ class TestSharePointBackup:
 
         with (
             patch.dict(os.environ, SHAREPOINT_ENV, clear=True),
-            patch("open_ire.extensions.sharepoint_backup.SharePoint") as cls,
+            patch("open_ire.extensions.sharepoint_backup.SharePointClient") as cls,
             pytest.raises(NotConfigured),
         ):
             SharePointBackup.from_crawler(crawler)
