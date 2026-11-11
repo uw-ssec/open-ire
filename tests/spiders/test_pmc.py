@@ -114,9 +114,18 @@ class TestRequestBuilding:
         assert query["tool"] == ["open_ire"]
 
     def test_query_restricts_to_oa_affiliation(self, spider: PMCSpider) -> None:
+        request = spider.build_search_request("washington sea grant")
+        term = parse_qs(urlparse(request.url).query)["term"][0]
+        assert term == '"washington sea grant"[Affiliation] AND open access[filter]'
+
+    def test_query_excludes_st_louis_label(self, spider: PMCSpider) -> None:
         request = spider.build_search_request("university of washington")
         term = parse_qs(urlparse(request.url).query)["term"][0]
-        assert term == '"university of washington"[Affiliation] AND open access[filter]'
+        assert term == (
+            '("university of washington"[Affiliation] NOT '
+            '("university of washington st louis"[Affiliation] NOT "seattle"[Affiliation]))'
+            " AND open access[filter]"
+        )
 
     def test_query_excludes_university_of_warsaw(self, spider: PMCSpider) -> None:
         request = spider.build_search_request("UW.edu")
