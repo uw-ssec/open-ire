@@ -65,7 +65,9 @@ _FULL_DATE_RANGE: DateRange = (date(1600, 1, 1), date(2999, 12, 31))
 _AFFILIATION_EXCLUSIONS = {
     "uw.edu": '"uw.edu.pl"[Affiliation]',
     "university of washington": (
-        '("university of washington st louis"[Affiliation] NOT "seattle"[Affiliation])'
+        '("university of washington st louis"[Affiliation] NOT '
+        '("university of washington seattle"[Affiliation] OR "uw.edu"[Affiliation] '
+        'OR "washington.edu"[Affiliation]))'
     ),
 }
 

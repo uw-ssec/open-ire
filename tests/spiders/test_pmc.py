@@ -123,7 +123,9 @@ class TestRequestBuilding:
         term = parse_qs(urlparse(request.url).query)["term"][0]
         assert term == (
             '("university of washington"[Affiliation] NOT '
-            '("university of washington st louis"[Affiliation] NOT "seattle"[Affiliation]))'
+            '("university of washington st louis"[Affiliation] NOT '
+            '("university of washington seattle"[Affiliation] OR "uw.edu"[Affiliation] '
+            'OR "washington.edu"[Affiliation])))'
             " AND open access[filter]"
         )
 
