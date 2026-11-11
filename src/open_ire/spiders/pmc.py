@@ -58,9 +58,18 @@ type DateRange = tuple[date, date]
 _MAX_RESULTS = 9999
 # Publication dates searched when a query must be split to stay under _MAX_RESULTS.
 _FULL_DATE_RANGE: DateRange = (date(1600, 1, 1), date(2999, 12, 31))
-# Affiliation terms that also match other institutions, and the text to exclude.
-# "uw.edu" matches University of Warsaw addresses (uw.edu.pl).
-_AFFILIATION_EXCLUSIONS = {"uw.edu": "uw.edu.pl"}
+# Affiliation terms that also match other institutions, and what to exclude.
+# "uw.edu" matches University of Warsaw addresses (uw.edu.pl), and
+# "university of washington" matches Washington University in St. Louis
+# labelled "University of Washington, St. Louis".
+_AFFILIATION_EXCLUSIONS = {
+    "uw.edu": '"uw.edu.pl"[Affiliation]',
+    "university of washington": (
+        '("university of washington st louis"[Affiliation] NOT '
+        '("university of washington seattle"[Affiliation] OR "uw.edu"[Affiliation] '
+        'OR "washington.edu"[Affiliation]))'
+    ),
+}
 
 
 class PMCSpider(TermSearchSpider):
@@ -171,7 +180,7 @@ class PMCSpider(TermSearchSpider):
         """
         query = f'"{term}"[Affiliation]'
         if exclude := _AFFILIATION_EXCLUSIONS.get(term.casefold()):
-            query = f'({query} NOT "{exclude}"[Affiliation])'
+            query = f"({query} NOT {exclude})"
         return f"{query} AND open access[filter]"
 
     # === RESPONSE PARSING ===
