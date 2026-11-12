@@ -1,6 +1,7 @@
 """Alembic environment configuration for Open IRE."""
 
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -24,12 +25,23 @@ def get_url() -> str:
     1. URL passed programmatically via config attributes (production runtime).
     2. OPEN_IRE_DATABASE_FILE from base settings, which reads the environment
        variable of the same name.
+
+    Raises:
+        FileNotFoundError: The OPEN_IRE_DATABASE_FILE fallback names a file that
+            does not exist. SQLite would otherwise silently create an empty
+            database there, hiding a mistyped path. Only the CLI reaches this
+            branch; crawls pass the URL programmatically and create new
+            databases themselves.
     """
     url: str | None = context.config.attributes.get("sqlalchemy.url")
     if url:
         return url
 
     from open_ire.settings.base import OPEN_IRE_DATABASE_FILE  # noqa: PLC0415
+
+    if not Path(OPEN_IRE_DATABASE_FILE).exists():
+        msg = f"Database file '{OPEN_IRE_DATABASE_FILE}' does not exist; check OPEN_IRE_DATABASE_FILE."
+        raise FileNotFoundError(msg)
 
     return f"sqlite:///{OPEN_IRE_DATABASE_FILE}"
 
