@@ -44,6 +44,7 @@ from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
+from scrapy.downloadermiddlewares.retry import get_retry_request
 from scrapy.http import Request, Response, TextResponse
 
 from open_ire.author import ParsedAuthor
@@ -56,6 +57,8 @@ type DateRange = tuple[date, date]
 
 # esearch refuses to page past this many results for one query.
 _MAX_RESULTS = 9999
+# esummary keeps failing with HTTP 500 for some 100-UID batches; 20 is reliable.
+_SUMMARY_BATCH = 20
 # Publication dates searched when a query must be split to stay under _MAX_RESULTS.
 _FULL_DATE_RANGE: DateRange = (date(1600, 1, 1), date(2999, 12, 31))
 # Affiliation terms that also match other institutions, and what to exclude.
@@ -200,6 +203,16 @@ class PMCSpider(TermSearchSpider):
         result = payload.get("esearchresult", {})
         if error := result.get("ERROR"):
             self.logger.warning("PMC esearch error for %r: %s", search_term, error)
+            # Errors such as "Search Backend failed" are transient; retry the page.
+            if retry := get_retry_request(
+                cast(Request, response.request),
+                spider=self,
+                reason="esearch error",
+                max_retry_times=self.settings.getint("OPEN_IRE_BACKOFF_RETRY_TIMES"),
+            ):
+                retry.meta["backoff_retry"] = True
+                yield retry
+            return
         uids = [str(uid) for uid in result.get("idlist", []) if uid]
         try:
             count = int(result.get("count", 0))
@@ -231,7 +244,8 @@ class PMCSpider(TermSearchSpider):
         if not uids:
             return
 
-        yield self._build_esummary_request(search_term, uids)
+        for i in range(0, len(uids), _SUMMARY_BATCH):
+            yield self._build_esummary_request(search_term, uids[i : i + _SUMMARY_BATCH])
 
         next_retstart = retstart + self.page_size
         if next_retstart < min(count, _MAX_RESULTS):

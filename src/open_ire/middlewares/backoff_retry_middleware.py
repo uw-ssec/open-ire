@@ -154,6 +154,13 @@ class BackoffRetryMiddleware:
         await asyncio.sleep(delay)
         return new_request
 
+    async def process_request(self, request: Request) -> None:
+        """Back off before a retry that a spider callback flagged with ``backoff_retry``."""
+        if request.meta.pop("backoff_retry", False):
+            delay = self._delay(request.meta.get("retry_times", 1) - 1)
+            logger.info("Backing off %.1fs before retrying %s", delay, request.url)
+            await asyncio.sleep(delay)
+
     async def process_response(self, request: Request, response: Response) -> Request | Response:
         if response.status not in self.retry_statuses:
             return response

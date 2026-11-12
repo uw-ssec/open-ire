@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from scrapy.http import Request, TextResponse, XmlResponse
+from scrapy.utils.test import get_crawler
 
 from open_ire.items import ArticleItem
 from open_ire.settings import OPEN_IRE_SEARCH_TERMS
@@ -161,6 +162,32 @@ class TestParseEsearch:
         parsed = urlparse(summary_requests[0].url)
         assert parsed.path.endswith("/esummary.fcgi")
         assert parse_qs(parsed.query)["id"] == ["111,222,333"]
+
+    def test_esummary_batches_of_20(self, spider: PMCSpider) -> None:
+        uids = [str(uid) for uid in range(45)]
+        esearch = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            {"esearchresult": {"count": "45", "idlist": uids}},
+            meta={"search_term": "term", "retstart": 0},
+        )
+
+        batches = [parse_qs(urlparse(r.url).query)["id"][0] for r in spider.parse(esearch)]
+
+        assert batches == [",".join(uids[:20]), ",".join(uids[20:40]), ",".join(uids[40:])]
+
+    def test_retries_esearch_error(self) -> None:
+        spider = PMCSpider.from_crawler(get_crawler(PMCSpider), terms="uw")
+        response = _json_response(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            {"esearchresult": {"ERROR": "Search Backend failed", "count": "0", "idlist": []}},
+            meta={"search_term": "uw", "retstart": 1900},
+        )
+
+        (retry,) = list(spider.parse(response))
+
+        assert retry.url == response.url
+        assert retry.meta["retry_times"] == 1
+        assert retry.meta["backoff_retry"] is True
 
     def test_yields_summary_request_and_pagination(self, spider: PMCSpider) -> None:
         payload = {"esearchresult": {"count": "250", "idlist": ["1", "2", "3"]}}

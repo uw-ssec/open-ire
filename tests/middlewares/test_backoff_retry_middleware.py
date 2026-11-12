@@ -75,6 +75,14 @@ class TestBackoffRetryMiddleware:
             run(middleware.process_response(request_, _response(request_, 500))), Request
         )
 
+    def test_backs_off_before_flagged_retry(
+        self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
+    ) -> None:
+        flagged = request_.replace(meta={"backoff_retry": True, "retry_times": 1})
+
+        assert run(middleware.process_request(flagged)) is None
+        assert "backoff_retry" not in flagged.meta
+
     def test_passes_through_ok_response(
         self, middleware: BackoffRetryMiddleware, request_: Request, run: RunCoroutine
     ) -> None:
