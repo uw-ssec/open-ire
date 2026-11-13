@@ -1,6 +1,5 @@
 from collections.abc import Generator
 from datetime import date
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -27,10 +26,10 @@ def pipeline(crawler: Crawler) -> Generator[DOIDuplicatesPipeline]:
 def pipeline_with_existing(
     request: pytest.FixtureRequest,
     crawler: Crawler,
-    tmp_path: Path,
+    temp_db: str,
 ) -> Generator[DOIDuplicatesPipeline]:
     """Pipeline with an existing OpenAlex article in the database."""
-    db_path = str(tmp_path / "test.db")
+    db_path = temp_db.replace("sqlite:///", "")
     instance = DOIDuplicatesPipeline(db_path, "output")
     instance.crawler = crawler
 

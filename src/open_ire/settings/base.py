@@ -112,9 +112,12 @@ PLAYWRIGHT_LAUNCH_OPTIONS = {
 # ===============================================================================
 # Logging
 # ===============================================================================
-# Registered here rather than per-environment so every environment gets it.
+# Registered here rather than per-environment so every environment gets them.
 EXTENSIONS = {
     "open_ire.logging.OpenIRELogger": 100,
+    # Records each run and the rows it changes in the database. Keep it ahead
+    # of SharePointBackup so the backup includes the finished run.
+    "open_ire.extensions.RunRecorder": 200,
 }
 LOG_LEVEL = "INFO"
 # LOG_LEVEL alone controls how verbose open_ire.* is; OPEN_IRE_LOGGER_LEVELS

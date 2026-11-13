@@ -80,7 +80,11 @@ and persistence pipelines run last.
 
 Metadata is stored in a SQLite database (default: `dbs/open_ire.db`) via
 SQLModel/SQLAlchemy. The database path is configured through the
-`OPEN_IRE_DATABASE_FILE` setting.
+`OPEN_IRE_DATABASE_FILE` setting. Every write belongs to a _run_ (a crawl, a
+migration, or a session of manual edits), and database triggers record each
+changed row against it; see
+[ADR-0004](decisions/0004-record-run-provenance-with-database-triggers.md) and
+"Recording Database Changes" in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ### File Storage
 

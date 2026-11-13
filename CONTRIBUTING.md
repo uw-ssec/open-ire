@@ -143,6 +143,61 @@ OPEN_IRE_DATABASE_FILE=dbs/open_ire.db pixi run -e dev alembic current
 pixi run -e dev alembic history --verbose
 ```
 
+Each command that changes the revision is recorded as a migration run (see
+[Recording Database Changes](#recording-database-changes)). To say why you are
+migrating, add `-x notes="..."`:
+
+```bash
+OPEN_IRE_DATABASE_FILE=dbs/open_ire.db pixi run -e dev alembic -x notes="backfill DOIs" upgrade head
+```
+
+### Recording Database Changes
+
+Every change to the database belongs to a _run_, recorded in the `run` table,
+and every inserted, updated, or deleted row is recorded in `row_change` (see
+[ADR-0004](docs/decisions/0004-record-run-provenance-with-database-triggers.md)).
+Triggers in the database reject a change unless exactly one run is open. Crawls
+and migrations open and close their own runs.
+
+To change the database by hand, for example in a database browser, open a run
+first, saying who you are and why, and close it when you are done:
+
+```sql
+INSERT INTO run (user, notes) VALUES ('your name', 'why you are making this change');
+-- ...your changes...
+UPDATE run SET finished_at = CURRENT_TIMESTAMP WHERE finished_at IS NULL;
+```
+
+From a notebook or script, use `manual_run`:
+
+```python
+from open_ire.provenance import manual_run
+
+with manual_run(engine, notes="why you are making this change"):
+    ...  # your changes
+```
+
+Don't change the database by hand while a crawl or migration is running: your
+changes would be recorded as part of its run.
+
+A crawl or migration that finds a run still open refuses to start, and names the
+open run. If nothing is using that run (say, a crashed crawl left it open),
+close it:
+
+```sql
+UPDATE run SET finished_at = CURRENT_TIMESTAMP, finish_reason = 'abandoned'
+WHERE finished_at IS NULL;
+```
+
+To see what a run changed, or who changed a row:
+
+```sql
+SELECT * FROM row_change WHERE run_id = '<run id>';
+SELECT run.user, run.notes, row_change.*
+FROM row_change JOIN run ON run.id = row_change.run_id
+WHERE table_name = 'article' AND row_id = '<article id>';
+```
+
 ### Running Tests
 
 This project uses [pytest](https://pytest.org/) as its testing framework. You
