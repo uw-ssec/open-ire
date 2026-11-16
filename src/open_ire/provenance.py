@@ -14,11 +14,13 @@ import getpass
 import json
 import shlex
 import socket
+import subprocess
 import sys
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Connection, Engine, insert, inspect, select, update
@@ -65,7 +67,7 @@ def begin_run(
     notes: str | None = None,
     spider: str | None = None,
 ) -> uuid.UUID:
-    """Open a run made by this process, recording its user, host, command, and version.
+    """Open a run made by this process, recording its user, host, command, version, and commit.
 
     The run is visible to other connections once ``connection``'s transaction
     commits.
@@ -87,6 +89,7 @@ def begin_run(
             command=shlex.join(sys.argv),
             hostname=socket.gethostname(),
             version=__version__,
+            commit=git_commit(),
             started_at=datetime.now(UTC),
         )
     )
@@ -110,6 +113,26 @@ def finish_run(
             stats=None if stats is None else json.loads(json.dumps(stats, default=str)),
         )
     )
+
+
+def git_commit(source: Path = Path(__file__).parent) -> str | None:
+    """Return the short hash of the commit ``source`` is checked out at, or None outside a checkout.
+
+    Appends ``-dirty`` when tracked files have uncommitted changes, so a run
+    from edited code isn't mistaken for one from the commit itself.
+    """
+    try:
+        commit = _git(source, "rev-parse", "--short", "HEAD")
+        dirty = _git(source, "status", "--porcelain", "--untracked-files=no")
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return f"{commit}-dirty" if dirty else commit
+
+
+def _git(source: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(source), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 @contextmanager

@@ -25,6 +25,7 @@ from open_ire.db import create_db_engine
 from open_ire.enums import RunKind
 from open_ire.extensions.run_recorder import RunRecorder
 from open_ire.models import Author, RowChange, Run
+from open_ire.provenance import git_commit
 
 
 @pytest.fixture
@@ -104,6 +105,7 @@ class TestRunLifecycle:
         assert run.user == getpass.getuser()
         assert run.hostname == socket.gethostname()
         assert run.version == __version__
+        assert run.commit == git_commit()
         assert run.started_at is not None
         assert run.finished_at is None
         assert run.finish_reason is None

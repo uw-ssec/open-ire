@@ -351,7 +351,12 @@ class Run(SQLModel, table=True):
     spider: Name of the spider, for crawls.
     command: Command line of the process that opened the run, shell-quoted.
     hostname: Machine the process ran on.
-    version: Open IRE package version of the process.
+    version: Open IRE package version of the process. Stale under an
+        editable install, which only rewrites it on reinstall, and carries no
+        commit hash; see ``commit``.
+    commit: Git commit the process ran from, as a short hash, with ``-dirty``
+        appended if the checkout had uncommitted changes; null outside a
+        checkout.
     started_at: Datetime when the run was opened; defaults to now.
     finished_at: Datetime when the run was closed; null while it is open.
     finish_reason: How the run ended, such as Scrapy's close reason
@@ -374,6 +379,7 @@ class Run(SQLModel, table=True):
     command: str | None = None
     hostname: str | None = None
     version: str | None = None
+    commit: str | None = None
 
     started_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

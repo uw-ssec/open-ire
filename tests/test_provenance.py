@@ -1,6 +1,7 @@
 """Tests for runs and the audit triggers that record row changes."""
 
 import sqlite3
+import subprocess
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import closing
@@ -23,6 +24,7 @@ from open_ire.provenance import (
     begin_run,
     drop_audit_triggers,
     finish_run,
+    git_commit,
     manual_run,
     refresh_audit_triggers,
 )
@@ -392,6 +394,33 @@ class TestDropAuditTriggers:
 
         assert _changes(engine) == []
         assert "audit_row_change_delete" in _triggers(db_path)
+
+
+class TestGitCommit:
+    def test_names_the_checked_out_commit(self) -> None:
+        head = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        commit = git_commit()
+
+        assert commit is not None
+        assert commit.removesuffix("-dirty") == head
+
+    def test_marks_uncommitted_changes_as_dirty(self, tmp_path: Path) -> None:
+        subprocess.run(["git", "init", "-q", tmp_path], check=True)
+        (tmp_path / "a").write_text("1")
+        git = ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run([*git, "add", "a"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "a"], check=True)
+        clean = git_commit(tmp_path)
+        (tmp_path / "a").write_text("2")
+
+        assert clean is not None
+        assert not clean.endswith("-dirty")
+        assert git_commit(tmp_path) == f"{clean}-dirty"
+
+    def test_is_none_outside_a_checkout(self, tmp_path: Path) -> None:
+        assert git_commit(tmp_path) is None
 
 
 class TestManualRun:

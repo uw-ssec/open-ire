@@ -44,6 +44,7 @@ def upgrade() -> None:
         sa.Column("command", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("hostname", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("commit", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column(
             "started_at",
             sqlmodel.sql.sqltypes.UTCDateTime(),
