@@ -67,3 +67,19 @@ class ArticleType(StrEnum):
 
     SCHOLARLY_ARTICLE = "scholarly-article"
     OTHER = "other"
+
+
+class ChangeOperation(StrEnum):
+    """Kind of write a RowChange records."""
+
+    INSERT = "insert"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class RunKind(StrEnum):
+    """What opened a Run."""
+
+    CRAWL = "crawl"
+    MIGRATION = "migration"
+    MANUAL = "manual"

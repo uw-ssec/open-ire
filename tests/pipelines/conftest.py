@@ -8,13 +8,24 @@ from scrapy import Spider
 from scrapy.crawler import Crawler
 from scrapy.settings import Settings
 
+from open_ire.db import create_db_engine
+from open_ire.enums import RunKind
 from open_ire.items import ArticleItem
+from open_ire.provenance import begin_run
 
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> str:
-    """SQLite database URI for testing."""
-    return f"sqlite:///{tmp_path / 'test.db'}"
+    """SQLite database URI for testing, with a run open as during a crawl.
+
+    The database's audit triggers reject writes unless a run is open.
+    """
+    db_path = tmp_path / "test.db"
+    engine = create_db_engine(str(db_path))
+    with engine.begin() as connection:
+        begin_run(connection, RunKind.CRAWL, spider="test_spider")
+    engine.dispose()
+    return f"sqlite:///{db_path}"
 
 
 @pytest.fixture

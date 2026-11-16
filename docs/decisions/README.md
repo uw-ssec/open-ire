@@ -12,12 +12,13 @@ format. Each record explains a decision and the reasoning behind it.
 
 ## Index
 
-| ADR                                                         | Title                                       | Date       |
-| ----------------------------------------------------------- | ------------------------------------------- | ---------- |
-| [0000](0000-use-markdown-architectural-decision-records.md) | Use Markdown Architectural Decision Records | 2026-09-24 |
-| [0001](0001-store-timestamps-as-timezone-aware-utc.md)      | Store Timestamps as Timezone-Aware UTC      | 2026-09-24 |
-| [0002](0002-require-manual-database-migrations.md)          | Require Manual Database Migrations          | 2026-09-25 |
-| [0003](0003-remove-file-reference-tracking.md)              | Remove File Reference Tracking              | 2026-10-06 |
+| ADR                                                          | Title                                        | Date       |
+| ------------------------------------------------------------ | -------------------------------------------- | ---------- |
+| [0000](0000-use-markdown-architectural-decision-records.md)  | Use Markdown Architectural Decision Records  | 2026-09-24 |
+| [0001](0001-store-timestamps-as-timezone-aware-utc.md)       | Store Timestamps as Timezone-Aware UTC       | 2026-09-24 |
+| [0002](0002-require-manual-database-migrations.md)           | Require Manual Database Migrations           | 2026-09-25 |
+| [0003](0003-remove-file-reference-tracking.md)               | Remove File Reference Tracking               | 2026-10-06 |
+| [0004](0004-record-run-provenance-with-database-triggers.md) | Record Run Provenance with Database Triggers | 2026-11-13 |
 
 ## Writing guidelines
 

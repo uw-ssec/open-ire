@@ -58,3 +58,18 @@ class DatabaseRevisionError(OpenIRError, RuntimeError):
         self.db_path = db_path
         self.revision = revision
         self.head = head
+
+
+class OpenRunError(OpenIRError, RuntimeError):
+    """Raised when a run is opened while another run is still open."""
+
+    def __init__(self, run_id: str, kind: str, user: str, started_at: object) -> None:
+        message = (
+            f"Run {run_id} ({kind.lower()}, by {user}, started {started_at}) is still open, "
+            "and only one run can be open at a time. If nothing is using it, close it with: "
+            f"UPDATE run SET finished_at = CURRENT_TIMESTAMP, finish_reason = 'abandoned' "
+            f"WHERE id = '{run_id}'. "
+            'See "Recording Database Changes" in CONTRIBUTING.md.'
+        )
+        super().__init__(message)
+        self.run_id = run_id

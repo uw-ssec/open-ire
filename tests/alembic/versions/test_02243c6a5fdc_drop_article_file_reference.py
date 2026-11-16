@@ -58,7 +58,6 @@ def test_drop_references_preserves_article_and_download(tmp_path: Path) -> None:
         with engine.connect() as connection:
             for name, rows in before.items():
                 assert connection.execute(sa.select(metadata.tables[name])).all() == rows
-        command.check(config)
 
         command.downgrade(config, "9843ce2b584f")
         with engine.connect() as connection:

@@ -1,13 +1,16 @@
 """Alembic environment configuration for Open IRE."""
 
+import uuid
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic import context, util
+from sqlalchemy import Connection, engine_from_config, inspect, pool
 from sqlmodel import SQLModel
 
 import open_ire.models  # noqa: F401
+from open_ire.enums import RunKind
+from open_ire.provenance import begin_run, finish_run, refresh_audit_triggers
 
 # Apply alembic.ini's logging config, which is what makes `alembic` CLI output visible. Only the
 # CLI reaches this: db.py builds a fileless Config(), so config_file_name is None during a crawl
@@ -78,7 +81,69 @@ def run_migrations_online() -> None:
             render_as_batch=True,
         )
         with context.begin_transaction():
-            context.run_migrations()
+            _run_recorded_migrations(connection)
+
+
+def _run_recorded_migrations(connection: Connection) -> None:
+    """Run the migrations as a migration run, and refresh the audit triggers after them.
+
+    Commands that change the revision (upgrade, downgrade, stamp) open a Run, so
+    that the audit triggers accept and record the migrations' writes. Its notes
+    name the revisions, followed by any ``-x notes="..."`` given on the command
+    line. A database without the run tables (new, or older than the migration
+    that adds them) gets no run.
+
+    Commands that only read the revision (``alembic check``, autogenerate) write
+    nothing.
+
+    Raises:
+        OpenRunError: Another run is open.
+    """
+    migration_context = context.get_context()
+    if "destination_rev" not in migration_context.opts:
+        context.run_migrations()
+        return
+
+    current = migration_context.get_current_heads()
+    target = util.to_tuple(context.get_revision_argument(), default=())
+    if set(current) == set(target):
+        return
+
+    run_id = None
+    if _has_run_tables(connection):
+        notes = f"Migrate from {', '.join(current) or 'base'} to {', '.join(target) or 'base'}"
+        if extra := context.get_x_argument(as_dictionary=True).get("notes"):
+            notes = f"{notes}: {extra}"
+        run_id = begin_run(connection, RunKind.MIGRATION, notes=notes)
+        connection.commit()
+
+    try:
+        context.run_migrations()
+    except Exception:
+        connection.rollback()  # a failed migration may leave its transaction open
+        _finish_migration_run(connection, run_id, "failed")
+        raise
+    _finish_migration_run(connection, run_id, "finished")
+
+
+def _finish_migration_run(connection: Connection, run_id: uuid.UUID | None, reason: str) -> None:
+    """Refresh the audit triggers, close the migration run, if any, and commit.
+
+    Runs after a failed migration too: Alembic commits each SQLite migration
+    as it goes, so the ones before the failure stand, and a table one of them
+    rebuilt has lost its triggers. Alembic also commits nothing after the last
+    migration itself, so work done here would be rolled back when the
+    connection closes. A downgrade past the migration that adds the run tables
+    leaves no run to close.
+    """
+    refresh_audit_triggers(connection)
+    if run_id is not None and _has_run_tables(connection):
+        finish_run(connection, run_id, reason)
+    connection.commit()
+
+
+def _has_run_tables(connection: Connection) -> bool:
+    return inspect(connection).has_table("run")
 
 
 if context.is_offline_mode():
