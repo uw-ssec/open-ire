@@ -50,6 +50,12 @@ _ANOTHER_RUN_OPEN = (
     "Another run is open, and only one can be open at a time. Find it with: "
     "SELECT * FROM run WHERE finished_at IS NULL"
 )
+_RUN_IMMUTABLE = (
+    "A run can't be changed once closed, and an open run can only be closed: "
+    "UPDATE run SET finished_at = CURRENT_TIMESTAMP, finish_reason = '<why>' WHERE id = '<id>'. "
+    "To say more about a past run, open a new run and say it in its notes"
+)
+_ROW_CHANGE_IMMUTABLE = "Row changes are the audit record and can't be changed or deleted"
 
 
 def begin_run(
@@ -130,14 +136,42 @@ def manual_run(engine: Engine, notes: str) -> Iterator[uuid.UUID]:
 def refresh_audit_triggers(connection: Connection) -> None:
     """Drop the audit triggers and recreate them from the database's current schema.
 
-    Besides the triggers on each audited table, creates triggers on ``run`` that
-    keep a second run from opening (an expression index could do this, but
-    Alembic can't compare one, and warns on every autogenerate).
+    Besides the triggers on each audited table, creates triggers that keep a
+    second run from opening (an expression index could do this, but Alembic
+    can't compare one, and warns on every autogenerate), and that keep the run
+    tables append-only: a run can only be closed, once, and nothing in ``run``
+    or ``row_change`` can be changed or deleted.
 
     Run after every migration, because a migration can add tables or columns
     the triggers don't cover yet, and SQLite drops a table's triggers whenever
     Alembic rebuilds the table. If the database has no run tables (before the
     migration that adds them), only drops the triggers.
+    """
+    drop_audit_triggers(connection)
+
+    inspector = inspect(connection)
+    tables = inspector.get_table_names()
+    if not {"run", "row_change"} <= set(tables):
+        return
+
+    run_columns = [column["name"] for column in inspector.get_columns("run")]
+    for statement in _run_table_triggers(run_columns):
+        connection.exec_driver_sql(statement)
+    for table in tables:
+        if table in UNAUDITED_TABLES or table.startswith(("sqlite_", "_alembic_tmp_")):
+            continue
+        columns = [column["name"] for column in inspector.get_columns(table)]
+        key = inspector.get_pk_constraint(table)["constrained_columns"]
+        for statement in _audit_triggers(table, columns, key):
+            connection.exec_driver_sql(statement)
+
+
+def drop_audit_triggers(connection: Connection) -> None:
+    """Drop the audit triggers, leaving the database unaudited until they are refreshed.
+
+    For maintenance the triggers forbid, such as pruning old row changes: drop
+    them, make the change, then call :func:`refresh_audit_triggers` in the same
+    transaction.
     """
     names: Sequence[str] = (
         connection.exec_driver_sql(
@@ -150,38 +184,48 @@ def refresh_audit_triggers(connection: Connection) -> None:
     for name in names:
         connection.exec_driver_sql(f"DROP TRIGGER {_identifier(name)}")
 
-    inspector = inspect(connection)
-    tables = inspector.get_table_names()
-    if not {"run", "row_change"} <= set(tables):
-        return
 
-    for statement in _one_open_run_triggers():
-        connection.exec_driver_sql(statement)
-    for table in tables:
-        if table in UNAUDITED_TABLES or table.startswith(("sqlite_", "_alembic_tmp_")):
-            continue
-        columns = [column["name"] for column in inspector.get_columns(table)]
-        key = inspector.get_pk_constraint(table)["constrained_columns"]
-        for statement in _audit_triggers(table, columns, key):
-            connection.exec_driver_sql(statement)
+def _run_table_triggers(run_columns: list[str]) -> list[str]:
+    """Return triggers that keep one run open at a time and the run tables append-only.
 
-
-def _one_open_run_triggers() -> list[str]:
-    """Return triggers that abort opening or reopening a run while another is open.
-
-    SQLite allows one writer at a time, so two processes can't both pass the
-    check.
+    On ``run``: an insert aborts while another run is open (SQLite allows one
+    writer at a time, so two processes can't both pass the check); an update
+    aborts unless it closes an open run, changing only the closing columns;
+    a delete always aborts. On ``row_change``: updates and deletes abort.
     """
+    closing_columns = {"finished_at", "finish_reason", "stats"}
+    identity_changed = " OR ".join(
+        f"NEW.{_identifier(c)} IS NOT OLD.{_identifier(c)}"
+        for c in run_columns
+        if c not in closing_columns
+    )
     return [
         f"""
-CREATE TRIGGER {_identifier(_TRIGGER_PREFIX + "run_one_open_" + event.split()[0].lower())}
-BEFORE {event} ON run
-WHEN NEW.finished_at IS NULL
-  AND EXISTS (SELECT 1 FROM run WHERE finished_at IS NULL AND id IS NOT NEW.id)
+CREATE TRIGGER {_identifier(_TRIGGER_PREFIX + "run_insert")} BEFORE INSERT ON run
+WHEN NEW.finished_at IS NULL AND EXISTS (SELECT 1 FROM run WHERE finished_at IS NULL)
 BEGIN
   SELECT RAISE(ABORT, {_literal(_ANOTHER_RUN_OPEN)});
+END""",
+        f"""
+CREATE TRIGGER {_identifier(_TRIGGER_PREFIX + "run_update")} BEFORE UPDATE ON run
+WHEN OLD.finished_at IS NOT NULL OR NEW.finished_at IS NULL OR {identity_changed}
+BEGIN
+  SELECT RAISE(ABORT, {_literal(_RUN_IMMUTABLE)});
+END""",
+        f"""
+CREATE TRIGGER {_identifier(_TRIGGER_PREFIX + "run_delete")} BEFORE DELETE ON run
+BEGIN
+  SELECT RAISE(ABORT, {_literal(_RUN_IMMUTABLE)});
+END""",
+        *(
+            f"""
+CREATE TRIGGER {_identifier(_TRIGGER_PREFIX + "row_change_" + event.lower())}
+BEFORE {event} ON row_change
+BEGIN
+  SELECT RAISE(ABORT, {_literal(_ROW_CHANGE_IMMUTABLE)});
 END"""
-        for event in ("INSERT", "UPDATE OF finished_at")
+            for event in ("UPDATE", "DELETE")
+        ),
     ]
 
 

@@ -19,7 +19,13 @@ from open_ire.db import create_db_engine
 from open_ire.enums import ChangeOperation, RunKind
 from open_ire.errors import OpenRunError
 from open_ire.models import Article, ArticleFile, Author, Authorship, RowChange, Run
-from open_ire.provenance import begin_run, finish_run, manual_run, refresh_audit_triggers
+from open_ire.provenance import (
+    begin_run,
+    drop_audit_triggers,
+    finish_run,
+    manual_run,
+    refresh_audit_triggers,
+)
 
 INSERT_AUTHOR = (
     "INSERT INTO author (full_name, canonical_name, explicitly_searched, created_at, updated_at) "
@@ -77,26 +83,80 @@ class TestRequiredRun:
         ):
             connection.execute("INSERT INTO run (user, notes) VALUES ('me', 'why')")
 
-    def test_a_finished_run_cannot_be_reopened_while_another_is_open(
-        self, engine: Engine, db_path: Path
-    ) -> None:
-        with engine.begin() as connection:
-            first = begin_run(connection, RunKind.CRAWL)
-            finish_run(connection, first, "finished")
-            begin_run(connection, RunKind.CRAWL)
-
-        with (
-            closing(sqlite3.connect(db_path)) as connection,
-            pytest.raises(sqlite3.IntegrityError, match="Another run is open"),
-        ):
-            connection.execute("UPDATE run SET finished_at = NULL WHERE id = ?", (first.hex,))
-
     def test_manual_runs_require_notes(self, engine: Engine, db_path: Path) -> None:
         with (
             closing(sqlite3.connect(db_path)) as connection,
             pytest.raises(sqlite3.IntegrityError, match="ck_run_manual_notes"),
         ):
             connection.execute("INSERT INTO run (user, notes) VALUES ('me', '  ')")
+
+
+class TestAppendOnlyRunTables:
+    @pytest.fixture
+    def closed_run_id(self, engine: Engine) -> uuid.UUID:
+        with engine.begin() as connection:
+            run_id = begin_run(connection, RunKind.CRAWL)
+            finish_run(connection, run_id, "finished")
+        return run_id
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "UPDATE run SET finished_at = NULL",
+            "UPDATE run SET notes = 'a different reason'",
+            "UPDATE run SET finished_at = CURRENT_TIMESTAMP, finish_reason = 'again'",
+            "DELETE FROM run",
+        ],
+    )
+    @pytest.mark.usefixtures("closed_run_id")
+    def test_a_closed_run_cannot_be_changed(self, db_path: Path, statement: str) -> None:
+        with (
+            closing(sqlite3.connect(db_path)) as connection,
+            pytest.raises(sqlite3.IntegrityError, match="can't be changed once closed"),
+        ):
+            connection.execute(statement)
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "UPDATE run SET notes = 'a different reason'",
+            "UPDATE run SET finished_at = CURRENT_TIMESTAMP, user = 'someone else'",
+            "DELETE FROM run",
+        ],
+    )
+    @pytest.mark.usefixtures("run_id")
+    def test_an_open_run_can_only_be_closed(self, db_path: Path, statement: str) -> None:
+        with (
+            closing(sqlite3.connect(db_path)) as connection,
+            pytest.raises(sqlite3.IntegrityError, match="open run can only be closed"),
+        ):
+            connection.execute(statement)
+
+    def test_closing_records_reason_and_stats(self, engine: Engine, run_id: uuid.UUID) -> None:
+        with engine.begin() as connection:
+            finish_run(connection, run_id, "shutdown", {"item_scraped_count": 3})
+
+        with Session(engine) as session:
+            run = session.get_one(Run, run_id)
+        assert (run.finish_reason, run.stats) == ("shutdown", {"item_scraped_count": 3})
+        assert run.finished_at is not None
+
+    @pytest.mark.parametrize(
+        "statement", ["UPDATE row_change SET changes = '{}'", "DELETE FROM row_change"]
+    )
+    @pytest.mark.usefixtures("run_id")
+    def test_row_changes_cannot_be_changed(
+        self, engine: Engine, db_path: Path, statement: str
+    ) -> None:
+        with Session(engine) as session:
+            session.add(_author())
+            session.commit()
+
+        with (
+            closing(sqlite3.connect(db_path)) as connection,
+            pytest.raises(sqlite3.IntegrityError, match="audit record"),
+        ):
+            connection.execute(statement)
 
 
 class TestDatabaseBrowserEdits:
@@ -304,7 +364,7 @@ class TestRefreshAuditTriggers:
 
         assert _triggers(db_path) == before
         assert "audit_article_update" in before
-        assert not any("row_change" in name or "alembic" in name for name in before)
+        assert not any("row_change_insert" in name or "alembic" in name for name in before)
 
     def test_without_run_tables_triggers_are_only_dropped(
         self, engine: Engine, db_path: Path
@@ -314,6 +374,24 @@ class TestRefreshAuditTriggers:
             refresh_audit_triggers(connection)
 
         assert _triggers(db_path) == []
+
+
+class TestDropAuditTriggers:
+    @pytest.mark.usefixtures("run_id")
+    def test_row_changes_can_be_pruned_between_drop_and_refresh(
+        self, engine: Engine, db_path: Path
+    ) -> None:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(INSERT_AUTHOR)
+        assert len(_changes(engine)) == 1
+
+        with engine.begin() as connection:
+            drop_audit_triggers(connection)
+            connection.exec_driver_sql("DELETE FROM row_change")
+            refresh_audit_triggers(connection)
+
+        assert _changes(engine) == []
+        assert "audit_row_change_delete" in _triggers(db_path)
 
 
 class TestManualRun:

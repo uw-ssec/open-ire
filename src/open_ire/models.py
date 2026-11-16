@@ -334,8 +334,10 @@ class Run(SQLModel, table=True):
 
     Every write to an audited table must happen while exactly one run is open
     (``finished_at`` is null): the database's audit triggers reject the write
-    otherwise, and record it as a RowChange of the open run; other triggers keep
-    a second run from opening. See ``open_ire.provenance``.
+    otherwise, and record it as a RowChange of the open run. Other triggers keep
+    a second run from opening, and keep runs append-only: an open run can only
+    be closed, and a closed run can't be changed or deleted. See
+    ``open_ire.provenance``.
 
     Columns a person can't be expected to fill in by hand have database
     defaults, so a manual run needs only ``user`` and ``notes``.

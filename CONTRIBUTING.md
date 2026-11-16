@@ -189,6 +189,14 @@ UPDATE run SET finished_at = CURRENT_TIMESTAMP, finish_reason = 'abandoned'
 WHERE finished_at IS NULL;
 ```
 
+Runs and row changes are append-only: closing a run is the only change allowed
+to it, and nothing in either table can be edited or deleted afterwards. To
+correct or add to what a past run says, open a new run and say it in the notes.
+The one exception is pruning old row changes once the table grows too large:
+inside a manual run (so the prune is on the record), call `drop_audit_triggers`,
+delete the rows, then `refresh_audit_triggers`, all in one transaction. Keep the
+`run` rows: they are the only remaining evidence that those runs happened.
+
 To see what a run changed, or who changed a row:
 
 ```sql

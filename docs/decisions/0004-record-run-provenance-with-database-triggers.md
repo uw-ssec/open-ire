@@ -41,9 +41,12 @@ made it and why.
 
 ## Decision Outcome
 
-Add a `run` table and an append-only `row_change` table, and audit triggers on
-every other table that require an open run. A run is open until its
-`finished_at` is set, and only one run can be open at a time.
+Add a `run` table and a `row_change` table, and audit triggers on every other
+table that require an open run. A run is open until its `finished_at` is set,
+and only one run can be open at a time. Both tables are append-only, enforced by
+triggers: an open run can only be closed, a closed run can't be changed or
+deleted, and row changes can't be changed or deleted. To say more about a past
+run, open a new one and say it in its notes.
 
 Each trigger rejects a write when no run is open, with a message saying how to
 open one. Otherwise it records the write as a `row_change` of the open run:
