@@ -241,6 +241,10 @@ class TestAffiliationFiltering:
         untitled = {**UW_BY_RESEARCH_ORG, "osti_id": "999", "title": ""}
         assert _items(spider, [untitled]) == []
 
+    def test_drops_datasets(self, spider: OstiSpider) -> None:
+        dataset = {**UW_BY_RESEARCH_ORG, "product_type": "Dataset"}
+        assert _items(spider, [dataset]) == []
+
 
 class TestAffiliationEvidence:
     def test_evidence_separates_work_from_author_affiliations(self) -> None:

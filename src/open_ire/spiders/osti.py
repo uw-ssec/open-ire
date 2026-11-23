@@ -160,6 +160,11 @@ class OstiSpider(TermSearchSpider):
         unaffiliated = 0
         unusable = 0
         for record in records:
+            # A dataset's fulltext link leads to a data repository's landing
+            # page, not to a paper.
+            if record.get("product_type") == "Dataset":
+                continue
+
             evidence = self._affiliation_evidence(record)
             if not any(evidence.values()):
                 unaffiliated += 1
